@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Alert, Animated,
@@ -19,14 +19,23 @@ export default function CaptureScreen({ navigation, route }) {
   const [mode, setMode] = useState('choose');
   const [permission, requestPermission] = useCameraPermissions();
   const [lead, setLead] = useState({ ...EMPTY_LEAD });
+  const [autoCapture, setAutoCapture] = useState(true);
+  const [focusReady, setFocusReady] = useState(false);
   const cameraRef = useRef(null);
   const scanAnim = useRef(new Animated.Value(0)).current;
   const cornerAnim = useRef(new Animated.Value(0)).current;
+  const focusTimer = useRef(null);
+  const hasCapured = useRef(false);
 
   const update = (key, val) => setLead((p) => ({ ...p, [key]: val }));
 
   useEffect(() => {
-    if (mode !== 'camera') return;
+    if (mode !== 'camera') {
+      setFocusReady(false);
+      hasCapured.current = false;
+      if (focusTimer.current) clearTimeout(focusTimer.current);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(scanAnim, { toValue: 1, duration: 2000, useNativeDriver: true }),
@@ -44,6 +53,21 @@ export default function CaptureScreen({ navigation, route }) {
     return () => { loop.stop(); pulse.stop(); };
   }, [mode]);
 
+  // Auto-capture: trigger after camera stays focused for 1.5s
+  const handleCameraReady = useCallback(() => {
+    if (!autoCapture || hasCapured.current) return;
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => {
+      setFocusReady(true);
+      focusTimer.current = setTimeout(() => {
+        if (!hasCapured.current && autoCapture) {
+          hasCapured.current = true;
+          takePicture();
+        }
+      }, 1500);
+    }, 500);
+  }, [autoCapture]);
+
   const scanLineY = scanAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, SCANNER_SIZE - 4],
@@ -54,17 +78,29 @@ export default function CaptureScreen({ navigation, route }) {
       const { granted } = await requestPermission();
       if (!granted) { Alert.alert('Camera permission required'); return; }
     }
+    hasCapured.current = false;
+    setFocusReady(false);
     setMode('camera');
   };
 
   const takePicture = async () => {
     if (!cameraRef.current) return;
     setMode('processing');
+    if (focusTimer.current) clearTimeout(focusTimer.current);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.85 });
-      await processImage(photo.base64, 'image/jpeg', photo.uri);
+      // Capture without base64 to avoid OOM, then read file
+      const photo = await cameraRef.current.takePictureAsync({
+        base64: false,
+        quality: 0.7,
+        skipProcessing: true,
+      });
+      const b64 = await FileSystem.readAsStringAsync(photo.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      await processImage(b64, 'image/jpeg', photo.uri);
     } catch (err) {
       Alert.alert('Camera error', err.message);
+      hasCapured.current = false;
       setMode('camera');
     }
   };
@@ -122,7 +158,7 @@ export default function CaptureScreen({ navigation, route }) {
   if (mode === 'camera') {
     return (
       <View style={[s.root, { backgroundColor: '#000' }]}>
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" onCameraReady={handleCameraReady} />
         <View style={s.overlay}>
           <View style={s.overlayBand} />
           <View style={s.overlayMiddle}>
@@ -137,19 +173,38 @@ export default function CaptureScreen({ navigation, route }) {
                 { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 },
                 { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 },
               ].map((cs, i) => (
-                <Animated.View key={i} style={[s.corner, cs, { opacity: cornerAnim }]} />
+                <Animated.View key={i} style={[s.corner, cs, {
+                  opacity: cornerAnim,
+                  borderColor: focusReady ? COLORS.success : COLORS.accent,
+                }]} />
               ))}
+              {/* Focus ready indicator */}
+              {focusReady && (
+                <View style={s.focusBadge}>
+                  <Text style={s.focusText}>● FOCUSED</Text>
+                </View>
+              )}
             </View>
             <View style={s.overlaySide} />
           </View>
           <View style={[s.overlayBand, s.bottomBand]}>
-            <Text style={s.scanHint}>Point at a business card or storefront</Text>
+            <Text style={s.scanHint}>
+              {autoCapture
+                ? focusReady ? 'Capturing...' : 'Hold steady — auto-capturing'
+                : 'Point at a business card or storefront'}
+            </Text>
+            {/* Auto-capture toggle */}
+            <TouchableOpacity style={s.autoToggle} onPress={() => setAutoCapture(p => !p)}>
+              <Text style={[s.autoToggleText, autoCapture && s.autoToggleActive]}>
+                {autoCapture ? '⚡ Auto ON' : '⚡ Auto OFF'}
+              </Text>
+            </TouchableOpacity>
             <View style={s.shutterRow}>
               <TouchableOpacity style={s.sideBtn} onPress={pickFromGallery}>
                 <Text style={s.sideBtnIcon}>🖼️</Text>
                 <Text style={s.sideBtnLabel}>Gallery</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.shutterBtn} onPress={takePicture} activeOpacity={0.8}>
+              <TouchableOpacity style={s.shutterBtn} onPress={() => { hasCapured.current = true; takePicture(); }} activeOpacity={0.8}>
                 <View style={s.shutterInner} />
               </TouchableOpacity>
               <TouchableOpacity style={s.sideBtn} onPress={() => setMode('choose')}>
@@ -278,7 +333,19 @@ const s = StyleSheet.create({
     position: 'absolute', width: 22, height: 22,
     borderColor: COLORS.accent,
   },
-  shutterRow: {
+  focusBadge: {
+    position: 'absolute', bottom: 8, alignSelf: 'center',
+    backgroundColor: 'rgba(0,229,160,0.2)',
+    borderWidth: 1, borderColor: COLORS.success,
+    borderRadius: 6, paddingHorizontal: 10, paddingVertical: 3,
+  },
+  focusText: { color: COLORS.success, fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  autoToggle: {
+    paddingHorizontal: 14, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  },
+  autoToggleText: { color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: '600' },
+  autoToggleActive: { color: COLORS.accent },
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', width: '80%',
   },
