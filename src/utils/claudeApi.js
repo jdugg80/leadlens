@@ -1,4 +1,5 @@
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_API_KEY = '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';
 
 /**
  * Send an image (base64) to Claude and extract lead fields as structured JSON.
@@ -9,7 +10,11 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 export async function extractLeadFromImage(base64Image, mimeType = 'image/jpeg') {
   const response = await fetch(CLAUDE_API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
@@ -51,7 +56,8 @@ Leave a field as empty string if not found. Format phone as (XXX) XXX-XXXX if po
   });
 
   if (!response.ok) {
-    throw new Error(`Claude API error: ${response.status}`);
+    const errBody = await response.text().catch(() => 'no body');
+    throw new Error(`Claude API ${response.status}: ${errBody}`);
   }
 
   const data = await response.json();

@@ -12,7 +12,6 @@ export default function LoginScreen({ navigation }) {
     repName: '', repEmail: '', employeeNum: '', branchNum: '', territory: '',
   });
 
-  // Auto-login if user profile already saved
   useEffect(() => {
     AsyncStorage.getItem(USER_STORAGE_KEY).then((raw) => {
       if (!raw) return;
@@ -51,21 +50,21 @@ export default function LoginScreen({ navigation }) {
           <Field label="Rep Email" placeholder="you@company.com"
             keyboardType="email-address" autoCapitalize="none"
             value={user.repEmail} onChangeText={(v) => update('repEmail', v)} />
-
           <View style={s.row}>
             <Field label="Employee #" placeholder="6992986" style={{ flex: 1 }}
-              value={user.employeeNum} onChangeText={(v) => update('employeeNum', v)}
-              keyboardType="default" />
+              value={user.employeeNum} onChangeText={(v) => update('employeeNum', v)} />
             <View style={{ width: 10 }} />
             <Field label="Branch #" placeholder="686" style={{ flex: 1 }}
-              value={user.branchNum} onChangeText={(v) => update('branchNum', v)}
-              keyboardType="default" />
+              value={user.branchNum} onChangeText={(v) => update('branchNum', v)} />
           </View>
-
           <Field label="Territory / Market (optional)" placeholder="e.g. Houston South"
             value={user.territory} onChangeText={(v) => update('territory', v)} />
-
-          <PrimaryButton title="Enter LeadLens →" onPress={handleLogin} disabled={!canLogin} style={{ marginTop: 8 }} />
+          <PrimaryButton
+            title="Enter LeadLens →"
+            onPress={handleLogin}
+            disabled={!canLogin}
+            style={{ marginTop: 8 }}
+          />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -88,12 +87,11 @@ const s = StyleSheet.create({
   logoMark: {
     width: 72, height: 72, borderRadius: 20,
     backgroundColor: COLORS.accent,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 14,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
   },
   logoIcon: { fontSize: 36, color: '#000' },
   logoName: { fontSize: 36, fontWeight: '800', color: COLORS.text, letterSpacing: 1 },
-  logoTag: { fontSize: 13, color: COLORS.muted, marginTop: 4, letterSpacing: 0.5 },
+  logoTag: { fontSize: 13, color: COLORS.muted, marginTop: 4 },
   form: { gap: 12 },
   fieldGroup: {},
   fieldLabel: {
@@ -101,8 +99,7 @@ const s = StyleSheet.create({
     letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6,
   },
   input: {
-    backgroundColor: COLORS.surface2,
-    borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     color: COLORS.text, fontSize: 15,
   },

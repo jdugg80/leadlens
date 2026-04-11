@@ -51,7 +51,6 @@ export default function ReviewScreen({ navigation, route }) {
         badge={lead.captureMethod === 'image' ? 'AI EXTRACTED' : 'MANUAL'}
         onBack={() => navigation.goBack()}
       />
-
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
 
         {lead.captureMethod === 'image' && (
@@ -60,7 +59,6 @@ export default function ReviewScreen({ navigation, route }) {
           </View>
         )}
 
-        {/* Business */}
         <SectionLabel>Business Info</SectionLabel>
         <Card>
           <FieldInput label="Business Name" placeholder="Acme Corp"
@@ -74,7 +72,6 @@ export default function ReviewScreen({ navigation, route }) {
           </View>
         </Card>
 
-        {/* Contact */}
         <SectionLabel>Contact</SectionLabel>
         <Card>
           <FieldInput label="Phone" placeholder="(555) 555-5555" keyboardType="phone-pad"
@@ -85,7 +82,6 @@ export default function ReviewScreen({ navigation, route }) {
           </View>
         </Card>
 
-        {/* Address */}
         <SectionLabel>Address</SectionLabel>
         <Card>
           <View style={s.row}>
@@ -117,7 +113,6 @@ export default function ReviewScreen({ navigation, route }) {
           </View>
         </Card>
 
-        {/* Classification */}
         <SectionLabel>Classification</SectionLabel>
         <Card>
           <View style={s.row}>
@@ -143,7 +138,6 @@ export default function ReviewScreen({ navigation, route }) {
           </View>
         </Card>
 
-        {/* Auto-filled */}
         <SectionLabel>Auto-Filled from Profile</SectionLabel>
         <Card accent>
           <View style={s.autoRow}>
@@ -171,7 +165,7 @@ export default function ReviewScreen({ navigation, route }) {
 function AutoField({ label, value }) {
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ fontSize: 10, color: '#6B7280', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>{label}</Text>
+      <Text style={{ fontSize: 10, color: COLORS.muted, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>{label}</Text>
       <Text style={{ fontFamily: 'Courier', fontSize: 13, color: COLORS.accent }}>{value}</Text>
     </View>
   );
@@ -181,9 +175,8 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1, paddingHorizontal: 16 },
   extractedBanner: {
-    backgroundColor: 'rgba(0,229,160,0.08)',
-    borderWidth: 1, borderColor: 'rgba(0,229,160,0.2)',
-    borderRadius: 10, padding: 10, marginTop: 14,
+    backgroundColor: 'rgba(0,229,160,0.08)', borderWidth: 1,
+    borderColor: 'rgba(0,229,160,0.2)', borderRadius: 10, padding: 10, marginTop: 14,
   },
   extractedText: { fontSize: 12, color: COLORS.success },
   row: { flexDirection: 'row' },
@@ -192,9 +185,8 @@ const s = StyleSheet.create({
     letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6,
   },
   pickerWrap: {
-    backgroundColor: COLORS.surface2,
-    borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
-    overflow: 'hidden',
+    backgroundColor: COLORS.surface2, borderWidth: 1,
+    borderColor: COLORS.border, borderRadius: 10, overflow: 'hidden',
   },
   picker: { color: COLORS.text, height: 44 },
   autoRow: { flexDirection: 'row', gap: 12 },

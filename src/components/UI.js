@@ -1,9 +1,11 @@
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants';
 
 export function ScreenHeader({ title, badge, onBack }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={s.header}>
+    <View style={[s.header, { paddingTop: insets.top + 8 }]}>
       {onBack && (
         <TouchableOpacity style={s.backBtn} onPress={onBack}>
           <Text style={s.backArrow}>‹</Text>

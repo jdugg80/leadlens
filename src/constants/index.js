@@ -13,6 +13,7 @@ export const COLORS = {
 };
 
 export const STATUS_OPTIONS = [
+  'Suspect',
   'New',
   'Contacted',
   'In Progress',
@@ -42,7 +43,7 @@ export const EMPTY_LEAD = {
   city: '',
   state: '',
   zip: '',
-  status: 'New',
+  status: 'Suspect',
   propertyType: 'Commercial',
   captureMethod: 'manual',
   imageUri: null,

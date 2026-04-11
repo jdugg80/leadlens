@@ -1,94 +1,90 @@
 # LeadLens – Setup Guide
 
-Field prospecting app for sales reps. Captures lead info from photos, business cards, and storefronts using AI, then exports directly to your Sales Module Import Template.
+Field prospecting app with cloud sync, multi-user support, and admin dashboard.
 
 ---
 
-## Requirements
+## Step 1 — Create a Supabase Project (5 min)
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Expo Go](https://expo.dev/go) app on your Android phone (search "Expo Go" in Play Store)
-- A Wi-Fi connection (phone and computer must be on the same network to test)
+1. Go to **supabase.com** and create a free account
+2. Click **"New Project"** — name it `leadlens`
+3. Choose a region close to you, set a database password, click Create
+4. Wait ~2 minutes for it to spin up
+5. Go to **Settings → API** and copy:
+   - **Project URL** (looks like `https://xxxx.supabase.co`)
+   - **anon / public key** (long string starting with `eyJ...`)
 
 ---
 
-## One-Time Setup
+## Step 2 — Run the Database Schema
+
+1. In your Supabase project, click **SQL Editor** in the left sidebar
+2. Click **New Query**
+3. Open `supabase_schema.sql` from this folder, copy the entire contents, paste it in
+4. Click **Run**
+
+---
+
+## Step 3 — Add Your Supabase Keys
+
+**In the mobile app** — open `src/utils/supabase.js` and replace:
+```js
+const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
+```
+
+**In the web dashboard** — open `admin-dashboard.html` and replace the same two lines near the top of the script block.
+
+---
+
+## Step 4 — Create Your Admin Account
+
+1. Go to Supabase → **Authentication → Users → Invite User** and enter your email
+2. Set your password from the invite email
+3. Go to **Table Editor → profiles**, find your row, change `role` to `admin`
+4. Open `admin-dashboard.html` in your browser and sign in
+
+---
+
+## Step 5 — Build the App
 
 ```bash
-# 1. Install Expo CLI globally (if you haven't)
-npm install -g expo-cli
-
-# 2. Navigate into the project folder
-cd LeadLens
-
-# 3. Install dependencies
 npm install
-
-# 4. Install the Picker package (required for Status/Property Type dropdowns)
-npx expo install @react-native-picker/picker
-```
-
----
-
-## Running the App
-
-```bash
-npx expo start
-```
-
-A QR code will appear in your terminal. Open **Expo Go** on your phone and scan it. The app loads live — any changes you save in the code reload instantly.
-
----
-
-## Building for Android (APK)
-
-When you're ready for a real installable APK:
-
-```bash
-# Install EAS CLI
-npm install -g eas-cli
-
-# Log in to Expo
-eas login
-
-# Configure build (first time only)
-eas build:configure
-
-# Build an APK for Android
 eas build --platform android --profile preview
 ```
 
-EAS builds in the cloud — no Android Studio required. You'll get a download link for the `.apk` when it's done. Install it directly on your phone.
+Reps create accounts inside the app on the **"Create Account"** tab.
 
 ---
 
-## Key Files
+## File Overview
 
 ```
 LeadLens/
-├── App.js                        # Navigation root
-├── app.json                      # Expo config (app name, permissions)
+├── App.js
+├── admin-dashboard.html        # Web admin dashboard — open in any browser
+├── supabase_schema.sql         # Run once in Supabase SQL Editor
 ├── src/
 │   ├── screens/
-│   │   ├── LoginScreen.js        # User profile setup (saves to device)
-│   │   ├── DashboardScreen.js    # Queue + quick capture actions
-│   │   ├── CaptureScreen.js      # Image picker → Claude API extraction
-│   │   ├── ReviewScreen.js       # Edit/confirm fields, save to queue
-│   │   └── ExportScreen.js       # Preview queue + export to Excel
-│   ├── utils/
-│   │   ├── claudeApi.js          # Claude API image extraction
-│   │   └── exportXlsx.js        # 23-column Sales Module xlsx export
-│   ├── components/
-│   │   └── UI.js                 # Shared buttons, inputs, cards
-│   └── constants/
-│       └── index.js              # Colors, field options, empty lead shape
+│   │   ├── LoginScreen.js      # Sign in / create account
+│   │   ├── DashboardScreen.js  # Queue + team view for admins
+│   │   ├── CaptureScreen.js    # In-app camera with scan effect
+│   │   ├── ReviewScreen.js     # Edit + save to Supabase
+│   │   ├── ExportScreen.js     # Email or share xlsx
+│   │   └── AdminExportScreen.js
+│   └── utils/
+│       ├── supabase.js         # ← PUT YOUR KEYS HERE
+│       ├── claudeApi.js
+│       └── exportXlsx.js
 ```
 
 ---
 
-## Notes
+## Roles
 
-- **Login persists** – your employee # and branch # are saved on the device. You only enter them once.
-- **Leads persist** – the queue survives app restarts until you export and clear.
-- **Export** triggers the Android share sheet — save to Files, email it, share to Drive, etc.
-- The export file is named `LeadLens_Export_YYYY-MM-DD.xlsx` and matches the exact 23-column Sales Module Import Template column order.
+| Role | Access |
+|------|--------|
+| `rep` | Own leads only |
+| `admin` | All reps' leads + Team tab + Admin Export |
+
+To promote someone: Supabase → Table Editor → profiles → set `role` to `admin`.
