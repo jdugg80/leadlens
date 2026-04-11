@@ -81,16 +81,25 @@ export default function CaptureScreen({ navigation, route }) {
   const handleCameraReady = useCallback(() => {
     if (!mode.autoCapture || hasCaptured.current) return;
     if (focusTimer.current) clearTimeout(focusTimer.current);
+    // Wait 1.5s after camera ready before starting focus detection
     focusTimer.current = setTimeout(() => {
+      if (!cameraRef.current) return;
       setFocusReady(true);
       focusTimer.current = setTimeout(() => {
-        if (!hasCaptured.current && mode.autoCapture) { hasCaptured.current = true; takePicture(); }
+        if (!hasCaptured.current && mode.autoCapture && cameraRef.current) {
+          hasCaptured.current = true;
+          takePicture();
+        }
       }, mode.autoCaptureDelay || 1500);
-    }, 800);
+    }, 1500);
   }, [captureMode]);
 
   const takePicture = async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current) {
+      hasCaptured.current = false;
+      setFocusReady(false);
+      return;
+    }
     setProcessing(true);
     if (focusTimer.current) clearTimeout(focusTimer.current);
     try {
