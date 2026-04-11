@@ -18,10 +18,11 @@ export default function ReviewScreen({ navigation, route }) {
   const handleSave = async () => {
     const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
     const leads = raw ? JSON.parse(raw) : [];
+    const tagged = { ...lead, repName: user.repName, employeeNum: user.employeeNum, branchNum: user.branchNum };
     if (isEditing) {
-      leads[editIdx] = lead;
+      leads[editIdx] = tagged;
     } else {
-      leads.push(lead);
+      leads.push(tagged);
     }
     await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
     navigation.navigate('Dashboard', { user });

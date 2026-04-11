@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, KeyboardAvoidingView, Platform,
+  ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, USER_STORAGE_KEY } from '../constants';
@@ -37,10 +37,7 @@ export default function LoginScreen({ navigation }) {
     >
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
         <View style={s.logoWrap}>
-          <View style={s.logoMark}>
-            <Text style={s.logoIcon}>◎</Text>
-          </View>
-          <Text style={s.logoName}>LeadLens</Text>
+          <Image source={require('../../assets/logo.jpg')} style={s.logoImg} resizeMode="contain" />
           <Text style={s.logoTag}>Field Prospecting · AI-Powered</Text>
         </View>
 
@@ -83,15 +80,9 @@ function Field({ label, style, ...props }) {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 24 },
-  logoWrap: { alignItems: 'center', marginBottom: 40 },
-  logoMark: {
-    width: 72, height: 72, borderRadius: 20,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
-  },
-  logoIcon: { fontSize: 36, color: '#000' },
-  logoName: { fontSize: 36, fontWeight: '800', color: COLORS.text, letterSpacing: 1 },
-  logoTag: { fontSize: 13, color: COLORS.muted, marginTop: 4 },
+  logoWrap: { alignItems: 'center', marginBottom: 36 },
+  logoImg: { width: 220, height: 110 },
+  logoTag: { fontSize: 13, color: COLORS.muted, marginTop: 8, letterSpacing: 0.5 },
   form: { gap: 12 },
   fieldGroup: {},
   fieldLabel: {
