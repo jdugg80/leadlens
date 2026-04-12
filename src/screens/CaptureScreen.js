@@ -103,7 +103,7 @@ export default function CaptureScreen({ navigation, route }) {
     setProcessing(true);
     if (focusTimer.current) clearTimeout(focusTimer.current);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: 0.7, skipProcessing: true });
+      const photo = await cameraRef.current.takePictureAsync({ base64: false, quality: captureMode === 'storefront' ? 0.8 : 0.65 });
       const b64 = await FileSystem.readAsStringAsync(photo.uri, { encoding: FileSystem.EncodingType.Base64 });
       await processImage(b64, 'image/jpeg', photo.uri);
     } catch (err) {
@@ -122,7 +122,10 @@ export default function CaptureScreen({ navigation, route }) {
     setProcessing(true);
     let b64 = asset.base64;
     if (!b64) b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
-    await processImage(b64, asset.mimeType || 'image/jpeg', asset.uri);
+    // Force jpeg - Claude API only accepts jpeg/png/gif/webp
+    const mime = (asset.mimeType || '').toLowerCase();
+    const safeMime = ['image/jpeg','image/png','image/gif','image/webp'].includes(mime) ? mime : 'image/jpeg';
+    await processImage(b64, safeMime, asset.uri);
   };
 
   const processImage = async (b64, mime, uri) => {
