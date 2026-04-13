@@ -1,10 +1,10 @@
-\# OKPlug
+\# LeadLense
 
 
 
 \## Purpose
 
-Main description of what OKPlug is for.
+LeadLense is a field prospecting tool designed to collect lead information from photos, screenshots, camera input, storefronts, and business cards, then enrich and structure that information for export into a predefined sales workflow.
 
 
 
@@ -16,11 +16,15 @@ Planning / MVP / Prototype / Testing / Active Development
 
 \## Main Features
 
-\- Feature 1
+\- Capture prospect data from camera and images
 
-\- Feature 2
+\- Extract business and contact details
 
-\- Feature 3
+\- Enrich missing lead information
+
+\- Export into structured spreadsheet templates
+
+\- Support field sales prospecting workflows
 
 
 
@@ -42,21 +46,23 @@ Planning / MVP / Prototype / Testing / Active Development
 
 \- /docs = documentation
 
-\- /assets = media and graphics
+\- /assets = graphics, screenshots, and working visuals
 
-\- /branding = logos and style references
+\- /branding = logos, colors, and brand references
 
-\- /exports = builds and outputs
+\- /exports = generated builds and output files
 
-\- /archive = old files
+\- /archive = retired or older files
 
 
 
 \## Next Milestone
 
-Write your next milestone here.
+Build the first data capture and structured export workflow.
 
 
 
-Backup test on 2026-04-12
+\## Notes
+
+This project is separate from the core O-Kay-est Media software group.
 

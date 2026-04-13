@@ -18,7 +18,7 @@
 
 \- ROADMAP
 
-\- Dev log
+\- Development log
 
-\- Git setup prep
+\- Git setup and backup preparation
 

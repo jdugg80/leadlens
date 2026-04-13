@@ -4,41 +4,55 @@
 
 \## Phase 1 - Foundation
 
-\- Set up folders
+\- Set up project structure
 
-\- Set up Git
+\- Define field prospecting workflow
 
-\- Set up GitHub
+\- Prepare Git, GitHub, and backup flow
 
-\- Add initial documentation
+\- Organize initial documentation
 
 
 
 \## Phase 2 - MVP
 
-\- Build first working version
+\- Build image-based lead capture flow
 
-\- Test core features
+\- Support extraction of business and contact data
 
-\- Fix major issues
+\- Create structured export workflow
+
+\- Support minimum required prospect details
 
 
 
 \## Phase 3 - Expansion
 
-\- Improve interface
+\- Improve enrichment workflow
 
-\- Add supporting features
+\- Expand capture sources
 
-\- Prepare for wider testing
+\- Improve usability in the field
+
+\- Add better review and correction flow
 
 
 
-\## Phase 4 - Launch Prep
+\## Phase 4 - Integration
 
-\- Clean up bugs
+\- Improve export compatibility
 
-\- Polish branding
+\- Expand support for structured sales workflows
 
-\- Finalize release process
+\- Add connected process options
+
+
+
+\## Phase 5 - Launch Prep
+
+\- Test reliability
+
+\- Clean up workflow issues
+
+\- Finalize packaging and release readiness
 

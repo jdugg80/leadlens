@@ -6,7 +6,9 @@
 
 \- Created project structure
 
-\- Added initial documentation
+\- Added starter documentation
 
-\- Prepared repo for Git setup
+\- Prepared repository for Git tracking
+
+\- Defined initial purpose and milestone direction
 
