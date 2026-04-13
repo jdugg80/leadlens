@@ -2,11 +2,60 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_KEY = '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';
 
 /**
- * Send an image (base64) to Claude and extract lead fields as structured JSON.
- * @param {string} base64Image  - pure base64, no data-URI prefix
- * @param {string} mimeType     - e.g. 'image/jpeg'
- * @returns {Promise<object>}   - extracted lead fields
+ * Enrich a lead by asking Claude to fill in missing fields
+ * using the business name and any known info as context.
  */
+export async function enrichLead(partialLead) {
+  const known = Object.entries(partialLead)
+    .filter(([k, v]) => v && !['captureMethod', 'imageUri', 'status', 'propertyType'].includes(k))
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+
+  const missing = ['businessName', 'pocFirst', 'pocLast', 'phone', 'email', 'streetNumber', 'streetName', 'city', 'state', 'zip']
+    .filter(k => !partialLead[k]);
+
+  if (!missing.length) return partialLead;
+
+  const response = await fetch(CLAUDE_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: `You are a business data enrichment assistant. Based on the known information below, try to infer or suggest the missing fields for this business lead. Only fill in fields you are reasonably confident about based on the known data. Do not invent information.
+
+Known information:
+${known}
+
+Missing fields to fill if possible: ${missing.join(', ')}
+
+Return ONLY a raw JSON object with the missing field keys. Leave a field as empty string if you cannot confidently determine it. No markdown, no backticks.`,
+      }],
+    }),
+  });
+
+  if (!response.ok) return partialLead;
+
+  const data = await response.json();
+  const text = data.content?.map(b => b.text || '').join('') || '{}';
+  try {
+    const enriched = JSON.parse(text.replace(/```json|```/g, '').trim());
+    // Only fill in fields that were actually missing
+    const result = { ...partialLead };
+    for (const k of missing) {
+      if (enriched[k] && !result[k]) result[k] = enriched[k];
+    }
+    return result;
+  } catch {
+    return partialLead;
+  }
+}
 export async function extractLeadFromImage(base64Image, mimeType = 'image/jpeg') {
   const response = await fetch(CLAUDE_API_URL, {
     method: 'POST',

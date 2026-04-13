@@ -1,16 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Alert,
+  StyleSheet, KeyboardAvoidingView, Platform, Alert, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
-import { COLORS, LEADS_STORAGE_KEY, STATUS_OPTIONS, PROPERTY_TYPES } from '../constants';
+import * as MailComposer from 'expo-mail-composer';
+import { pickEmailClientAndSend } from '../utils/emailPicker';
+import { COLORS, LEADS_STORAGE_KEY, STATUS_OPTIONS, PROPERTY_TYPES, INDUSTRY_VERTICALS, AUTO_INTRO_KEY } from '../constants';
 import { ScreenHeader, FieldInput, PrimaryButton, Card, SectionLabel } from '../components/UI';
 
 export default function ReviewScreen({ navigation, route }) {
   const { user, lead: initialLead, editIdx } = route.params;
   const [lead, setLead] = useState({ ...initialLead });
+  const [autoIntro, setAutoIntro] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem(AUTO_INTRO_KEY).then(v => {
+      if (v !== null) setAutoIntro(v === 'true');
+    });
+  }, []);
 
   const update = (key, val) => setLead((p) => ({ ...p, [key]: val }));
   const isEditing = editIdx !== null && editIdx !== undefined;
@@ -21,11 +30,57 @@ export default function ReviewScreen({ navigation, route }) {
     const tagged = { ...lead, repName: user.repName, employeeNum: user.employeeNum, branchNum: user.branchNum };
     if (isEditing) {
       leads[editIdx] = tagged;
+      await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+      navigation.navigate('Dashboard', { user });
     } else {
       leads.push(tagged);
+      await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+      const hasContact = !!(tagged.email || tagged.phone);
+      if (hasContact && autoIntro) {
+        offerIntroOutreach(tagged);
+      } else if (hasContact && !autoIntro) {
+        Alert.alert('Lead Saved ✔', `${tagged.businessName || 'Lead'} added to queue.`, [
+          { text: 'Send Intro', onPress: () => offerIntroOutreach(tagged) },
+          { text: 'Done', onPress: () => navigation.navigate('Dashboard', { user }) },
+        ]);
+      } else {
+        navigation.navigate('Dashboard', { user });
+      }
     }
-    await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+  };
+
+  const offerIntroOutreach = (savedLead) => {
+    const name = [savedLead.pocFirst, savedLead.pocLast].filter(Boolean).join(' ') || savedLead.businessName || 'them';
+    const options = [];
+    if (savedLead.email) options.push({ text: '✉️ Send Intro Email', onPress: () => sendIntroEmail(savedLead) });
+    if (savedLead.phone) options.push({ text: '💬 Send Intro Text', onPress: () => sendIntroText(savedLead) });
+    options.push({ text: 'Skip', style: 'cancel', onPress: () => navigation.navigate('Dashboard', { user }) });
+    Alert.alert(
+      'Lead Saved!',
+      `Want to send a quick intro to ${name}?`,
+      options
+    );
+  };
+
+  const sendIntroEmail = async (savedLead) => {
+    const name = [savedLead.pocFirst, savedLead.pocLast].filter(Boolean).join(' ') || 'there';
+    await pickEmailClientAndSend({
+      to: savedLead.email,
+      subject: `Introduction from ${user.repName}`,
+      body: `Hi ${name},\n\nMy name is ${user.repName} and I just had the pleasure of visiting ${savedLead.businessName || 'your business'}. I wanted to reach out and introduce myself properly.\n\nI'd love the opportunity to connect and learn more about your business needs. Please don't hesitate to reach out at any time.\n\nBest regards,\n${user.repName}\nBranch ${user.branchNum}`,
+    });
     navigation.navigate('Dashboard', { user });
+  };
+
+  const sendIntroText = (savedLead) => {
+    const name = savedLead.pocFirst || 'there';
+    const msg = encodeURIComponent(
+      `Hi ${name}, this is ${user.repName}! I just stopped by ${savedLead.businessName || 'your business'} and wanted to connect. Feel free to reach out anytime!`
+    );
+    const phone = savedLead.phone.replace(/\D/g, '');
+    Linking.openURL(`sms:${phone}?body=${msg}`).catch(() => {
+      Alert.alert('Could not open messaging app');
+    }).finally(() => navigation.navigate('Dashboard', { user }));
   };
 
   const handleDelete = async () => {
@@ -137,7 +192,43 @@ export default function ReviewScreen({ navigation, route }) {
               </View>
             </View>
           </View>
+          <View style={{ marginTop: 10 }}>
+            <Text style={s.pickerLabel}>Industry Vertical</Text>
+            <View style={s.pickerWrap}>
+              <Picker selectedValue={lead.vertical || 'Restaurant'} onValueChange={(v) => update('vertical', v)}
+                style={s.picker} dropdownIconColor={COLORS.muted}>
+                {INDUSTRY_VERTICALS.map((o) => <Picker.Item key={o} label={o} value={o} color={COLORS.text} />)}
+              </Picker>
+            </View>
+          </View>
         </Card>
+
+        {/* Auto-intro toggle */}
+        {!isEditing && (
+          <>
+            <SectionLabel>Intro Settings</SectionLabel>
+            <Card>
+              <View style={s.toggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.toggleLabel}>Auto-Send Introduction</Text>
+                  <Text style={s.toggleSub}>
+                    {autoIntro ? 'Intro prompt fires automatically after saving' : 'Intro prompt is optional — tap "Send Intro" to trigger'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[s.toggle, autoIntro && s.toggleOn]}
+                  onPress={async () => {
+                    const next = !autoIntro;
+                    setAutoIntro(next);
+                    await AsyncStorage.setItem(AUTO_INTRO_KEY, String(next));
+                  }}
+                >
+                  <View style={[s.toggleThumb, autoIntro && s.toggleThumbOn]} />
+                </TouchableOpacity>
+              </View>
+            </Card>
+          </>
+        )}
 
         <SectionLabel>Auto-Filled from Profile</SectionLabel>
         <Card accent>
@@ -193,4 +284,17 @@ const s = StyleSheet.create({
   autoRow: { flexDirection: 'row', gap: 12 },
   deleteBtn: { marginTop: 12, alignItems: 'center', padding: 12 },
   deleteText: { color: COLORS.danger, fontSize: 14, fontWeight: '600' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  toggleLabel: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  toggleSub: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
+  toggle: {
+    width: 48, height: 28, borderRadius: 14,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border,
+    justifyContent: 'center', paddingHorizontal: 2,
+  },
+  toggleOn: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  toggleThumb: {
+    width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.muted,
+  },
+  toggleThumbOn: { backgroundColor: '#000', alignSelf: 'flex-end' },
 });

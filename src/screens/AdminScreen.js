@@ -4,7 +4,7 @@ import {
   StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { COLORS, LEADS_STORAGE_KEY, STATUS_OPTIONS, PROPERTY_TYPES } from '../constants';
+import { COLORS, LEADS_STORAGE_KEY, STATUS_OPTIONS, PROPERTY_TYPES, INDUSTRY_VERTICALS, ROLES } from '../constants';
 import { ScreenHeader } from '../components/UI';
 import { exportLeadsToXLSX } from '../utils/exportXlsx';
 
@@ -13,24 +13,39 @@ const DEFAULT_PIN = '1234';
 
 export default function AdminScreen({ navigation, route }) {
   const { user } = route.params;
-  const [unlocked, setUnlocked] = useState(false);
+  const isAM = user.role === ROLES.ACCOUNT_MANAGER;
+  const isBM = user.role === ROLES.BRANCH_MANAGER;
+  const isRM = user.role === ROLES.REGIONAL_MANAGER;
+
+  const [unlocked, setUnlocked] = useState(isAM); // AM auto-unlocked (sees own data only)
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [leads, setLeads] = useState([]);
-  const [tab, setTab] = useState('stats'); // 'stats' | 'leads'
+  const [tab, setTab] = useState('stats');
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
   const [changingPin, setChangingPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+  const [filterVertical, setFilterVertical] = useState('All');
 
   useEffect(() => {
     AsyncStorage.getItem(ADMIN_PIN_KEY).then(p => { if (p) setAdminPin(p); });
   }, []);
 
   useEffect(() => {
-    if (unlocked) {
-      AsyncStorage.getItem(LEADS_STORAGE_KEY).then(raw => setLeads(raw ? JSON.parse(raw) : []));
-    }
+    if (!unlocked) return;
+    AsyncStorage.getItem(LEADS_STORAGE_KEY).then(raw => {
+      const all = raw ? JSON.parse(raw) : [];
+      // Filter by role
+      let filtered = all;
+      if (isAM) {
+        filtered = all.filter(l => l.employeeNum === user.employeeNum);
+      } else if (isBM) {
+        filtered = all.filter(l => l.branchNum === user.branchNum);
+      }
+      // RM sees everything
+      setLeads(filtered);
+    });
   }, [unlocked]);
 
   const handleUnlock = () => {
@@ -51,58 +66,69 @@ export default function AdminScreen({ navigation, route }) {
   const handleDeleteLead = (idx) => {
     Alert.alert('Delete Lead', `Remove "${leads[idx].businessName || 'this lead'}"?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        const updated = leads.filter((_, i) => i !== idx);
-        await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
-        setLeads(updated);
-      }},
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          // Remove from storage
+          const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+          const all = raw ? JSON.parse(raw) : [];
+          const target = leads[idx];
+          const updated = all.filter(l =>
+            !(l.businessName === target.businessName &&
+              l.employeeNum === target.employeeNum &&
+              l.phone === target.phone)
+          );
+          await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+          setLeads(prev => prev.filter((_, i) => i !== idx));
+        },
+      },
     ]);
   };
 
   const handleExport = async () => {
     if (!leads.length) { Alert.alert('No leads to export'); return; }
-    try {
-      await exportLeadsToXLSX(leads, user);
-    } catch (e) {
-      Alert.alert('Export failed', e.message);
-    }
+    try { await exportLeadsToXLSX(leads, user); }
+    catch (e) { Alert.alert('Export failed', e.message); }
   };
 
-  // ── Stats ──
-  const byStatus = STATUS_OPTIONS.map(s => ({
-    label: s,
-    count: leads.filter(l => l.status === s).length,
-  })).filter(x => x.count > 0);
+  const visibleLeads = filterVertical === 'All'
+    ? leads
+    : leads.filter(l => l.vertical === filterVertical);
 
-  const byProperty = PROPERTY_TYPES.map(p => ({
-    label: p,
-    count: leads.filter(l => l.propertyType === p).length,
-  })).filter(x => x.count > 0);
+  // ── Stats helpers ──
+  const statBy = (arr, key, options) =>
+    options.map(o => ({ label: o, count: arr.filter(l => l[key] === o).length })).filter(x => x.count > 0);
 
-  const byRep = [...new Set(leads.map(l => l.repName || user.repName))].map(rep => ({
+  const byStatus   = statBy(visibleLeads, 'status', STATUS_OPTIONS);
+  const byVertical = statBy(visibleLeads, 'vertical', INDUSTRY_VERTICALS);
+  const byRep      = [...new Set(leads.map(l => l.repName || user.repName))].map(rep => ({
     label: rep,
-    count: leads.filter(l => (l.repName || user.repName) === rep).length,
-  }));
+    count: visibleLeads.filter(l => (l.repName || user.repName) === rep).length,
+  })).filter(x => x.count > 0);
+  const byBranch   = isRM
+    ? [...new Set(leads.map(l => l.branchNum))].map(b => ({
+        label: `Branch ${b}`,
+        count: visibleLeads.filter(l => l.branchNum === b).length,
+      })).filter(x => x.count > 0)
+    : [];
 
-  // ── PIN screen ──
+  // Role label
+  const roleLabel = isAM ? 'My Leads' : isBM ? `Branch ${user.branchNum}` : 'All Branches';
+  const roleColor = isAM ? COLORS.accent : isBM ? COLORS.accent2 : COLORS.success;
+
+  // ── PIN screen (BM and RM only) ──
   if (!unlocked) {
     return (
       <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScreenHeader title="Admin Access" onBack={() => navigation.goBack()} />
+        <ScreenHeader title="Manager Access" onBack={() => navigation.goBack()} />
         <View style={s.pinWrap}>
-          <Text style={s.pinLockIcon}>🔒</Text>
-          <Text style={s.pinTitle}>Admin PIN Required</Text>
-          <Text style={s.pinSub}>Default PIN is 1234</Text>
+          <Text style={s.pinLockIcon}>{isBM ? '🏢' : '🌐'}</Text>
+          <Text style={s.pinTitle}>{user.role}</Text>
+          <Text style={s.pinSub}>Enter PIN to access {roleLabel}</Text>
           <TextInput
-            style={[s.pinInput, error ? { borderColor: COLORS.danger } : {}]}
-            placeholder="Enter PIN"
-            placeholderTextColor={COLORS.muted}
-            value={pin}
-            onChangeText={v => { setPin(v); setError(''); }}
-            keyboardType="numeric"
-            secureTextEntry
-            maxLength={8}
-            autoFocus
+            style={[s.pinInput, error && { borderColor: COLORS.danger }]}
+            placeholder="Enter PIN" placeholderTextColor={COLORS.muted}
+            value={pin} onChangeText={v => { setPin(v); setError(''); }}
+            keyboardType="numeric" secureTextEntry maxLength={8} autoFocus
           />
           {!!error && <Text style={s.pinError}>{error}</Text>}
           <TouchableOpacity style={s.pinBtn} onPress={handleUnlock}>
@@ -113,22 +139,17 @@ export default function AdminScreen({ navigation, route }) {
     );
   }
 
-  // ── Change PIN ──
   if (changingPin) {
     return (
       <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScreenHeader title="Change PIN" onBack={() => setChangingPin(false)} />
         <View style={s.pinWrap}>
-          <TextInput
-            style={s.pinInput} placeholder="New PIN (min 4 digits)"
+          <TextInput style={s.pinInput} placeholder="New PIN (min 4 digits)"
             placeholderTextColor={COLORS.muted} value={newPin}
-            onChangeText={setNewPin} keyboardType="numeric" secureTextEntry maxLength={8} autoFocus
-          />
-          <TextInput
-            style={[s.pinInput, { marginTop: 12 }]} placeholder="Confirm PIN"
+            onChangeText={setNewPin} keyboardType="numeric" secureTextEntry maxLength={8} autoFocus />
+          <TextInput style={[s.pinInput, { marginTop: 12 }]} placeholder="Confirm PIN"
             placeholderTextColor={COLORS.muted} value={confirmPin}
-            onChangeText={setConfirmPin} keyboardType="numeric" secureTextEntry maxLength={8}
-          />
+            onChangeText={setConfirmPin} keyboardType="numeric" secureTextEntry maxLength={8} />
           <TouchableOpacity style={s.pinBtn} onPress={handleChangePin}>
             <Text style={s.pinBtnText}>Save PIN</Text>
           </TouchableOpacity>
@@ -137,17 +158,24 @@ export default function AdminScreen({ navigation, route }) {
     );
   }
 
-  // ── Admin dashboard ──
   return (
     <View style={s.root}>
-      <ScreenHeader title="Admin" badge="ADMIN" onBack={() => navigation.goBack()} />
+      <ScreenHeader title={isAM ? 'My Stats' : 'Manager View'} onBack={() => navigation.goBack()} />
+
+      {/* Role badge */}
+      <View style={[s.roleBanner, { backgroundColor: roleColor + '11', borderColor: roleColor + '33' }]}>
+        <Text style={[s.roleBannerText, { color: roleColor }]}>
+          {isAM ? '👤' : isBM ? '🏢' : '🌐'} {user.role} · {roleLabel} · {visibleLeads.length} leads
+        </Text>
+      </View>
 
       {/* Tab bar */}
       <View style={s.tabBar}>
         {['stats', 'leads'].map(t => (
-          <TouchableOpacity key={t} style={[s.tabBtn, tab === t && s.tabBtnActive]} onPress={() => setTab(t)}>
+          <TouchableOpacity key={t} style={[s.tabBtn, tab === t && s.tabBtnActive]}
+            onPress={() => setTab(t)}>
             <Text style={[s.tabBtnText, tab === t && s.tabBtnTextActive]}>
-              {t === 'stats' ? '📊 Stats' : `📋 Leads (${leads.length})`}
+              {t === 'stats' ? '📊 Stats' : `📋 Leads (${visibleLeads.length})`}
             </Text>
           </TouchableOpacity>
         ))}
@@ -155,75 +183,107 @@ export default function AdminScreen({ navigation, route }) {
 
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 40 }}>
 
+        {/* Vertical filter */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterScroll}
+          contentContainerStyle={s.filterRow}>
+          {['All', ...INDUSTRY_VERTICALS].map(v => (
+            <TouchableOpacity key={v}
+              style={[s.filterChip, filterVertical === v && s.filterChipActive]}
+              onPress={() => setFilterVertical(v)}>
+              <Text style={[s.filterChipText, filterVertical === v && s.filterChipTextActive]}>
+                {v === 'All' ? '🔵 All' : v}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
         {tab === 'stats' && (
           <>
-            {/* Total */}
             <View style={s.totalCard}>
-              <Text style={s.totalNum}>{leads.length}</Text>
-              <Text style={s.totalLabel}>Total Leads in Queue</Text>
+              <Text style={[s.totalNum, { color: roleColor }]}>{visibleLeads.length}</Text>
+              <Text style={s.totalLabel}>
+                {filterVertical === 'All' ? 'Total Leads' : filterVertical} · {roleLabel}
+              </Text>
             </View>
 
-            <StatSection title="By Status" data={byStatus} total={leads.length} color={COLORS.accent} />
-            <StatSection title="By Property Type" data={byProperty} total={leads.length} color={COLORS.accent2} />
-            <StatSection title="By Sales Rep" data={byRep} total={leads.length} color={COLORS.success} />
+            {isRM && byBranch.length > 0 && (
+              <StatSection title="By Branch" data={byBranch} total={visibleLeads.length} color={COLORS.success} />
+            )}
+            {(isBM || isRM) && byRep.length > 0 && (
+              <StatSection title="By Sales Rep" data={byRep} total={visibleLeads.length} color={COLORS.accent2} />
+            )}
+            <StatSection title="By Status" data={byStatus} total={visibleLeads.length} color={COLORS.accent} />
+            <StatSection title="By Industry Vertical" data={byVertical} total={visibleLeads.length} color={COLORS.accent2} />
 
-            {/* Actions */}
             <Text style={s.sectionLabel}>Actions</Text>
             <TouchableOpacity style={s.actionRow} onPress={handleExport}>
               <Text style={s.actionIcon}>📤</Text>
-              <Text style={s.actionLabel}>Export All to Excel</Text>
+              <Text style={s.actionLabel}>Export {filterVertical === 'All' ? 'All' : filterVertical} to Excel</Text>
               <Text style={s.actionArrow}>›</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.actionRow} onPress={() => setChangingPin(true)}>
-              <Text style={s.actionIcon}>🔑</Text>
-              <Text style={s.actionLabel}>Change Admin PIN</Text>
-              <Text style={s.actionArrow}>›</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.actionRow, { borderColor: 'rgba(255,59,92,0.3)' }]}
-              onPress={() => Alert.alert('Clear All Leads', `Delete all ${leads.length} leads?`, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Clear All', style: 'destructive', onPress: async () => {
-                  await AsyncStorage.removeItem(LEADS_STORAGE_KEY);
-                  setLeads([]);
-                }},
-              ])}>
-              <Text style={s.actionIcon}>🗑️</Text>
-              <Text style={[s.actionLabel, { color: COLORS.danger }]}>Clear All Leads</Text>
-              <Text style={s.actionArrow}>›</Text>
-            </TouchableOpacity>
+            {!isAM && (
+              <TouchableOpacity style={s.actionRow} onPress={() => setChangingPin(true)}>
+                <Text style={s.actionIcon}>🔑</Text>
+                <Text style={s.actionLabel}>Change Manager PIN</Text>
+                <Text style={s.actionArrow}>›</Text>
+              </TouchableOpacity>
+            )}
+            {(isBM || isRM) && (
+              <TouchableOpacity
+                style={[s.actionRow, { borderColor: 'rgba(255,59,92,0.3)' }]}
+                onPress={() => Alert.alert('Clear Leads', `Clear all ${visibleLeads.length} visible leads?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Clear', style: 'destructive', onPress: async () => {
+                      const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+                      const all = raw ? JSON.parse(raw) : [];
+                      const kept = all.filter(l => !visibleLeads.some(v =>
+                        v.businessName === l.businessName && v.employeeNum === l.employeeNum && v.phone === l.phone));
+                      await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(kept));
+                      setLeads(kept);
+                    },
+                  },
+                ])}>
+                <Text style={s.actionIcon}>🗑️</Text>
+                <Text style={[s.actionLabel, { color: COLORS.danger }]}>Clear Visible Leads</Text>
+                <Text style={s.actionArrow}>›</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
 
         {tab === 'leads' && (
-          <>
-            {leads.length === 0 ? (
-              <Text style={s.empty}>No leads in queue.</Text>
-            ) : (
-              leads.map((lead, idx) => (
-                <View key={idx} style={s.leadCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.leadBiz}>{lead.businessName || 'Unnamed'}</Text>
-                    <Text style={s.leadContact}>
-                      {[lead.pocFirst, lead.pocLast].filter(Boolean).join(' ')}
-                      {lead.phone ? ` · ${lead.phone}` : ''}
-                    </Text>
-                    <View style={s.leadMeta}>
-                      <Text style={s.leadMetaText}>{lead.status}</Text>
-                      <Text style={s.leadMetaDot}>·</Text>
-                      <Text style={s.leadMetaText}>{lead.propertyType}</Text>
-                      {lead.repName && <>
-                        <Text style={s.leadMetaDot}>·</Text>
-                        <Text style={s.leadMetaText}>{lead.repName}</Text>
-                      </>}
-                    </View>
+          visibleLeads.length === 0
+            ? <Text style={s.empty}>No leads matching current filter.</Text>
+            : visibleLeads.map((lead, idx) => (
+              <View key={idx} style={s.leadCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.leadBiz}>{lead.businessName || 'Unnamed'}</Text>
+                  <Text style={s.leadContact}>
+                    {[lead.pocFirst, lead.pocLast].filter(Boolean).join(' ')}
+                    {lead.phone ? ` · ${lead.phone}` : ''}
+                  </Text>
+                  <View style={s.leadMeta}>
+                    <Text style={s.leadMetaText}>{lead.status}</Text>
+                    <Text style={s.dot}>·</Text>
+                    <Text style={s.leadMetaText}>{lead.vertical || lead.propertyType}</Text>
+                    {(isBM || isRM) && lead.repName && <>
+                      <Text style={s.dot}>·</Text>
+                      <Text style={s.leadMetaText}>{lead.repName}</Text>
+                    </>}
+                    {isRM && lead.branchNum && <>
+                      <Text style={s.dot}>·</Text>
+                      <Text style={s.leadMetaText}>Br {lead.branchNum}</Text>
+                    </>}
                   </View>
+                </View>
+                {(isBM || isRM) && (
                   <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteLead(idx)}>
                     <Text style={s.deleteBtnText}>✕</Text>
                   </TouchableOpacity>
-                </View>
-              ))
-            )}
-          </>
+                )}
+              </View>
+            ))
         )}
       </ScrollView>
     </View>
@@ -238,7 +298,7 @@ function StatSection({ title, data, total, color }) {
       <View style={s.statCard}>
         {data.map(({ label, count }) => (
           <View key={label} style={s.statRow}>
-            <Text style={s.statLabel}>{label}</Text>
+            <Text style={s.statLabel} numberOfLines={1}>{label}</Text>
             <View style={s.statBarWrap}>
               <View style={[s.statBar, { width: `${Math.round((count / total) * 100)}%`, backgroundColor: color }]} />
             </View>
@@ -253,12 +313,14 @@ function StatSection({ title, data, total, color }) {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1, paddingHorizontal: 16 },
-
-  // PIN
+  roleBanner: {
+    borderBottomWidth: 1, paddingHorizontal: 16, paddingVertical: 10,
+  },
+  roleBannerText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
   pinWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },
   pinLockIcon: { fontSize: 48 },
   pinTitle: { fontSize: 20, fontWeight: '700', color: COLORS.text },
-  pinSub: { fontSize: 13, color: COLORS.muted },
+  pinSub: { fontSize: 13, color: COLORS.muted, textAlign: 'center' },
   pinInput: {
     width: '100%', backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border,
     borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
@@ -266,12 +328,10 @@ const s = StyleSheet.create({
   },
   pinError: { color: COLORS.danger, fontSize: 13 },
   pinBtn: {
-    backgroundColor: COLORS.accent, borderRadius: 12,
-    paddingVertical: 14, paddingHorizontal: 40, width: '100%', alignItems: 'center',
+    backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14,
+    paddingHorizontal: 40, width: '100%', alignItems: 'center',
   },
   pinBtnText: { color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 1 },
-
-  // Tabs
   tabBar: {
     flexDirection: 'row', backgroundColor: COLORS.surface,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
@@ -280,14 +340,21 @@ const s = StyleSheet.create({
   tabBtnActive: { borderBottomWidth: 2, borderBottomColor: COLORS.accent },
   tabBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.muted },
   tabBtnTextActive: { color: COLORS.accent },
-
-  // Stats
+  filterScroll: { marginTop: 12 },
+  filterRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 4 },
+  filterChip: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+  },
+  filterChipActive: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.1)' },
+  filterChipText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
+  filterChipTextActive: { color: COLORS.accent },
   totalCard: {
     backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
-    borderRadius: 14, padding: 24, alignItems: 'center', marginTop: 16,
+    borderRadius: 14, padding: 24, alignItems: 'center', marginTop: 12,
   },
-  totalNum: { fontSize: 52, fontWeight: '800', color: COLORS.accent, lineHeight: 56 },
-  totalLabel: { fontSize: 13, color: COLORS.muted, marginTop: 4 },
+  totalNum: { fontSize: 52, fontWeight: '800', lineHeight: 56 },
+  totalLabel: { fontSize: 13, color: COLORS.muted, marginTop: 4, textAlign: 'center' },
   sectionLabel: {
     fontSize: 11, fontWeight: '700', color: COLORS.muted,
     letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 16,
@@ -297,31 +364,26 @@ const s = StyleSheet.create({
     borderRadius: 14, padding: 14, gap: 10,
   },
   statRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  statLabel: { fontSize: 13, color: COLORS.text, width: 110 },
+  statLabel: { fontSize: 12, color: COLORS.text, width: 130 },
   statBarWrap: { flex: 1, height: 6, backgroundColor: COLORS.surface2, borderRadius: 3, overflow: 'hidden' },
   statBar: { height: '100%', borderRadius: 3 },
   statCount: { fontSize: 13, fontWeight: '700', color: COLORS.text, width: 28, textAlign: 'right' },
-
-  // Actions
   actionRow: {
     backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
-    borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center',
-    gap: 12, marginBottom: 8,
+    borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
   },
   actionIcon: { fontSize: 20 },
   actionLabel: { flex: 1, fontSize: 14, fontWeight: '600', color: COLORS.text },
   actionArrow: { fontSize: 20, color: COLORS.muted },
-
-  // Leads tab
   leadCard: {
     backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
     borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 8,
   },
   leadBiz: { fontSize: 14, fontWeight: '600', color: COLORS.text },
   leadContact: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  leadMeta: { flexDirection: 'row', gap: 6, marginTop: 4 },
+  leadMeta: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
   leadMetaText: { fontSize: 10, color: COLORS.muted },
-  leadMetaDot: { fontSize: 10, color: COLORS.border },
+  dot: { fontSize: 10, color: COLORS.border },
   deleteBtn: {
     width: 30, height: 30, borderRadius: 8,
     backgroundColor: 'rgba(255,59,92,0.1)', alignItems: 'center', justifyContent: 'center',

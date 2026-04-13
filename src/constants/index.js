@@ -21,6 +21,23 @@ export const STATUS_OPTIONS = [
   'Closed',
 ];
 
+// Pest control industry verticals
+export const INDUSTRY_VERTICALS = [
+  'Restaurant',
+  'Food Service / Processing',
+  'Retail',
+  'Warehouse / Distribution',
+  'Multi-Family / Apartments',
+  'HOA / Community',
+  'Commercial Office',
+  'Healthcare / Medical',
+  'School / Daycare',
+  'Hotel / Hospitality',
+  'Government / Municipal',
+  'Other',
+];
+
+// Property types kept for Sales Module compatibility
 export const PROPERTY_TYPES = [
   'Commercial',
   'Retail',
@@ -30,6 +47,13 @@ export const PROPERTY_TYPES = [
   'Medical',
   'Other',
 ];
+
+// User roles
+export const ROLES = {
+  ACCOUNT_MANAGER: 'Account Manager',
+  BRANCH_MANAGER: 'Branch Manager',
+  REGIONAL_MANAGER: 'Regional Manager',
+};
 
 export const EMPTY_LEAD = {
   businessName: '',
@@ -45,9 +69,12 @@ export const EMPTY_LEAD = {
   zip: '',
   status: 'Suspect',
   propertyType: 'Commercial',
+  vertical: 'Restaurant',
   captureMethod: 'manual',
   imageUri: null,
 };
 
 export const USER_STORAGE_KEY = '@leadlens_user';
 export const LEADS_STORAGE_KEY = '@leadlens_leads';
+export const ALL_LEADS_KEY = '@leadlens_all_leads'; // cross-rep storage
+export const AUTO_INTRO_KEY = '@leadlens_auto_intro';
