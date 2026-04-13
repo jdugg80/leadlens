@@ -1,66 +1,23 @@
 import { Alert, Linking } from 'react-native';
 import * as MailComposer from 'expo-mail-composer';
-
-const CLIENTS = [
-  { label: 'Gmail',        id: 'gmail' },
-  { label: 'Outlook',      id: 'outlook' },
-  { label: 'Yahoo Mail',   id: 'yahoo' },
-  { label: 'Default Mail App', id: 'default' },
-  { label: 'Cancel', id: 'cancel', style: 'cancel' },
-];
+import * as Sharing from 'expo-sharing';
 
 /**
- * Show an email client picker then compose an email.
- * @param {object} opts - { to, subject, body }
+ * Send an intro email (no attachment) - opens default mail app.
+ * Simple and reliable on all Android devices.
  */
-export function pickEmailClientAndSend({ to, subject, body }) {
-  return new Promise((resolve) => {
-    const buttons = CLIENTS.map(c => ({
-      text: c.label,
-      style: c.style,
-      onPress: c.id === 'cancel'
-        ? () => resolve(false)
-        : () => { sendVia(c.id, { to, subject, body }).then(resolve); },
-    }));
-
-    Alert.alert('Choose Email App', null, buttons);
-  });
-}
-
-async function sendVia(clientId, { to, subject, body }) {
-  const encodedTo      = encodeURIComponent(to || '');
-  const encodedSubject = encodeURIComponent(subject || '');
-  const encodedBody    = encodeURIComponent(body || '');
-
-  const urls = {
-    gmail:   `googlegmail://co?to=${encodedTo}&subject=${encodedSubject}&body=${encodedBody}`,
-    outlook: `ms-outlook://compose?to=${encodedTo}&subject=${encodedSubject}&body=${encodedBody}`,
-    yahoo:   `ymail://mail/compose?to=${encodedTo}&subject=${encodedSubject}&body=${encodedBody}`,
-  };
-
-  if (clientId !== 'default') {
-    try {
-      const canOpen = await Linking.canOpenURL(urls[clientId]);
-      if (canOpen) {
-        await Linking.openURL(urls[clientId]);
-        return true;
-      } else {
-        Alert.alert(
-          'App not found',
-          `${CLIENTS.find(c => c.id === clientId)?.label} doesn't appear to be installed. Falling back to default mail app.`
-        );
-        // Fall through to default
-      }
-    } catch {
-      // Fall through to default
-    }
-  }
-
-  // Default: expo-mail-composer
+export async function sendIntroEmail({ to, subject, body }) {
   try {
     const available = await MailComposer.isAvailableAsync();
     if (available) {
       await MailComposer.composeAsync({ recipients: [to], subject, body });
+      return true;
+    }
+    // Fallback: mailto link
+    const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) {
+      await Linking.openURL(url);
       return true;
     }
     Alert.alert('No email app found', 'Please set up an email account on your phone first.');
@@ -69,4 +26,33 @@ async function sendVia(clientId, { to, subject, body }) {
     Alert.alert('Email failed', e.message);
     return false;
   }
+}
+
+/**
+ * Share a file (xlsx export) — uses Android share sheet so the user
+ * can pick Gmail, Outlook, Yahoo, Drive, or anything else themselves.
+ * This is the only reliable way to send attachments cross-app on Android.
+ */
+export async function shareFileWithEmail(fileUri, { subject, body }) {
+  try {
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        dialogTitle: subject,
+        UTI: 'com.microsoft.excel.xlsx',
+      });
+      return true;
+    }
+    Alert.alert('Sharing not available on this device.');
+    return false;
+  } catch (e) {
+    Alert.alert('Share failed', e.message);
+    return false;
+  }
+}
+
+// Keep this export for backwards compatibility
+export function pickEmailClientAndSend({ to, subject, body }) {
+  return sendIntroEmail({ to, subject, body });
 }

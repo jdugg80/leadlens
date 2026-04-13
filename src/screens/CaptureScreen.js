@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { read, utils } from 'xlsx';
 import { COLORS, EMPTY_LEAD, STATUS_OPTIONS, PROPERTY_TYPES } from '../constants';
 import { ScreenHeader } from '../components/UI';
+import AILoader from '../components/AILoader';
 import { extractLeadFromImage, enrichLead } from '../utils/claudeApi';
 import { getCurrentCoords, geocodeBusinessNearby } from '../utils/geoEnrich';
 
@@ -216,12 +217,7 @@ export default function CaptureScreen({ navigation, route }) {
   };
 
   if (processing) {
-    return (
-      <View style={[s.root, { justifyContent: 'center', alignItems: 'center', gap: 16 }]}>
-        <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={{ color: COLORS.muted, fontSize: 13 }}>{processingMsg}</Text>
-      </View>
-    );
+    return <AILoader message={processingMsg} />;
   }
 
   return (

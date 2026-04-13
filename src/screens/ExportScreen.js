@@ -6,7 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as MailComposer from 'expo-mail-composer';
-import { pickEmailClientAndSend } from '../utils/emailPicker';
+import { shareFileWithEmail } from '../utils/emailPicker';
 import * as FileSystem from 'expo-file-system';
 import { utils, write } from 'xlsx';
 import { COLORS, LEADS_STORAGE_KEY } from '../constants';
@@ -61,18 +61,31 @@ export default function ExportScreen({ navigation, route }) {
       if (method === 'share') {
         await exportLeadsToXLSX(leads, user);
       } else {
+        // Email: build the file then share it — Android share sheet lets
+        // the user pick Gmail, Outlook, Yahoo, or any other app themselves
         const fileUri = await buildXlsxUri(leads, user);
         const date = new Date().toISOString().slice(0, 10);
-        await pickEmailClientAndSend({
-          to: user.repEmail || '',
+        await shareFileWithEmail(fileUri, {
           subject: `LeadLens Export — ${date} (${leads.length} leads)`,
-          body: `Rep: ${user.repName}\nBranch: ${user.branchNum}\nEmployee #: ${user.employeeNum}\nLeads: ${leads.length}\n\nSee attached .xlsx file — ready to import into Sales Module.`,
-          attachments: [fileUri],
+          body: `Rep: ${user.repName}\nBranch: ${user.branchNum}\nEmployee #: ${user.employeeNum}\nLeads: ${leads.length}`,
         });
       }
       setExportStatus('success');
-      // Success vibration pattern: short-short-long
       Vibration.vibrate([0, 80, 60, 80, 60, 200]);
+      // Offer to clear queue after successful export
+      Alert.alert(
+        'Export Successful! ✅',
+        'Do you want to clear the queue now?',
+        [
+          { text: 'Keep Queue', style: 'cancel' },
+          {
+            text: 'Clear Queue', onPress: async () => {
+              await AsyncStorage.removeItem(LEADS_STORAGE_KEY);
+              setLeads([]);
+            },
+          },
+        ]
+      );
     } catch (err) {
       setExportStatus('failed');
       // Fail vibration: long buzz
@@ -138,8 +151,8 @@ export default function ExportScreen({ navigation, route }) {
             >
               <Text style={s.exportBtnIcon}>✉️</Text>
               <View style={{ flex: 1 }}>
-                <Text style={s.exportBtnLabel}>Send via Email</Text>
-                <Text style={s.exportBtnSub}>Opens mail app with .xlsx attached</Text>
+                <Text style={s.exportBtnLabel}>Email File</Text>
+                <Text style={s.exportBtnSub}>Pick Gmail, Outlook, Yahoo, or any app</Text>
               </View>
               <Text style={s.exportArrow}>›</Text>
             </TouchableOpacity>

@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform,
-  TextInput, Animated,
+  TextInput, Animated, PermissionsAndroid,
 } from 'react-native';
 import { COLORS, EMPTY_LEAD } from '../constants';
 import { ScreenHeader, PrimaryButton } from '../components/UI';
@@ -20,7 +20,17 @@ export default function ManualEntryScreen({ navigation, route }) {
   const goReview = () =>
     navigation.navigate('Review', { user, lead: { ...lead, captureMethod: 'manual' }, editIdx: null });
 
-  const startVoice = (fieldKey, fieldLabel) => {
+  const startVoice = async (fieldKey, fieldLabel) => {
+    // Request mic permission automatically
+    try {
+      if (Platform.OS === 'android') {
+        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
+          title: 'Microphone Access',
+          message: 'LeadLens needs microphone access for voice input.',
+          buttonPositive: 'Allow',
+        });
+      }
+    } catch {}
     setVoiceField({ key: fieldKey, label: fieldLabel });
     setVoiceMode(true);
     pulseLoop.current = Animated.loop(Animated.sequence([

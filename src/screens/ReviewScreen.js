@@ -6,7 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
 import * as MailComposer from 'expo-mail-composer';
-import { pickEmailClientAndSend } from '../utils/emailPicker';
+import { pickEmailClientAndSend, sendIntroEmail } from '../utils/emailPicker';
 import { COLORS, LEADS_STORAGE_KEY, STATUS_OPTIONS, PROPERTY_TYPES, INDUSTRY_VERTICALS, AUTO_INTRO_KEY } from '../constants';
 import { ScreenHeader, FieldInput, PrimaryButton, Card, SectionLabel } from '../components/UI';
 
@@ -27,7 +27,11 @@ export default function ReviewScreen({ navigation, route }) {
   const handleSave = async () => {
     const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
     const leads = raw ? JSON.parse(raw) : [];
-    const tagged = { ...lead, repName: user.repName, employeeNum: user.employeeNum, branchNum: user.branchNum };
+    const tagged = {
+      ...lead,
+      id: lead.id || `lead_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      repName: user.repName, employeeNum: user.employeeNum, branchNum: user.branchNum,
+    };
     if (isEditing) {
       leads[editIdx] = tagged;
       await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
@@ -64,7 +68,7 @@ export default function ReviewScreen({ navigation, route }) {
 
   const sendIntroEmail = async (savedLead) => {
     const name = [savedLead.pocFirst, savedLead.pocLast].filter(Boolean).join(' ') || 'there';
-    await pickEmailClientAndSend({
+    await sendIntroEmail({
       to: savedLead.email,
       subject: `Introduction from ${user.repName}`,
       body: `Hi ${name},\n\nMy name is ${user.repName} and I just had the pleasure of visiting ${savedLead.businessName || 'your business'}. I wanted to reach out and introduce myself properly.\n\nI'd love the opportunity to connect and learn more about your business needs. Please don't hesitate to reach out at any time.\n\nBest regards,\n${user.repName}\nBranch ${user.branchNum}`,
@@ -92,8 +96,11 @@ export default function ReviewScreen({ navigation, route }) {
         onPress: async () => {
           const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
           const leads = raw ? JSON.parse(raw) : [];
-          leads.splice(editIdx, 1);
-          await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+          // Use ID if available, fall back to index
+          const updated = lead.id
+            ? leads.filter(l => l.id !== lead.id)
+            : leads.filter((_, i) => i !== editIdx);
+          await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
           navigation.navigate('Dashboard', { user });
         },
       },

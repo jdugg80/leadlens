@@ -54,7 +54,7 @@ export default function SplashScreen({ navigation }) {
           <Text style={s.enterBtnText}>TAP TO ENTER</Text>
           <Text style={s.enterBtnArrow}>→</Text>
         </TouchableOpacity>
-        <Text style={s.version}>v1.0 · O-Kay-est Media</Text>
+        <Text style={s.version}>v1.0 · LeadLens</Text>
       </Animated.View>
     </View>
   );

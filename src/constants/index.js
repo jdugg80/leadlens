@@ -56,6 +56,7 @@ export const ROLES = {
 };
 
 export const EMPTY_LEAD = {
+  id: null, // set on save
   businessName: '',
   pocFirst: '',
   pocLast: '',

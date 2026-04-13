@@ -9,10 +9,14 @@ import { SectionLabel, StatusBadge, Card } from '../components/UI';
 export default function DashboardScreen({ navigation, route }) {
   const { user } = route.params;
   const [leads, setLeads] = useState([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(new Set());
   const insets = useSafeAreaInsets();
 
   useFocusEffect(useCallback(() => {
     AsyncStorage.getItem(LEADS_STORAGE_KEY).then(raw => setLeads(raw ? JSON.parse(raw) : []));
+    setSelectMode(false);
+    setSelected(new Set());
   }, []));
 
   const handleSignOut = () => {
@@ -25,11 +29,44 @@ export default function DashboardScreen({ navigation, route }) {
     ]);
   };
 
+  const toggleSelect = (idx) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (selected.size === leads.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(leads.map((_, i) => i)));
+    }
+  };
+
+  const deleteSelected = () => {
+    if (!selected.size) return;
+    Alert.alert(
+      `Delete ${selected.size} lead${selected.size > 1 ? 's' : ''}?`,
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: async () => {
+          const updated = leads.filter((_, i) => !selected.has(i));
+          await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+          setLeads(updated);
+          setSelected(new Set());
+          setSelectMode(false);
+        }},
+      ]
+    );
+  };
+
   const goEdit = (lead, idx) => navigation.navigate('Review', { user, lead, editIdx: idx });
 
   return (
     <View style={s.root}>
-      {/* Top bar */}
       <View style={[s.topBar, { paddingTop: insets.top + 8, height: 56 + insets.top }]}>
         <Text style={s.topTitle}>LeadLens</Text>
         <View style={s.topRight}>
@@ -41,18 +78,18 @@ export default function DashboardScreen({ navigation, route }) {
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 32 }}>
-        {/* User card */}
         <Card style={s.userCard}>
           <View style={{ flex: 1 }}>
             <Text style={s.userName}>{user.repName}</Text>
-            <Text style={s.userSub}>Branch {user.branchNum}{user.territory ? ` · ${user.territory}` : ''}</Text>
+            <Text style={s.userSub}>
+              {user.role} · Branch {user.branchNum}{user.territory ? ` · ${user.territory}` : ''}
+            </Text>
           </View>
           <TouchableOpacity style={s.avatar} onPress={handleSignOut}>
             <Text style={s.avatarText}>{user.repName?.[0] ?? '?'}</Text>
           </TouchableOpacity>
         </Card>
 
-        {/* Capture buttons */}
         <SectionLabel>New Prospect</SectionLabel>
         <View style={s.captureRow}>
           <TouchableOpacity
@@ -75,21 +112,57 @@ export default function DashboardScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        {/* Queue */}
+        {/* Queue header */}
         <View style={s.queueHeader}>
           <SectionLabel>Lead Queue</SectionLabel>
-          {leads.length > 0 && (
-            <TouchableOpacity onPress={() => navigation.navigate('Export', { user, leads })}>
-              <Text style={s.exportLink}>EXPORT →</Text>
-            </TouchableOpacity>
-          )}
+          <View style={s.queueActions}>
+            {leads.length > 0 && (
+              <>
+                <TouchableOpacity onPress={() => { setSelectMode(!selectMode); setSelected(new Set()); }}>
+                  <Text style={s.queueAction}>{selectMode ? 'CANCEL' : 'SELECT'}</Text>
+                </TouchableOpacity>
+                {!selectMode && (
+                  <TouchableOpacity onPress={() => navigation.navigate('Export', { user, leads })}>
+                    <Text style={[s.queueAction, { color: COLORS.accent }]}>EXPORT →</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
         </View>
+
+        {/* Batch delete bar */}
+        {selectMode && (
+          <View style={s.batchBar}>
+            <TouchableOpacity onPress={selectAll}>
+              <Text style={s.batchAction}>{selected.size === leads.length ? 'Deselect All' : 'Select All'}</Text>
+            </TouchableOpacity>
+            <Text style={s.batchCount}>{selected.size} selected</Text>
+            <TouchableOpacity
+              onPress={deleteSelected}
+              disabled={!selected.size}
+              style={[s.batchDeleteBtn, !selected.size && { opacity: 0.4 }]}
+            >
+              <Text style={s.batchDeleteText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {leads.length === 0 ? (
           <Text style={s.empty}>No leads yet.{'\n'}Capture your first prospect above.</Text>
         ) : (
           leads.map((lead, idx) => (
-            <TouchableOpacity key={idx} style={s.queueCard} onPress={() => goEdit(lead, idx)} activeOpacity={0.7}>
+            <TouchableOpacity
+              key={lead.id || idx}
+              style={[s.queueCard, selectMode && selected.has(idx) && s.queueCardSelected]}
+              onPress={() => selectMode ? toggleSelect(idx) : goEdit(lead, idx)}
+              activeOpacity={0.7}
+            >
+              {selectMode && (
+                <View style={[s.checkbox, selected.has(idx) && s.checkboxChecked]}>
+                  {selected.has(idx) && <Text style={s.checkmark}>✓</Text>}
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={s.queueBiz}>{lead.businessName || 'Unnamed Business'}</Text>
                 <Text style={s.queueSub}>
@@ -131,26 +204,37 @@ const s = StyleSheet.create({
   userCard: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
   userName: { fontSize: 15, fontWeight: '600', color: COLORS.text },
   userSub: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
-  avatar: {
-    width: 42, height: 42, borderRadius: 12, backgroundColor: COLORS.accent,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  avatar: { width: 42, height: 42, borderRadius: 12, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 18, fontWeight: '800', color: '#000' },
   captureRow: { flexDirection: 'row', gap: 12 },
-  capBtn: {
-    flex: 1, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 16,
-    paddingVertical: 28, alignItems: 'center', gap: 8,
-  },
+  capBtn: { flex: 1, backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 16, paddingVertical: 28, alignItems: 'center', gap: 8 },
   capIcon: { fontSize: 36 },
   capLabel: { fontSize: 16, fontWeight: '700', color: COLORS.text },
   capSub: { fontSize: 11, color: COLORS.muted, textAlign: 'center', paddingHorizontal: 8 },
   queueHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
-  exportLink: { fontSize: 11, color: COLORS.accent, fontWeight: '700', letterSpacing: 1, marginTop: 16 },
+  queueActions: { flexDirection: 'row', gap: 16, marginTop: 16 },
+  queueAction: { fontSize: 11, color: COLORS.muted, fontWeight: '700', letterSpacing: 1 },
+  batchBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: COLORS.surface2, borderRadius: 10, padding: 12, marginBottom: 8,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  batchAction: { fontSize: 13, color: COLORS.accent, fontWeight: '600' },
+  batchCount: { fontSize: 13, color: COLORS.muted },
+  batchDeleteBtn: { backgroundColor: 'rgba(255,59,92,0.15)', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6 },
+  batchDeleteText: { color: COLORS.danger, fontSize: 13, fontWeight: '700' },
   empty: { textAlign: 'center', color: COLORS.muted, fontSize: 13, marginTop: 24, lineHeight: 20 },
   queueCard: {
     backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
-    borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 8,
+    borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10,
   },
+  queueCardSelected: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.05)' },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkboxChecked: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  checkmark: { color: '#000', fontSize: 13, fontWeight: '800' },
   queueBiz: { fontSize: 14, fontWeight: '600', color: COLORS.text },
   queueSub: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
 });
