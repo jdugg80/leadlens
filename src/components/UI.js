@@ -21,12 +21,12 @@ export function FieldLabel({ children }) {
   return <Text style={s.label}>{children}</Text>;
 }
 
-export function FieldInput({ label, ...props }) {
+export function FieldInput({ label, style, ...props }) {
   return (
     <View style={s.fieldGroup}>
       {label ? <FieldLabel>{label}</FieldLabel> : null}
       <TextInput
-        style={s.input}
+        style={[s.input, style]}
         placeholderTextColor={COLORS.muted}
         {...props}
       />

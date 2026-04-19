@@ -1,92 +1,94 @@
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { utils, write } from 'xlsx';
+import { utils, write, read } from 'xlsx';
+import { applyRequiredPlaceholders, normalizeLead } from './leadHelpers';
 
-// Exact 23-column Sales Module Import Template (A–W)
-// ★ = yellow / minimum required by the destination system
-const HEADERS = [
-  'Employee #',              // A  — from user profile
-  'Branch',                  // B  ★ from user profile
-  'Route',                   // C  — ignored / blank
-  'Status',                  // D  ★
-  'PropertyDescription',     // E  — ignored / blank
-  'PropertyType',            // F  ★
-  'BusinessName',            // G  ★
-  'FirstName',               // H  ★
-  'LastName',                // I  ★
-  'Salutation',              // J  — ignored / blank
-  'Phone',                   // K
-  'Type',                    // L  — ignored / blank
-  'Email',                   // M
-  'StreetNum',               // N
-  'StreetName',              // O
-  'AddressLine2',            // P
-  'City',                    // Q
-  'State',                   // R
-  'Zip',                     // S  ★
-  'Instructions/Comments',   // T  — ignored / blank
-  'Prospect Source Category',// U  — ignored / blank
-  'Prospect Source',         // V  — ignored / blank
-  'CampaignId',              // W  — ignored / blank
+const TEMPLATE_HEADERS = [
+  'Employee #','Branch','Route','Status','PropertyDescription',
+  'PropertyType','BusinessName','FirstName','LastName','Salutation',
+  'Phone','Type','Email','StreetNum','StreetName','AddressLine2',
+  'City','State','Zip','Instructions/Comments',
+  'Prospect Source Category','Prospect Source','CampaignId',
 ];
 
-function buildRow(lead, user) {
+const STANDARD_HEADERS = [
+  'Business Name','First Name','Last Name','Phone','Email',
+  'Street Number','Street Name','Address Line 2','City','State','Zip',
+  'Status','Property Type','Vertical','Capture Method','Notes',
+];
+
+function buildTemplateRow(lead, user) {
+  const safe = applyRequiredPlaceholders(normalizeLead(lead));
   return [
-    user.employeeNum,     // A
-    user.branchNum,       // B ★
-    '',                   // C
-    lead.status,          // D ★
-    '',                   // E
-    lead.propertyType,    // F ★
-    lead.businessName,    // G ★
-    lead.pocFirst,        // H ★
-    lead.pocLast,         // I ★
-    '',                   // J
-    lead.phone,           // K
-    '',                   // L
-    lead.email,           // M
-    lead.streetNumber,    // N
-    lead.streetName,      // O
-    lead.addressLine2,    // P
-    lead.city,            // Q
-    lead.state,           // R
-    lead.zip,             // S ★
-    '',                   // T
-    '',                   // U
-    '',                   // V
-    '',                   // W
+    user.employeeNum, user.branchNum, '', safe.status, '',
+    safe.propertyType, safe.businessName, safe.pocFirst, safe.pocLast, '',
+    safe.phone, '', safe.email, safe.streetNumber, safe.streetName, safe.addressLine2,
+    safe.city, safe.state, safe.zip, '', '', '', '',
   ];
 }
 
-export async function exportLeadsToXLSX(leads, user) {
-  const rows = leads.map((l) => buildRow(l, user));
-  const ws = utils.aoa_to_sheet([HEADERS, ...rows]);
+function buildStandardRow(lead) {
+  const safe = applyRequiredPlaceholders(normalizeLead(lead));
+  return [
+    safe.businessName, safe.pocFirst, safe.pocLast, safe.phone, safe.email,
+    safe.streetNumber, safe.streetName, safe.addressLine2, safe.city, safe.state, safe.zip,
+    safe.status, safe.propertyType, safe.vertical || '', safe.captureMethod || '', safe.notes || '',
+  ];
+}
 
-  // Column widths
-  ws['!cols'] = HEADERS.map((h) => ({ wch: Math.max(h.length + 2, 12) }));
-
+function buildWorkbook(leads, user, options = {}) {
+  const mode = options.mode || 'template';
   const wb = utils.book_new();
+  if (mode === 'standard') {
+    const ws = utils.aoa_to_sheet([STANDARD_HEADERS, ...leads.map(buildStandardRow)]);
+    ws['!cols'] = STANDARD_HEADERS.map((h) => ({ wch: Math.max(h.length + 2, 14) }));
+    utils.book_append_sheet(wb, ws, 'LeadLens Export');
+    return wb;
+  }
+
+  if (mode === 'custom' && options.templateUri && options.mapping) {
+    const templateB64 = options.templateBase64 || '';
+    const templateWb = templateB64 ? read(templateB64, { type: 'base64' }) : utils.book_new();
+    const wsName = templateWb.SheetNames[0] || 'Export';
+    const ws = templateWb.Sheets[wsName] || utils.aoa_to_sheet([[]]);
+    const startRow = Number(options.startRow || 2);
+    leads.forEach((lead, idx) => {
+      const safe = applyRequiredPlaceholders(normalizeLead(lead));
+      Object.entries(options.mapping).forEach(([column, field]) => {
+        const cell = `${column}${startRow + idx}`;
+        ws[cell] = { t: 's', v: safe[field] || '' };
+      });
+    });
+    templateWb.Sheets[wsName] = ws;
+    return templateWb;
+  }
+
+  const ws = utils.aoa_to_sheet([TEMPLATE_HEADERS, ...leads.map((lead) => buildTemplateRow(lead, user))]);
+  ws['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(h.length + 2, 12) }));
   utils.book_append_sheet(wb, ws, 'Sales Module Import Template');
+  return wb;
+}
 
-  // Write as base64
+export async function buildXlsxUri(leads, user, options = {}) {
+  const wb = buildWorkbook(leads, user, options);
   const b64 = write(wb, { type: 'base64', bookType: 'xlsx' });
-
   const date = new Date().toISOString().slice(0, 10);
   const filename = `LeadLens_Export_${date}.xlsx`;
   const fileUri = FileSystem.cacheDirectory + filename;
-
   await FileSystem.writeAsStringAsync(fileUri, b64, {
     encoding: FileSystem.EncodingType.Base64,
   });
+  return fileUri;
+}
 
+export async function exportLeadsToXLSX(leads, user, options = {}) {
+  const fileUri = await buildXlsxUri(leads, user, options);
   const canShare = await Sharing.isAvailableAsync();
-  if (canShare) {
-    await Sharing.shareAsync(fileUri, {
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      dialogTitle: 'Save or share your lead export',
-      UTI: 'com.microsoft.excel.xlsx',
-    });
-  } else {
-    throw new Error('Sharing not available on this device.');
-  }
+  if (!canShare) throw new Error('Sharing not available on this device.');
+  await Sharing.shareAsync(fileUri, {
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    dialogTitle: 'Save or share your lead export',
+    UTI: 'com.microsoft.excel.xlsx',
+  });
+  return fileUri;
 }

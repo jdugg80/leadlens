@@ -1,0 +1,27 @@
+LeadLens Stage 8 Update
+
+Version: 1.8.0
+
+Included in this patch:
+- New ManagerDashboardScreen for Branch Managers and Regional Managers
+- DashboardScreen now routes BM/RM users to the manager analytics view
+- KPI cards, filters, trend chart, branch comparison, rep rollups, status breakdown, vertical breakdown, and recent activity sections
+- Privacy Policy refreshed to reflect support attachments, auth options, management visibility, and storefront scan/debug handling
+- Terms of Use refreshed to reflect role-based visibility, support submissions, auth/account access, and automated workflows
+- Legal versions bumped to 1.1
+- Commercial-only property type cleanup reinforced in leadHelpers
+
+Files included:
+- src/screens/DashboardScreen.js
+- src/screens/ManagerDashboardScreen.js
+- src/constants/index.js
+- src/utils/leadHelpers.js
+
+Apply these files over the matching files in your LeadLens_v1.8.0_STAGE8_DEV folder, then run:
+- npm install
+- npx expo start -c
+
+Test with:
+- Account Manager
+- Branch Manager
+- Regional Manager

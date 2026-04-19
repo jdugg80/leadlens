@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -12,6 +12,12 @@ import ManualEntryScreen from './src/screens/ManualEntryScreen';
 import ReviewScreen from './src/screens/ReviewScreen';
 import ExportScreen from './src/screens/ExportScreen';
 import AdminScreen from './src/screens/AdminScreen';
+import BatchReviewScreen from './src/screens/BatchReviewScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
+import ConsentScreen from './src/screens/ConsentScreen';
+import FAQScreen from './src/screens/FAQScreen';
+import SupportScreen from './src/screens/SupportScreen';
+import LegalDocumentScreen from './src/screens/LegalDocumentScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -32,7 +38,7 @@ export default function App() {
     Animated.sequence([
       Animated.timing(flashAnim, { toValue: 0, duration: 350, useNativeDriver: true }),
     ]).start();
-  }, []);
+  }, [flashAnim]);
 
   const onStateChange = useCallback(() => {
     triggerFlash();
@@ -56,6 +62,13 @@ export default function App() {
           <Stack.Screen name="Capture" component={CaptureScreen} />
           <Stack.Screen name="ManualEntry" component={ManualEntryScreen} />
           <Stack.Screen name="Review" component={ReviewScreen} />
+          <Stack.Screen name="BatchReview" component={BatchReviewScreen} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="AutomationSettings" component={SettingsScreen} />
+          <Stack.Screen name="Consent" component={ConsentScreen} />
+          <Stack.Screen name="FAQ" component={FAQScreen} />
+          <Stack.Screen name="Support" component={SupportScreen} />
+          <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} />
           <Stack.Screen name="Export" component={ExportScreen} />
           <Stack.Screen name="Admin" component={AdminScreen} />
         </Stack.Navigator>

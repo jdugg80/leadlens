@@ -1,33 +1,66 @@
 import { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { read, utils } from 'xlsx';
-import { COLORS, EMPTY_LEAD, STATUS_OPTIONS, PROPERTY_TYPES } from '../constants';
-import { ScreenHeader } from '../components/UI';
+import { COLORS, EMPTY_LEAD, STOREFRONT_SCAN_HISTORY_KEY, STOREFRONT_SCAN_LIMIT } from '../constants';
+import { ScreenHeader, Card, SectionLabel } from '../components/UI';
 import AILoader from '../components/AILoader';
-import { extractLeadFromImage, enrichLead } from '../utils/claudeApi';
-import { getCurrentCoords, geocodeBusinessNearby } from '../utils/geoEnrich';
+import { extractLeadsWithDebugFromImage, enrichLead } from '../utils/claudeApi';
+import { getCurrentCoords, geocodeBusinessNearby, reverseGeocodeCoords } from '../utils/geoEnrich';
+import { findDuplicateInLeads, inferVertical, normalizeLead } from '../utils/leadHelpers';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LEADS_STORAGE_KEY } from '../constants';
 
 const SAFE_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+const normalizeHeader = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const HEADER_ALIASES = {
+  businessName: ['businessname', 'companyname', 'accountname', 'name'],
+  pocFirst: ['firstname', 'contactfirstname', 'pocfirstname'],
+  pocLast: ['lastname', 'contactlastname', 'poclastname'],
+  phone: ['phone', 'companyhqphone', 'companyphone', 'telephone'],
+  email: ['email', 'contactemail', 'companyemail'],
+  streetAddress: ['companystreetaddress', 'streetaddress', 'address'],
+  city: ['companycity', 'city'],
+  state: ['companystate', 'state'],
+  zip: ['companyzipcode', 'zipcode', 'zip', 'postalcode'],
+};
+
+function splitStreetAddress(address = '') {
+  const cleaned = String(address).trim();
+  const match = cleaned.match(/^(\d+)\s+(.*)$/);
+  if (!match) return { streetNumber: '', streetName: cleaned };
+  return { streetNumber: match[1], streetName: match[2] };
+}
+
+function getMappedValue(row, aliases = []) {
+  for (const [header, value] of Object.entries(row)) {
+    if (aliases.includes(normalizeHeader(header)) && value) return String(value).trim();
+  }
+  return '';
+}
 
 export default function CaptureScreen({ navigation, route }) {
   const { user } = route.params;
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
 
-  // ── Camera helpers ──
   const openCamera = async (quality = 0.75) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Camera permission required'); return null; }
+    if (status !== 'granted') {
+      Alert.alert('Camera permission required');
+      return null;
+    }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality, allowsEditing: false, base64: false,
+      quality,
+      allowsEditing: false,
+      base64: false,
     });
     return result.canceled ? null : result.assets[0];
   };
@@ -36,274 +69,288 @@ export default function CaptureScreen({ navigation, route }) {
     const b64 = await FileSystem.readAsStringAsync(asset.uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    const mime = SAFE_MIMES.includes((asset.mimeType || '').toLowerCase())
-      ? asset.mimeType : 'image/jpeg';
+    const mime = SAFE_MIMES.includes((asset.mimeType || '').toLowerCase()) ? asset.mimeType : 'image/jpeg';
     return { b64, mime };
   };
 
-  // ── Single photo capture ──
-  const handleSingleCapture = async (quality, isStorefront = false) => {
-    // For storefront: grab GPS before opening camera
-    let coords = null;
-    if (isStorefront) {
-      setProcessingMsg('Getting your location...');
-      coords = await getCurrentCoords();
-    }
-    const asset = await openCamera(quality);
-    if (!asset) return;
-    await processAssets([asset], isStorefront ? coords : null);
-  };
-
-  // ── Front + back card capture ──
-  const handleCardCapture = async () => {
-    Alert.alert(
-      'Business Card',
-      'Does the card have information on both sides?',
-      [
-        { text: 'Front only', onPress: async () => { const a = await openCamera(0.65); if (a) await processAssets([a]); } },
-        { text: 'Front & Back', onPress: handleFrontBack },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
-  const handleFrontBack = async () => {
-    Alert.alert('Step 1 of 2', 'Take a photo of the FRONT of the card');
-    const front = await openCamera(0.65);
-    if (!front) return;
-    Alert.alert('Step 2 of 2', 'Now take a photo of the BACK of the card');
-    const back = await openCamera(0.65);
-    if (!back) return;
-    await processAssets([front, back]);
-  };
-
-  // ── Gallery ──
-  const openGallery = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Photo library permission required'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85, allowsEditing: false, base64: false,
-    });
-    if (!result.canceled) await processAssets([result.assets[0]]);
-  };
-
-  // ── Process one or two images ──
-  const processAssets = async (assets, coords = null) => {
+  const processAssets = async (assets, coords = null, sourceType = 'image') => {
     setProcessing(true);
     try {
-      let merged = {};
+      const queueRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+      const queue = queueRaw ? JSON.parse(queueRaw) : [];
+      const historyRaw = await AsyncStorage.getItem(STOREFRONT_SCAN_HISTORY_KEY);
+      const history = historyRaw ? JSON.parse(historyRaw) : [];
+      const collected = [];
+      const reverseGeo = sourceType === 'storefront' && coords ? await reverseGeocodeCoords(coords) : null;
 
-      for (let i = 0; i < assets.length; i++) {
-        setProcessingMsg(assets.length > 1
-          ? `Reading ${i === 0 ? 'front' : 'back'} of card...`
-          : 'AI is reading the image...');
+      for (let i = 0; i < assets.length; i += 1) {
+        setProcessingMsg(assets.length > 1 ? `Reading image ${i + 1} of ${assets.length}...` : 'AI is reading the image...');
         const { b64, mime } = await readAsset(assets[i]);
-        const extracted = await extractLeadFromImage(b64, mime);
-        for (const [k, v] of Object.entries(extracted)) {
-          if (v && !merged[k]) merged[k] = v;
-        }
-      }
+        const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime);
+        const extractedLeads = debugExtraction.leads || [];
 
-      // Geo enrichment for storefront — fill missing address using GPS + business name
-      if (coords && merged.businessName) {
-        setProcessingMsg('Finding address from location...');
-        const geoData = await geocodeBusinessNearby(merged.businessName, coords);
-        if (geoData) {
-          // Only fill fields that are missing from photo extraction
-          for (const [k, v] of Object.entries(geoData)) {
-            if (v && !merged[k] && k !== '_geoSource') merged[k] = v;
+        for (const rawLead of extractedLeads) {
+          let normalized = normalizeLead({ ...EMPTY_LEAD, ...rawLead, captureMethod: sourceType, imageUri: assets[i].uri, propertyType: 'Commercial' });
+          normalized.locationSource = sourceType === 'storefront' ? 'ocr-only' : normalized.locationSource;
+
+          if (sourceType === 'storefront' && coords) {
+            const nearbyMatch = normalized.businessName ? await geocodeBusinessNearby(normalized.businessName, coords) : null;
+            if (nearbyMatch) {
+              normalized = normalizeLead({
+                ...normalized,
+                streetNumber: nearbyMatch.streetNumber || normalized.streetNumber,
+                streetName: nearbyMatch.streetName || normalized.streetName,
+                addressLine2: normalized.addressLine2,
+                city: nearbyMatch.city || normalized.city || reverseGeo?.city || '',
+                state: nearbyMatch.state || reverseGeo?.state || normalized.state,
+                zip: nearbyMatch.zip || reverseGeo?.zip || normalized.zip,
+                locationSource: 'nearby-business-match',
+                locationConfidence: nearbyMatch._matchConfidence || 'medium',
+                matchedDisplayName: nearbyMatch._geoDisplayName || '',
+                notes: [normalized.notes, `Storefront geo match: ${nearbyMatch._geoDisplayName || nearbyMatch._geoSource || 'OpenStreetMap'}`].filter(Boolean).join(' | '),
+              });
+            } else if (reverseGeo) {
+              normalized = normalizeLead({
+                ...normalized,
+                city: normalized.city || reverseGeo.city,
+                state: reverseGeo.state || normalized.state,
+                zip: normalized.zip || reverseGeo.zip,
+                locationSource: 'reverse-geocode',
+                locationConfidence: reverseGeo._matchConfidence || 'medium',
+                matchedDisplayName: reverseGeo._geoDisplayName || '',
+                notes: [normalized.notes, 'Storefront location inferred from device GPS'].filter(Boolean).join(' | '),
+              });
+            }
           }
+
+          const missing = ['phone', 'email'].some((key) => !normalized[key]);
+          if (missing && normalized.businessName) {
+            normalized = normalizeLead(await enrichLead(normalized));
+          }
+
+          if (sourceType === 'storefront' && coords) {
+            normalized.captureLat = coords.latitude;
+            normalized.captureLng = coords.longitude;
+            normalized.ocrSummary = debugExtraction.ocrSummary || '';
+            normalized.state = reverseGeo?.state || normalized.state;
+            normalized.storefrontCapturedAt = new Date().toISOString();
+            if (!normalized.streetNumber && !normalized.streetName) {
+              normalized.locationNeedsReview = true;
+              normalized.locationConfidence = normalized.locationConfidence || 'low';
+              normalized.notes = [normalized.notes, 'Storefront address needs review'].filter(Boolean).join(' | ');
+            }
+          }
+
+          const inferred = inferVertical(normalized);
+          normalized.vertical = inferred.vertical;
+          normalized.propertyType = 'Commercial';
+          normalized.reviewed = false;
+          const duplicate = findDuplicateInLeads(normalized, [...queue, ...collected]);
+          if (duplicate) {
+            normalized.duplicateWarning = `${duplicate.confidence === 'high' ? 'Likely duplicate' : 'Possible duplicate'}: ${duplicate.reason}`;
+          }
+          collected.push(normalized);
+        }
+
+        if (sourceType === 'storefront') {
+          history.unshift({
+            id: `scan_${Date.now()}_${i}`,
+            imageUri: assets[i].uri,
+            capturedAt: new Date().toISOString(),
+            captureLat: coords?.latitude || null,
+            captureLng: coords?.longitude || null,
+            reverseGeo,
+            ocrSummary: debugExtraction.ocrSummary || '',
+            resultCount: extractedLeads.length,
+            matchedAddress: [collected[collected.length - 1]?.streetNumber, collected[collected.length - 1]?.streetName].filter(Boolean).join(' '),
+            state: collected[collected.length - 1]?.state || reverseGeo?.state || '',
+            locationConfidence: collected[collected.length - 1]?.locationConfidence || 'low',
+          });
         }
       }
 
-      // AI enrichment pass for any remaining missing fields
-      const hasMissing = ['pocFirst', 'pocLast', 'phone', 'email', 'streetNumber', 'city'].some(k => !merged[k]);
-      if (hasMissing && merged.businessName) {
-        setProcessingMsg('Enriching missing fields...');
-        merged = await enrichLead(merged);
+      if (sourceType === 'storefront') {
+        await AsyncStorage.setItem(STOREFRONT_SCAN_HISTORY_KEY, JSON.stringify(history.slice(0, STOREFRONT_SCAN_LIMIT || 25)));
       }
 
-      navigation.navigate('Review', {
+      if (!collected.length) {
+        throw new Error('No prospects were detected in that image.');
+      }
+
+      if (collected.length === 1) {
+        navigation.navigate('Review', { user, lead: collected[0], editIdx: null });
+        return;
+      }
+
+      navigation.navigate('BatchReview', {
         user,
-        lead: { ...EMPTY_LEAD, ...merged, captureMethod: 'image', imageUri: assets[0].uri },
-        editIdx: null,
+        leads: collected,
+        sourceLabel: assets.length > 1 ? 'Multi-image capture' : (sourceType === 'storefront' ? 'Storefront scan' : 'Single image scan'),
       });
     } catch (err) {
       Alert.alert('Extraction issue', err.message || 'Could not read image.');
-      navigation.navigate('Review', {
-        user,
-        lead: { ...EMPTY_LEAD, captureMethod: 'image', imageUri: assets[0].uri },
-        editIdx: null,
-      });
     } finally {
       setProcessing(false);
     }
   };
 
-  // ── Excel import ──
+  const handleSingleCapture = async (isStorefront = false) => {
+    let coords = null;
+    if (isStorefront) {
+      setProcessingMsg('Getting your location...');
+      coords = await getCurrentCoords();
+    }
+    const asset = await openCamera(isStorefront ? 0.8 : 0.7);
+    if (!asset) return;
+    await processAssets([asset], coords, isStorefront ? 'storefront' : 'image');
+  };
+
+  const handleCardCapture = async () => {
+    Alert.alert('Business Card', 'Does the card have information on both sides?', [
+      { text: 'Front only', onPress: async () => { const front = await openCamera(0.65); if (front) await processAssets([front]); } },
+      {
+        text: 'Front & Back', onPress: async () => {
+          Alert.alert('Step 1 of 2', 'Take a photo of the FRONT of the card');
+          const front = await openCamera(0.65);
+          if (!front) return;
+          Alert.alert('Step 2 of 2', 'Now take a photo of the BACK of the card');
+          const back = await openCamera(0.65);
+          if (!back) return;
+          await processAssets([front, back]);
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const openGallery = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Photo library permission required');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+      allowsEditing: false,
+      base64: false,
+    });
+    if (!result.canceled) await processAssets([result.assets[0]], null, 'image');
+  };
+
   const handleExcelImport = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-               'application/vnd.ms-excel', '*/*'],
+        type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel', '*/*'],
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
-
       setProcessing(true);
       setProcessingMsg('Reading Excel file...');
-
-      const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: FileSystem.EncodingType.Base64 });
       const wb = read(b64, { type: 'base64' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = utils.sheet_to_json(ws, { defval: '' });
+      const leads = rows.map((row) => {
+        const split = splitStreetAddress(getMappedValue(row, HEADER_ALIASES.streetAddress));
+        const base = normalizeLead({
+          ...EMPTY_LEAD,
+          businessName: getMappedValue(row, HEADER_ALIASES.businessName),
+          pocFirst: getMappedValue(row, HEADER_ALIASES.pocFirst),
+          pocLast: getMappedValue(row, HEADER_ALIASES.pocLast),
+          phone: getMappedValue(row, HEADER_ALIASES.phone),
+          email: getMappedValue(row, HEADER_ALIASES.email),
+          streetNumber: split.streetNumber,
+          streetName: split.streetName,
+          city: getMappedValue(row, HEADER_ALIASES.city),
+          state: getMappedValue(row, HEADER_ALIASES.state),
+          zip: getMappedValue(row, HEADER_ALIASES.zip),
+          captureMethod: 'excel-import',
+        });
+        const inferred = inferVertical(base);
+        return { ...base, ...inferred, reviewed: false };
+      }).filter((lead) => lead.businessName || lead.phone || lead.email);
 
-      if (!rows.length) { Alert.alert('No data found in file'); setProcessing(false); return; }
+      if (!leads.length) {
+        Alert.alert('No leads found', 'The spreadsheet did not contain recognizable prospect rows.');
+        return;
+      }
 
-      // Map Excel columns to lead fields (flexible header matching)
-      const col = (row, ...keys) => {
-        for (const k of keys) {
-          const found = Object.keys(row).find(h => h.toLowerCase().includes(k.toLowerCase()));
-          if (found && row[found]) return String(row[found]).trim();
-        }
-        return '';
-      };
-
-      const leads = rows.map(row => ({
-        ...EMPTY_LEAD,
-        businessName: col(row, 'business', 'company', 'name'),
-        pocFirst: col(row, 'first'),
-        pocLast: col(row, 'last'),
-        phone: col(row, 'phone', 'tel'),
-        email: col(row, 'email'),
-        streetNumber: col(row, 'streetnum', 'street num', 'st #'),
-        streetName: col(row, 'streetname', 'street name', 'address', 'street'),
-        addressLine2: col(row, 'line2', 'address2', 'suite'),
-        city: col(row, 'city'),
-        state: col(row, 'state'),
-        zip: col(row, 'zip', 'postal'),
-        status: col(row, 'status') || 'Suspect',
-        propertyType: col(row, 'property', 'type') || 'Commercial',
-        captureMethod: 'excel',
-        repName: user.repName,
-        employeeNum: user.employeeNum,
-        branchNum: user.branchNum,
-      }));
-
-      setProcessing(false);
-      Alert.alert(
-        `Import ${leads.length} leads?`,
-        `Found ${leads.length} rows in the file. Add them all to your queue?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: `Import ${leads.length}`,
-            onPress: async () => {
-              const raw = await AsyncStorage.getItem('@leadlens_leads');
-              const existing = raw ? JSON.parse(raw) : [];
-              await AsyncStorage.setItem('@leadlens_leads', JSON.stringify([...existing, ...leads]));
-              navigation.navigate('Dashboard', { user });
-            },
-          },
-        ]
-      );
+      navigation.navigate('BatchReview', {
+        user,
+        leads,
+        sourceLabel: 'Excel import',
+      });
     } catch (err) {
+      Alert.alert('Import failed', err.message || 'Could not read the spreadsheet.');
+    } finally {
       setProcessing(false);
-      Alert.alert('Import failed', err.message || 'Could not read Excel file.');
     }
   };
 
-  if (processing) {
-    return <AILoader message={processingMsg} />;
-  }
-
   return (
     <View style={s.root}>
-      <ScreenHeader title="Capture Lead" onBack={() => navigation.goBack()} />
-      <View style={s.wrap}>
+      <ScreenHeader title="Capture" onBack={() => navigation.goBack()} />
+      <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 36 }}>
+        <SectionLabel>Fast Capture</SectionLabel>
+        <Card>
+          <TouchableOpacity style={s.actionBtn} onPress={handleCardCapture}>
+            <Text style={s.actionTitle}>Business Card Scan</Text>
+            <Text style={s.actionSub}>Single card or front/back capture</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.actionBtn} onPress={() => handleSingleCapture(true)}>
+            <Text style={s.actionTitle}>Storefront Scan</Text>
+            <Text style={s.actionSub}>Captures GPS, keeps storefront scan evidence, and validates state/address from location</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.actionBtn} onPress={() => handleSingleCapture(false)}>
+            <Text style={s.actionTitle}>General Photo Scan</Text>
+            <Text style={s.actionSub}>Supports one or more prospects in a single image</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.actionBtn} onPress={openGallery}>
+            <Text style={s.actionTitle}>Choose From Gallery</Text>
+            <Text style={s.actionSub}>Import an existing photo or screenshot</Text>
+          </TouchableOpacity>
+        </Card>
 
-        <Text style={s.label}>CAMERA CAPTURE</Text>
+        <SectionLabel>Imports</SectionLabel>
+        <Card>
+          <TouchableOpacity style={s.actionBtn} onPress={handleExcelImport}>
+            <Text style={s.actionTitle}>Import Spreadsheet</Text>
+            <Text style={s.actionSub}>Review imported rows in Batch Review before saving</Text>
+          </TouchableOpacity>
+        </Card>
+      </ScrollView>
 
-        <TouchableOpacity style={s.btn} onPress={handleCardCapture} activeOpacity={0.75}>
-          <View style={[s.icon, { backgroundColor: 'rgba(0,201,255,0.12)' }]}>
-            <Text style={s.iconText}>💳</Text>
-          </View>
-          <View style={s.txt}>
-            <Text style={s.title}>Business Card / ID</Text>
-            <Text style={s.sub}>Single or front + back — option to capture both sides</Text>
-          </View>
-          <Text style={s.arrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={s.btn} onPress={() => handleSingleCapture(0.8, true)} activeOpacity={0.75}>
-          <View style={[s.icon, { backgroundColor: 'rgba(255,107,43,0.12)' }]}>
-            <Text style={s.iconText}>🏪</Text>
-          </View>
-          <View style={s.txt}>
-            <Text style={s.title}>Storefront / Sign</Text>
-            <Text style={s.sub}>Step back and capture the whole sign · Uses GPS to confirm address</Text>
-          </View>
-          <Text style={s.arrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={s.btn} onPress={openGallery} activeOpacity={0.75}>
-          <View style={[s.icon, { backgroundColor: 'rgba(0,229,160,0.12)' }]}>
-            <Text style={s.iconText}>🖼️</Text>
-          </View>
-          <View style={s.txt}>
-            <Text style={s.title}>Gallery / Screenshot</Text>
-            <Text style={s.sub}>Import a saved photo or screenshot</Text>
-          </View>
-          <Text style={s.arrow}>›</Text>
-        </TouchableOpacity>
-
-        <Text style={[s.label, { marginTop: 20 }]}>FILE IMPORT</Text>
-
-        <TouchableOpacity style={s.btn} onPress={handleExcelImport} activeOpacity={0.75}>
-          <View style={[s.icon, { backgroundColor: 'rgba(0,229,160,0.12)' }]}>
-            <Text style={s.iconText}>📊</Text>
-          </View>
-          <View style={s.txt}>
-            <Text style={s.title}>Import from Excel</Text>
-            <Text style={s.sub}>Import leads from a .xlsx spreadsheet file</Text>
-          </View>
-          <Text style={s.arrow}>›</Text>
-        </TouchableOpacity>
-
-        <View style={s.tipCard}>
-          <Text style={s.tipText}>
-            💡 AI will automatically try to enrich missing contact info after scanning
-          </Text>
+      {processing && (
+        <View style={s.loaderOverlay}>
+          <AILoader />
+          <ActivityIndicator size="large" color={COLORS.accent} style={{ marginTop: 14 }} />
+          <Text style={s.loaderText}>{processingMsg || 'Working...'}</Text>
         </View>
-      </View>
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
-  wrap: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
-  label: {
-    fontSize: 11, fontWeight: '700', color: COLORS.muted,
-    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 16,
+  scroll: { flex: 1, paddingHorizontal: 16 },
+  actionBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface2,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
   },
-  btn: {
-    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
-    borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center',
-    gap: 14, marginBottom: 8,
+  actionTitle: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
+  actionSub: { color: COLORS.muted, fontSize: 12, marginTop: 4 },
+  loaderOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(13,15,20,0.96)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
-  icon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  iconText: { fontSize: 26 },
-  txt: { flex: 1 },
-  title: { fontSize: 15, fontWeight: '700', color: COLORS.text },
-  sub: { fontSize: 12, color: COLORS.muted, marginTop: 3, lineHeight: 16 },
-  arrow: { fontSize: 22, color: COLORS.muted },
-  tipCard: {
-    backgroundColor: 'rgba(0,201,255,0.05)', borderWidth: 1,
-    borderColor: 'rgba(0,201,255,0.15)', borderRadius: 12, padding: 14, marginTop: 8,
-  },
-  tipText: { fontSize: 12, color: COLORS.muted, lineHeight: 18 },
+  loaderText: { color: COLORS.text, marginTop: 12, textAlign: 'center' },
 });

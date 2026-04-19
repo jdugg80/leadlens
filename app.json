@@ -2,7 +2,7 @@
   "expo": {
     "name": "LeadLens",
     "slug": "leadlens",
-    "version": "1.0.0",
+    "version": "1.9.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -47,6 +47,7 @@
       "eas": {
         "projectId": "a479ffad-128e-455c-8148-7504f53b83e4"
       }
-    }
+    },
+    "scheme": "leadlens"
   }
 }

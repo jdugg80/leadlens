@@ -1,0 +1,31 @@
+LeadLens Stage 6 Real Patch
+Version: 1.6.0
+
+Included in this patch:
+- Property type locked to Commercial throughout the app
+- New consent gate after splash / login when legal docs have not been accepted
+- New Privacy Policy screen
+- New Terms of Use screen
+- New FAQ screen
+- New Support & Feedback screen
+- Dashboard shortcuts for FAQ and Support
+- Splash version updated to v1.6.0
+
+Files changed:
+- App.js
+- src/constants/index.js
+- src/screens/SplashScreen.js
+- src/screens/LoginScreen.js
+- src/screens/DashboardScreen.js
+- src/screens/ReviewScreen.js
+- src/screens/ConsentScreen.js
+- src/screens/LegalDocumentScreen.js
+- src/screens/FAQScreen.js
+- src/screens/SupportScreen.js
+- src/utils/leadProcessing.js
+- src/utils/leadHelpers.js
+
+Notes:
+- This patch does not complete a full Supabase master-record migration.
+- Support uses the device mail composer and attempts to include selected screenshot/video attachments.
+- Legal acceptance is stored locally with the current privacy/terms versions.

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Animated, Dimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { COLORS, USER_STORAGE_KEY } from '../constants';
+import { APP_VERSION, COLORS, LEGAL_ACCEPTANCE_KEY, PRIVACY_POLICY_VERSION, TERMS_VERSION, USER_STORAGE_KEY } from '../constants';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
@@ -23,15 +23,30 @@ export default function SplashScreen({ navigation }) {
   }, []);
 
   const handleEnter = async () => {
-    const raw = await AsyncStorage.getItem(USER_STORAGE_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw);
+    const [rawUser, rawLegal] = await Promise.all([
+      AsyncStorage.getItem(USER_STORAGE_KEY),
+      AsyncStorage.getItem(LEGAL_ACCEPTANCE_KEY),
+    ]);
+
+    let legalAccepted = false;
+    if (rawLegal) {
+      try {
+        const parsed = JSON.parse(rawLegal);
+        legalAccepted = parsed?.privacyVersion === PRIVACY_POLICY_VERSION && parsed?.termsVersion === TERMS_VERSION;
+      } catch {}
+    }
+
+    if (rawUser) {
+      const saved = JSON.parse(rawUser);
       if (saved.repName && saved.employeeNum && saved.branchNum) {
-        navigation.replace('Dashboard', { user: saved });
+        if (legalAccepted) navigation.replace('Dashboard', { user: saved });
+        else navigation.replace('Consent', { user: saved });
         return;
       }
     }
-    navigation.replace('Login');
+
+    if (legalAccepted) navigation.replace('Login');
+    else navigation.replace('Consent');
   };
 
   return (
@@ -54,7 +69,7 @@ export default function SplashScreen({ navigation }) {
           <Text style={s.enterBtnText}>TAP TO ENTER</Text>
           <Text style={s.enterBtnArrow}>→</Text>
         </TouchableOpacity>
-        <Text style={s.version}>v1.0 · LeadLens</Text>
+        <Text style={s.version}>v{APP_VERSION} · LeadLens</Text>
       </Animated.View>
     </View>
   );

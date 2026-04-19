@@ -1,0 +1,33 @@
+LeadLens Stage 5.1 Hotfix
+
+This hotfix restores the merged Settings experience and preserves Stage 4/5 behavior.
+
+Included:
+- Settings screen merged back together
+  - session/sign out
+  - outreach email/text templates
+  - auto intro toggle
+  - default export mode
+  - scheduled auto export settings
+  - Supabase/backend settings
+  - queue tools
+- Queue tools added
+  - visible queue count
+  - clear queue action
+- Settings route restored
+- AutomationSettings route now points to the same merged Settings screen
+- Review screen uses saved outreach templates again
+- Duplicate warning logic preserved in Review
+- Constants restored for both old and new settings keys
+- templateSettings utility restored
+
+Files included:
+- App.js
+- src/constants/index.js
+- src/screens/DashboardScreen.js
+- src/screens/SettingsScreen.js
+- src/screens/AutomationSettingsScreen.js
+- src/screens/ReviewScreen.js
+- src/utils/templateSettings.js
+
+Apply over your current Stage 5 project, then rebuild.
