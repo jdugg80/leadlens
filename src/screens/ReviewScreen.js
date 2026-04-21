@@ -127,13 +127,16 @@ export default function ReviewScreen({ navigation, route }) {
         )}
 
 
-        {(lead.locationSource || lead.locationNeedsReview || lead.ocrSummary) && (
+        {(lead.locationSource || lead.locationNeedsReview || lead.ocrSummary || (lead.reviewLabels || []).length) && (
           <Card>
-            <Text style={s.infoTitle}>Storefront Scan Details</Text>
+            <Text style={s.infoTitle}>Capture Intelligence</Text>
+            {(lead.reviewLabels || []).length > 0 && <Text style={s.infoText}>Labels: {(lead.reviewLabels || []).join(' • ')}</Text>}
+            {!!lead.captureSourceType && <Text style={s.infoText}>Source-aware type: {lead.captureSourceType}</Text>}
             {!!lead.locationSource && <Text style={s.infoText}>Location source: {lead.locationSource}</Text>}
             {!!lead.locationConfidence && <Text style={s.infoText}>Confidence: {lead.locationConfidence}</Text>}
             {!!lead.matchedDisplayName && <Text style={s.infoText}>Matched place: {lead.matchedDisplayName}</Text>}
             {!!lead.locationNeedsReview && <Text style={s.infoWarn}>Needs Review: address or state should be confirmed before relying on this lead.</Text>}
+            {(lead.reviewWarnings || []).map((warning, idx) => <Text key={idx} style={s.infoWarn}>{warning}</Text>)}
             {!!lead.ocrSummary && <Text style={s.infoText}>OCR clues: {lead.ocrSummary}</Text>}
           </Card>
         )}

@@ -104,7 +104,7 @@ export const DEFAULT_EXPORT_SETTINGS = {
   mode: EXPORT_MODES.SALES_TEMPLATE,
 };
 
-export const APP_VERSION = '1.9.0';
+export const APP_VERSION = '1.12.0';
 export const PRIVACY_POLICY_VERSION = '1.1';
 export const TERMS_VERSION = '1.1';
 export const SUPPORT_EMAIL = 'theokaymediafam@gmail.com';

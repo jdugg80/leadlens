@@ -109,10 +109,12 @@ export default function BatchReviewScreen({ navigation, route }) {
             )}
 
 
-            {(lead.locationSource || lead.locationNeedsReview) && (
+            {((lead.reviewLabels || []).length > 0 || lead.locationSource || lead.locationNeedsReview) && (
               <View style={s.warningBox}>
-                <Text style={s.warningText}>Storefront location: {lead.locationSource || 'capture'} · Confidence: {lead.locationConfidence || 'low'}</Text>
+                {(lead.reviewLabels || []).length > 0 && <Text style={s.warningText}>Labels: {(lead.reviewLabels || []).join(' • ')}</Text>}
+                <Text style={s.warningText}>Location: {lead.locationSource || 'capture'} · Confidence: {lead.locationConfidence || lead.confidence || 'low'}</Text>
                 {!!lead.locationNeedsReview && <Text style={s.keepAnyway}>Address needs review before save</Text>}
+                {(lead.reviewWarnings || []).map((warning, idx) => <Text key={idx} style={s.keepAnyway}>{warning}</Text>)}
               </View>
             )}
 

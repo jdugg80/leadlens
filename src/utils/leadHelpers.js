@@ -85,14 +85,14 @@ export function findDuplicateInLeads(candidate, leads = []) {
   const candidatePhone = String(normalizedCandidate.phone || '').replace(/\D/g, '');
   const candidateEmail = normalizeEmail(normalizedCandidate.email);
   const candidateBusiness = normalizedComparable(normalizedCandidate.businessName);
-  const candidateAddress = normalizedComparable(`${normalizedCandidate.streetNumber} ${normalizedCandidate.streetName} ${normalizedCandidate.city} ${normalizedCandidate.state} ${normalizedCandidate.zip}`);
+  const candidateAddress = normalizedComparable(`${normalizedCandidate.streetNumber} ${normalizedCandidate.streetName} ${normalizedCandidate.addressLine2} ${normalizedCandidate.city} ${normalizedCandidate.state} ${normalizedCandidate.zip}`);
 
   for (let i = 0; i < leads.length; i += 1) {
     const existing = normalizeLead(leads[i]);
     const existingPhone = String(existing.phone || '').replace(/\D/g, '');
     const existingEmail = normalizeEmail(existing.email);
     const existingBusiness = normalizedComparable(existing.businessName);
-    const existingAddress = normalizedComparable(`${existing.streetNumber} ${existing.streetName} ${existing.city} ${existing.state} ${existing.zip}`);
+    const existingAddress = normalizedComparable(`${existing.streetNumber} ${existing.streetName} ${existing.addressLine2} ${existing.city} ${existing.state} ${existing.zip}`);
 
     let score = 0;
     const reasons = [];
@@ -108,21 +108,33 @@ export function findDuplicateInLeads(candidate, leads = []) {
     if (candidateBusiness && existingBusiness && candidateBusiness === existingBusiness) {
       score += 35;
       reasons.push('same business');
+    } else if (candidateBusiness && existingBusiness && (candidateBusiness.includes(existingBusiness) || existingBusiness.includes(candidateBusiness))) {
+      score += 20;
+      reasons.push('similar business');
     }
     if (candidateAddress && existingAddress && candidateAddress === existingAddress) {
       score += 35;
       reasons.push('same address');
+    } else if (candidateAddress && existingAddress && (candidateAddress.includes(existingAddress) || existingAddress.includes(candidateAddress))) {
+      score += 15;
+      reasons.push('similar address');
     }
-    if (candidateBusiness && existingBusiness && candidateBusiness === existingBusiness && candidateAddress && existingAddress && candidateAddress === existingAddress) {
-      score += 20;
+    if (normalizedCandidate.streetNumber && existing.streetNumber && normalizedCandidate.streetNumber === existing.streetNumber && normalizedCandidate.streetName && existing.streetName && normalizedComparable(normalizedCandidate.streetName) === normalizedComparable(existing.streetName)) {
+      score += 15;
+      if (!reasons.includes('same address')) reasons.push('same street');
+    }
+    if (normalizedCandidate.addressLine2 && existing.addressLine2 && normalizedComparable(normalizedCandidate.addressLine2) === normalizedComparable(existing.addressLine2)) {
+      score += 10;
+      reasons.push('same suite');
     }
 
-    if (score >= 70) {
+    if (score >= 65) {
       return {
         index: i,
         existing,
         reason: reasons.join(', '),
-        confidence: score >= 95 ? 'high' : 'medium',
+        confidence: score >= 95 ? 'high' : score >= 80 ? 'medium' : 'low',
+        score,
       };
     }
   }

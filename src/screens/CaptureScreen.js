@@ -13,6 +13,7 @@ import AILoader from '../components/AILoader';
 import { extractLeadsWithDebugFromImage, enrichLead } from '../utils/claudeApi';
 import { getCurrentCoords, geocodeBusinessNearby, reverseGeocodeCoords } from '../utils/geoEnrich';
 import { findDuplicateInLeads, inferVertical, normalizeLead } from '../utils/leadHelpers';
+import { annotateLeadForReview, expandCandidatesFromOcrSummary, buildDuplicateBadge } from '../utils/captureIntelligence';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LEADS_STORAGE_KEY } from '../constants';
 
@@ -87,16 +88,16 @@ export default function CaptureScreen({ navigation, route }) {
         setProcessingMsg(assets.length > 1 ? `Reading image ${i + 1} of ${assets.length}...` : 'AI is reading the image...');
         const { b64, mime } = await readAsset(assets[i]);
         const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime);
-        const extractedLeads = debugExtraction.leads || [];
+        const extractedLeads = (debugExtraction.leads?.length ? debugExtraction.leads : expandCandidatesFromOcrSummary(debugExtraction.ocrSummary, sourceType)) || [];
 
         for (const rawLead of extractedLeads) {
-          let normalized = normalizeLead({ ...EMPTY_LEAD, ...rawLead, captureMethod: sourceType, imageUri: assets[i].uri, propertyType: 'Commercial' });
+          let normalized = annotateLeadForReview({ ...EMPTY_LEAD, ...rawLead, captureMethod: sourceType, imageUri: assets[i].uri, propertyType: 'Commercial', ocrSummary: debugExtraction.ocrSummary || '' }, sourceType);
           normalized.locationSource = sourceType === 'storefront' ? 'ocr-only' : normalized.locationSource;
 
           if (sourceType === 'storefront' && coords) {
             const nearbyMatch = normalized.businessName ? await geocodeBusinessNearby(normalized.businessName, coords) : null;
             if (nearbyMatch) {
-              normalized = normalizeLead({
+              normalized = annotateLeadForReview({
                 ...normalized,
                 streetNumber: nearbyMatch.streetNumber || normalized.streetNumber,
                 streetName: nearbyMatch.streetName || normalized.streetName,
@@ -110,7 +111,7 @@ export default function CaptureScreen({ navigation, route }) {
                 notes: [normalized.notes, `Storefront geo match: ${nearbyMatch._geoDisplayName || nearbyMatch._geoSource || 'OpenStreetMap'}`].filter(Boolean).join(' | '),
               });
             } else if (reverseGeo) {
-              normalized = normalizeLead({
+              normalized = annotateLeadForReview({
                 ...normalized,
                 city: normalized.city || reverseGeo.city,
                 state: reverseGeo.state || normalized.state,
@@ -125,7 +126,7 @@ export default function CaptureScreen({ navigation, route }) {
 
           const missing = ['phone', 'email'].some((key) => !normalized[key]);
           if (missing && normalized.businessName) {
-            normalized = normalizeLead(await enrichLead(normalized));
+            normalized = annotateLeadForReview(await enrichLead(normalized), sourceType);
           }
 
           if (sourceType === 'storefront' && coords) {
@@ -134,6 +135,7 @@ export default function CaptureScreen({ navigation, route }) {
             normalized.ocrSummary = debugExtraction.ocrSummary || '';
             normalized.state = reverseGeo?.state || normalized.state;
             normalized.storefrontCapturedAt = new Date().toISOString();
+            normalized = annotateLeadForReview(normalized, sourceType);
             if (!normalized.streetNumber && !normalized.streetName) {
               normalized.locationNeedsReview = true;
               normalized.locationConfidence = normalized.locationConfidence || 'low';
@@ -147,7 +149,8 @@ export default function CaptureScreen({ navigation, route }) {
           normalized.reviewed = false;
           const duplicate = findDuplicateInLeads(normalized, [...queue, ...collected]);
           if (duplicate) {
-            normalized.duplicateWarning = `${duplicate.confidence === 'high' ? 'Likely duplicate' : 'Possible duplicate'}: ${duplicate.reason}`;
+            normalized.duplicateWarning = buildDuplicateBadge(duplicate);
+            normalized.reviewLabels = Array.from(new Set([...(normalized.reviewLabels || []), 'Possible duplicate']));
           }
           collected.push(normalized);
         }
@@ -162,6 +165,7 @@ export default function CaptureScreen({ navigation, route }) {
             reverseGeo,
             ocrSummary: debugExtraction.ocrSummary || '',
             resultCount: extractedLeads.length,
+            sourceType,
             matchedAddress: [collected[collected.length - 1]?.streetNumber, collected[collected.length - 1]?.streetName].filter(Boolean).join(' '),
             state: collected[collected.length - 1]?.state || reverseGeo?.state || '',
             locationConfidence: collected[collected.length - 1]?.locationConfidence || 'low',
