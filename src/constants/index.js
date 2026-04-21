@@ -104,6 +104,14 @@ export const DEFAULT_EXPORT_SETTINGS = {
   mode: EXPORT_MODES.SALES_TEMPLATE,
 };
 
+export const DEFAULT_BACKEND_EMAIL_SETTINGS = {
+  enabled: true,
+  endpoint: 'https://okayestmedia.netlify.app/.netlify/functions/send-email',
+  recipient: '',
+  subject: 'LeadLens Export',
+  htmlBody: '<strong>Your LeadLens export is ready.</strong>',
+};
+
 export const APP_VERSION = '1.12.0';
 export const PRIVACY_POLICY_VERSION = '1.1';
 export const TERMS_VERSION = '1.1';

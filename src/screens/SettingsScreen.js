@@ -34,6 +34,33 @@ import { maybeRunAutoExport } from '../utils/autoExport';
 import { createSupabaseClient } from '../utils/supabaseClient';
 import { queueScheduledExport, syncQueueToSupabase } from '../utils/backendSync';
 
+import { sendBackendEmail } from '../utils/backendEmail';
+
+async function handleTestBackendEmail(settings) {
+  try {
+    if (!settings?.endpoint || !settings?.recipient) {
+      Alert.alert(
+        'Missing Backend Email Settings',
+        'Please add a backend endpoint and recipient email first.'
+      );
+      return;
+    }
+
+    await sendBackendEmail({
+      endpoint: settings.endpoint,
+      to: settings.recipient,
+      subject: settings.subject || 'LeadLens Test Email',
+      html:
+        settings.htmlBody ||
+        '<strong>This is a LeadLens backend email test.</strong>',
+      text: 'This is a LeadLens backend email test.',
+    });
+
+    Alert.alert('Success', 'Backend email sent successfully.');
+  } catch (error) {
+    Alert.alert('Backend Email Failed', error?.message || 'Unknown error');
+  }
+}
 const DAYS = [
   { value: 1, label: 'Mon' },
   { value: 2, label: 'Tue' },
@@ -75,6 +102,21 @@ const DEFAULT_AUTOMATION = {
   clearAfterSend: false,
 };
 
+
+const BACKEND_EMAIL_SETTINGS_KEY = 'BACKEND_EMAIL_SETTINGS';
+
+const DEFAULT_BACKEND_EMAIL = {
+  enabled: true,
+  endpoint: 'https://okayestmedia.netlify.app/.netlify/functions/send-email',
+  recipient: '',
+  subject: 'LeadLens Export',
+  htmlBody: '<strong>Your LeadLens export is ready.</strong>',
+};
+
+const [backendEmail, setBackendEmail] = useState(DEFAULT_BACKEND_EMAIL);
+const updateBackendEmail = (key, value) =>
+  setBackendEmail((prev) => ({ ...prev, [key]: value }));
+
 export default function SettingsScreen({ navigation, route }) {
   const { user } = route.params;
   const [templates, setTemplates] = useState(DEFAULT_INTRO_TEMPLATES);
@@ -89,6 +131,18 @@ export default function SettingsScreen({ navigation, route }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
+      const [rawBackendEmail, ...rest] = await Promise.all([
+  AsyncStorage.getItem(BACKEND_EMAIL_SETTINGS_KEY),
+  // keep the rest of your existing Promise.all items
+]);
+if (rawBackendEmail) {
+  try {
+    setBackendEmail({
+      ...DEFAULT_BACKEND_EMAIL,
+      ...JSON.parse(rawBackendEmail),
+    });
+  } catch {}
+}
       const [
         savedTemplates,
         exportSettings,
@@ -119,6 +173,14 @@ export default function SettingsScreen({ navigation, route }) {
       if (rawAutomation) {
         try { setAutomation({ ...DEFAULT_AUTOMATION, ...JSON.parse(rawAutomation) }); } catch {}
       }
+      if (rawBackendEmail) {
+  try {
+    setBackendEmail({
+      ...DEFAULT_BACKEND_EMAIL,
+      ...JSON.parse(rawBackendEmail),
+    });
+  } catch {}
+}
       const parsedQueue = rawQueue ? JSON.parse(rawQueue) : [];
       setQueueCount(Array.isArray(parsedQueue) ? parsedQueue.length : 0);
     })();
@@ -132,6 +194,10 @@ export default function SettingsScreen({ navigation, route }) {
   const updateAutomation = (key, value) => setAutomation((prev) => ({ ...prev, [key]: value }));
 
   const saveAll = async () => {
+    AsyncStorage.setItem(
+  BACKEND_EMAIL_SETTINGS_KEY,
+  JSON.stringify(backendEmail)
+),
     setSaving(true);
     try {
       await Promise.all([
@@ -373,7 +439,69 @@ export default function SettingsScreen({ navigation, route }) {
             <Switch value={automation.enabled} onValueChange={(v) => updateAutomation('enabled', v)} trackColor={{ true: COLORS.accent }} />
           </View>
         </Card>
+<SectionLabel>Backend Email</SectionLabel>
+<Card>
+  <View style={s.switchRow}>
+    <View style={{ flex: 1 }}>
+      <Text style={s.switchTitle}>Enable backend email</Text>
+      <Text style={s.switchSub}>
+        Sends export notifications through your Netlify + Resend endpoint.
+      </Text>
+    </View>
+    <Switch
+      value={backendEmail.enabled}
+      onValueChange={(v) => updateBackendEmail('enabled', v)}
+      trackColor={{ true: COLORS.accent }}
+    />
+  </View>
 
+  <View style={{ marginTop: 12 }}>
+    <FieldInput
+      label="Backend Endpoint"
+      value={backendEmail.endpoint}
+      onChangeText={(v) => updateBackendEmail('endpoint', v)}
+      autoCapitalize="none"
+      placeholder="https://okayestmedia.netlify.app/.netlify/functions/send-email"
+    />
+  </View>
+
+  <View style={{ marginTop: 12 }}>
+    <FieldInput
+      label="Recipient"
+      value={backendEmail.recipient}
+      onChangeText={(v) => updateBackendEmail('recipient', v)}
+      autoCapitalize="none"
+      placeholder="you@example.com"
+    />
+  </View>
+
+  <View style={{ marginTop: 12 }}>
+    <FieldInput
+      label="Subject"
+      value={backendEmail.subject}
+      onChangeText={(v) => updateBackendEmail('subject', v)}
+      placeholder="LeadLens Export"
+    />
+  </View>
+
+  <View style={{ marginTop: 12 }}>
+    <FieldInput
+      label="HTML Body"
+      value={backendEmail.htmlBody}
+      onChangeText={(v) => updateBackendEmail('htmlBody', v)}
+      multiline
+      numberOfLines={4}
+      style={{ minHeight: 110 }}
+      placeholder="<strong>Your LeadLens export is ready.</strong>"
+    />
+  </View>
+
+  <PrimaryButton
+    title="Test Backend Email"
+    onPress={() => handleTestBackendEmail(backendEmail)}
+    style={{ marginTop: 14 }}
+  />
+</Card>
         <SectionLabel>Queue Tools</SectionLabel>
         <Card>
           <Text style={s.queueCount}>{queueCount} lead{queueCount === 1 ? '' : 's'} currently in queue</Text>

@@ -18,6 +18,8 @@ import {
   saveExportProfiles,
 } from '../utils/exportProfiles';
 import { normalizeLead } from '../utils/leadProcessing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { sendBackendEmail } from '../utils/backendEmail';
 
 export default function ExportScreen({ navigation, route }) {
   const { user } = route.params;
@@ -28,6 +30,7 @@ export default function ExportScreen({ navigation, route }) {
   const [customDraft, setCustomDraft] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const BACKEND_EMAIL_SETTINGS_KEY = 'BACKEND_EMAIL_SETTINGS';
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -72,7 +75,40 @@ export default function ExportScreen({ navigation, route }) {
       setExporting(false);
     }
   };
+const handleSendBackendEmail = async () => {
+  setExporting(true);
+  setStatusText('Sending backend email...');
+  try {
+    const raw = await AsyncStorage.getItem(BACKEND_EMAIL_SETTINGS_KEY);
+    const settings = raw ? JSON.parse(raw) : null;
 
+    if (!settings?.enabled) {
+      throw new Error('Backend email is disabled in Settings.');
+    }
+
+    if (!settings?.endpoint || !settings?.recipient) {
+      throw new Error('Missing backend endpoint or recipient in Settings.');
+    }
+
+    await sendBackendEmail({
+      endpoint: settings.endpoint,
+      to: settings.recipient,
+      subject: settings.subject || 'LeadLens Export',
+      html:
+        settings.htmlBody ||
+        `<strong>Your LeadLens export request completed successfully.</strong><br /><br />Queued leads: ${leads.length}`,
+      text: `Your LeadLens export request completed successfully. Queued leads: ${leads.length}`,
+    });
+
+    setStatusText('Backend email sent.');
+    Alert.alert('Success', 'Backend email sent successfully.');
+  } catch (error) {
+    setStatusText('Backend email failed.');
+    Alert.alert('Backend Email Failed', error?.message || 'Unknown error');
+  } finally {
+    setExporting(false);
+  }
+};
   const handlePickTemplate = async () => {
     try {
       const picked = await pickCustomTemplate();
@@ -166,6 +202,12 @@ export default function ExportScreen({ navigation, route }) {
               <Text style={[s.fieldTitle, { marginTop: 14 }]}>Profile name</Text>
               <View style={s.profileNameRow}>
                 <Text style={s.profileNameValue}>{customDraft.profileName}</Text>
+                <SecondaryButton
+  title="Send Backend Email"
+  onPress={handleSendBackendEmail}
+  disabled={exporting || !leads.length}
+  style={{ marginTop: 10 }}
+/>
                 <SecondaryButton title="Save Profile" onPress={handleSaveProfile} style={{ flex: 0.45 }} />
               </View>
               <Text style={s.helper}>Auto-match gets you started, then you pick what goes where. Miracles remain unavailable.</Text>
