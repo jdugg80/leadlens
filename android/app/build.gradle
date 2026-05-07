@@ -1,3 +1,35 @@
+import java.util.Properties
+
+def versionPropsFile = rootProject.file("version.properties")
+def versionProps = new Properties()
+
+if (versionPropsFile.exists()) {
+    versionPropsFile.withInputStream { versionProps.load(it) }
+} else {
+    versionProps["VERSION_CODE"] = "1"
+    versionProps["VERSION_MAJOR"] = "0"
+    versionProps["VERSION_MINOR"] = "9"
+    versionProps["VERSION_SUFFIX"] = "beta"
+    versionPropsFile.withOutputStream { versionProps.store(it, null) }
+}
+
+def shouldIncrementVersion = gradle.startParameter.taskNames.any { task ->
+    def lower = task.toLowerCase()
+    lower.contains("assemble") || lower.contains("bundle") || lower.contains("install")
+}
+
+def currentVersionCode = versionProps["VERSION_CODE"].toInteger()
+
+if (shouldIncrementVersion) {
+    currentVersionCode += 1
+    versionProps["VERSION_CODE"] = currentVersionCode.toString()
+    versionPropsFile.withOutputStream { versionProps.store(it, null) }
+}
+
+def versionMajor = versionProps["VERSION_MAJOR"]
+def versionMinor = versionProps["VERSION_MINOR"]
+def versionSuffix = versionProps["VERSION_SUFFIX"]
+def generatedVersionName = "${versionMajor}.${versionMinor}.${currentVersionCode}-${versionSuffix}"
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
@@ -30,6 +62,8 @@ def rnVersion = getRNVersion()
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
+    root = file("../../")
+    bundleAssetName = "index.android.bundle"
     entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
     reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
     hermesCommand = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
@@ -114,8 +148,8 @@ android {
         applicationId 'com.okaymedia.leadlens'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.9.0"
+        versionCode currentVersionCode
+        versionName generatedVersionName
     }
     signingConfigs {
         debug {
