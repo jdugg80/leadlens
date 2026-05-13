@@ -15,7 +15,11 @@ if (versionPropsFile.exists()) {
 
 def shouldIncrementVersion = gradle.startParameter.taskNames.any { task ->
     def lower = task.toLowerCase()
-    lower.contains("assemble") || lower.contains("bundle") || lower.contains("install")
+    lower.contains("assemble") || 
+    lower.contains("bundle") || 
+    lower.contains("install") || 
+    lower.contains("package") || 
+    lower.contains("upload")
 }
 
 def currentVersionCode = versionProps["VERSION_CODE"].toInteger()
@@ -23,7 +27,10 @@ def currentVersionCode = versionProps["VERSION_CODE"].toInteger()
 if (shouldIncrementVersion) {
     currentVersionCode += 1
     versionProps["VERSION_CODE"] = currentVersionCode.toString()
-    versionPropsFile.withOutputStream { versionProps.store(it, null) }
+    versionPropsFile.withOutputStream { versionProps.store(it, "Auto-incremented by build script") }
+    println "BUILD_INFO: Incrementing version code to $currentVersionCode"
+} else {
+    println "BUILD_INFO: Current version code is $currentVersionCode (no increment for this task)"
 }
 
 def versionMajor = versionProps["VERSION_MAJOR"]

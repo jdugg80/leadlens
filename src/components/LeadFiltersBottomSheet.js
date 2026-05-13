@@ -25,8 +25,8 @@ const LEAD_STATUSES = [
   'Suspect',
   'Contacted',
   'In Progress',
-  'No Interest',
-  'Customer',
+  'Not Interested',
+  'Closed',
 ];
 
 const MATCH_STRENGTHS = [
@@ -90,6 +90,27 @@ export default function LeadFiltersBottomSheet({
               </View>
 
               <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
+                {/* ── Signals Only Mode ────────────────────────────── */}
+                <TouchableOpacity
+                  style={[s.signalsOnlyRow, localFilters.signalsOnly && s.signalsOnlyRowActive]}
+                  onPress={() => setLocalFilters(prev => ({ ...prev, signalsOnly: !prev.signalsOnly }))}
+                  activeOpacity={0.8}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.signalsOnlyLabel, localFilters.signalsOnly && s.signalsOnlyLabelActive]}>
+                      🎯 Signals Only
+                    </Text>
+                    <Text style={s.signalsOnlySub}>
+                      Show only businesses with active signals
+                    </Text>
+                  </View>
+                  <View style={[s.signalsOnlyPill, localFilters.signalsOnly && s.signalsOnlyPillActive]}>
+                    <Text style={[s.signalsOnlyPillText, localFilters.signalsOnly && s.signalsOnlyPillTextActive]}>
+                      {localFilters.signalsOnly ? 'ON' : 'OFF'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
                 <Text style={s.sectionTitle}>Business Type</Text>
                 <View style={s.chipRow}>
                   {BUSINESS_TYPES.map((type) => (
@@ -124,6 +145,7 @@ export default function LeadFiltersBottomSheet({
                 <View style={s.chipRow}>
                   {[
                     { key: 'lensSignal', label: 'LensSignal' },
+                    { key: 'contactSignal', label: 'Contact Signal' },
                     { key: 'pest', label: 'Pest Indicator' },
                     { key: 'opening', label: 'Opening Signal' },
                     { key: 'priority', label: 'Priority' },
@@ -267,6 +289,32 @@ const s = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.accent,
   },
+  signalsOnlyRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface2, borderWidth: 1,
+    borderColor: COLORS.border, borderRadius: 14,
+    padding: 14, marginTop: 16, marginBottom: 4,
+  },
+  signalsOnlyRowActive: {
+    backgroundColor: 'rgba(0,201,255,0.08)',
+    borderColor: COLORS.accent,
+  },
+  signalsOnlyLabel: {
+    color: COLORS.textDim, fontWeight: '700', fontSize: 14,
+  },
+  signalsOnlyLabelActive: { color: COLORS.accent },
+  signalsOnlySub: {
+    color: COLORS.muted, fontSize: 11, marginTop: 2,
+  },
+  signalsOnlyPill: {
+    backgroundColor: COLORS.border, borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
+  signalsOnlyPillActive: { backgroundColor: COLORS.accent },
+  signalsOnlyPillText: {
+    color: COLORS.muted, fontWeight: '800', fontSize: 11,
+  },
+  signalsOnlyPillTextActive: { color: '#000' },
   applyBtnText: {
     color: '#000',
     fontWeight: '800',

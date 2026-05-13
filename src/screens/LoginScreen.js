@@ -1,42 +1,67 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Image, Alert,
+  ScrollView, StyleSheet, KeyboardAvoidingView,
+  Platform, Image, Animated, Dimensions,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
-  AUTH_PROFILE_KEY,
-  COLORS,
-  LEGAL_ACCEPTANCE_KEY,
-  PRIVACY_POLICY_VERSION,
-  ROLES,
-  SUPABASE_SETTINGS_KEY,
-  TERMS_VERSION,
-  USER_STORAGE_KEY,
-  DISABLED_USERS_KEY,
+  AUTH_PROFILE_KEY, COLORS, LEGAL_ACCEPTANCE_KEY,
+  PRIVACY_POLICY_VERSION, ROLES, SUPABASE_SETTINGS_KEY,
+  TERMS_VERSION, USER_STORAGE_KEY, DISABLED_USERS_KEY,
 } from '../constants';
 import { PrimaryButton } from '../components/UI';
-import { sendPasswordReset, signInWithEmailPassword, signInWithOAuthProvider, signUpWithEmailPassword } from '../utils/auth';
+import {
+  sendPasswordReset, signInWithEmailPassword,
+  signInWithOAuthProvider, signUpWithEmailPassword,
+  getAuthRedirectUrl,
+} from '../utils/auth';
+import { createSupabaseClient } from '../utils/supabaseClient';
+import { ThemedAlertHost, showThemedAlert } from '../components/ThemedAlert';
+
+import * as LocalAuthentication from 'expo-local-authentication';
+import { registerPushToken } from '../utils/pushNotifications';
+
+import BetaTracker from '../../utils/betaTracker';
+
+const { width: SW } = Dimensions.get('window');
+
+const REMEMBER_ME_KEY = '@leadlens_remember_me';
+const BIOMETRIC_ENABLED_KEY = '@leadlens_biometric_enabled';
+const PIN_LOGIN_ENABLED_KEY = '@leadlens_pin_login_enabled';
+const USER_PIN_KEY = '@leadlens_user_pin';
+
+function safeParseJson(raw, fallback = null) {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn('[LoginScreen] Ignoring invalid stored JSON:', err?.message || String(err));
+    return fallback;
+  }
+}
+
+function hasAcceptedLegal(rawLegal) {
+  const parsed = safeParseJson(rawLegal, null);
+  return parsed?.privacyVersion === PRIVACY_POLICY_VERSION && parsed?.termsVersion === TERMS_VERSION;
+}
+
+function normalizeSavedProfile(saved) {
+  if (!saved || typeof saved !== 'object') return null;
+  const firstName = saved.firstName || '';
+  const lastName = saved.lastName || '';
+  return {
+    ...saved,
+    firstName,
+    lastName,
+    repName: saved.repName || `${firstName} ${lastName}`.trim(),
+  };
+}
 
 const ROLE_OPTIONS = [
-  {
-    role: ROLES.ACCOUNT_MANAGER,
-    icon: '👤',
-    desc: 'View and manage your own leads',
-    color: COLORS.accent,
-  },
-  {
-    role: ROLES.BRANCH_MANAGER,
-    icon: '🏢',
-    desc: 'View all leads for your branch',
-    color: COLORS.accent2,
-  },
-  {
-    role: ROLES.REGIONAL_MANAGER,
-    icon: '🌐',
-    desc: 'View all leads across all branches',
-    color: COLORS.success,
-  },
+  { role: ROLES.ACCOUNT_MANAGER,  icon: '👤', desc: 'View and manage your own leads',              color: COLORS.accent },
+  { role: ROLES.BRANCH_MANAGER,   icon: '🏢', desc: 'View all prospects for your branch',           color: COLORS.purple },
+  { role: ROLES.REGIONAL_MANAGER, icon: '🌐', desc: 'View all prospects across all branches',        color: COLORS.success },
 ];
 
 export default function LoginScreen({ navigation }) {
@@ -44,94 +69,187 @@ export default function LoginScreen({ navigation }) {
   const [selectedRole, setSelectedRole] = useState(null);
   const [authMode, setAuthMode] = useState('local');
   const [user, setUser] = useState({
-    repName: '', repEmail: '', employeeNum: '', branchNum: '', territory: '', role: '', authProvider: 'local',
+    repName: '', firstName: '', lastName: '', repEmail: '', employeeNum: '', branchNum: '', territory: '', role: '', authProvider: 'local',
   });
   const [supabaseSettings, setSupabaseSettings] = useState({ supabaseUrl: '', supabaseAnonKey: '' });
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [disabledUsers, setDisabledUsers] = useState({});
+  const [lastError, setLastError] = useState(null);
+
+  const [rememberMe, setRememberMe] = useState(false);
+  const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [pinEnabled, setPinEnabled] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [showPinInput, setShowPinInput] = useState(false);
+
+  // Entrance animation
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(USER_STORAGE_KEY),
-      AsyncStorage.getItem(LEGAL_ACCEPTANCE_KEY),
-      AsyncStorage.getItem(SUPABASE_SETTINGS_KEY),
-      AsyncStorage.getItem(AUTH_PROFILE_KEY),
-      AsyncStorage.getItem(DISABLED_USERS_KEY),
-    ]).then(([raw, legal, supa, authProfile, disabledRaw]) => {
-      if (supa) {
-        try { setSupabaseSettings(JSON.parse(supa)); } catch {}
-      }
+    let alive = true;
 
-      if (disabledRaw) {
-        try { setDisabledUsers(JSON.parse(disabledRaw) || {}); } catch {}
+    (async () => {
+      try {
+        const [compatible, enrolled] = await Promise.all([
+          LocalAuthentication.hasHardwareAsync(),
+          LocalAuthentication.isEnrolledAsync(),
+        ]);
+        if (alive) setHasBiometrics(!!compatible && !!enrolled);
+      } catch (err) {
+        console.warn('[LoginScreen] Biometric capability check failed:', err?.message || String(err));
+        if (alive) {
+          setHasBiometrics(false);
+          setBiometricEnabled(false);
+        }
       }
-      if (authProfile) {
-        try {
-          const parsed = JSON.parse(authProfile);
-          setAuthEmail(parsed?.email || '');
-          setUser((prev) => ({ ...prev, repEmail: parsed?.email || prev.repEmail, authProvider: parsed?.provider || prev.authProvider }));
-        } catch {}
-      }
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      let accepted = false;
-      if (legal) {
-        try {
-          const parsed = JSON.parse(legal);
-          accepted = parsed?.privacyVersion === PRIVACY_POLICY_VERSION && parsed?.termsVersion === TERMS_VERSION;
-        } catch {}
-      }
-      if (saved.repName && saved.employeeNum && saved.role) {
-        navigation.replace(accepted ? 'Dashboard' : 'Consent', { user: saved });
-      }
-    });
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+    ]).start();
+  }, [step]);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const [raw, legal, supa, authProfile, disabledRaw, remember, bio, pinEn] = await Promise.all([
+          AsyncStorage.getItem(USER_STORAGE_KEY),
+          AsyncStorage.getItem(LEGAL_ACCEPTANCE_KEY),
+          AsyncStorage.getItem(SUPABASE_SETTINGS_KEY),
+          AsyncStorage.getItem(AUTH_PROFILE_KEY),
+          AsyncStorage.getItem(DISABLED_USERS_KEY),
+          AsyncStorage.getItem(REMEMBER_ME_KEY),
+          AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY),
+          AsyncStorage.getItem(PIN_LOGIN_ENABLED_KEY),
+        ]);
+
+        if (!alive) return;
+
+        const parsedSupa = safeParseJson(supa, null);
+        const parsedDisabled = safeParseJson(disabledRaw, null);
+        const parsedAuthProfile = safeParseJson(authProfile, null);
+        const saved = normalizeSavedProfile(safeParseJson(raw, null));
+
+        if (parsedSupa) setSupabaseSettings(parsedSupa);
+        if (parsedDisabled) setDisabledUsers(parsedDisabled || {});
+        if (remember) setRememberMe(remember === 'true');
+        if (bio) setBiometricEnabled(bio === 'true');
+        if (pinEn) setPinEnabled(pinEn === 'true');
+
+        if (parsedAuthProfile) {
+          setAuthEmail(parsedAuthProfile?.email || '');
+          setUser(prev => ({
+            ...prev,
+            repEmail: parsedAuthProfile?.email || prev.repEmail,
+            authProvider: parsedAuthProfile?.provider || prev.authProvider,
+          }));
+        }
+
+        if (!saved) return;
+
+        if (remember === 'true' && (bio === 'true' || pinEn === 'true')) {
+          if (bio === 'true') {
+            try {
+              const result = await LocalAuthentication.authenticateAsync({
+                promptMessage: 'Login to LeadLens',
+                fallbackLabel: 'Use PIN',
+              });
+              if (result?.success) {
+                proceedWithUser(saved, legal);
+                return;
+              }
+            } catch (err) {
+              console.warn('[LoginScreen] Biometric login failed safely:', err?.message || String(err));
+            }
+          }
+          if (pinEn === 'true') setShowPinInput(true);
+        }
+
+        if (!alive) return;
+        setUser(prev => ({ ...prev, ...saved }));
+        if (saved.role) setSelectedRole(saved.role);
+
+        if (remember === 'true' && saved.employeeNum && saved.role && saved.firstName && saved.lastName) {
+          proceedWithUser(saved, legal);
+        } else if (saved.role) {
+          setStep('profile');
+        }
+      } catch (err) {
+        console.warn('[LoginScreen] Stored login bootstrap failed safely:', err?.message || String(err));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const proceedWithUser = (savedProfile, legalRaw) => {
+    const accepted = hasAcceptedLegal(legalRaw);
+    navigation.replace(accepted ? 'Dashboard' : 'Consent', { user: savedProfile });
+  };
 
   const getDisabledEntry = (email) => {
     const key = String(email || '').trim().toLowerCase();
-    if (!key) return null;
-    return disabledUsers?.[key] || null;
+    return key ? disabledUsers?.[key] || null : null;
   };
 
   const assertEnabled = (email) => {
     const disabled = getDisabledEntry(email);
     if (!disabled) return true;
-    Alert.alert('Account disabled', disabled.reason ? `This account is currently disabled. Reason: ${disabled.reason}` : 'This account is currently disabled. Contact management if you need access restored.');
+    const msg = disabled.reason
+      ? `This account is disabled. Reason: ${disabled.reason}`
+      : 'This account is disabled. Contact management to restore access.';
+    setLastError(msg);
+    showThemedAlert('Account disabled', msg);
     return false;
   };
 
-  const update = (key, val) => setUser((p) => ({ ...p, [key]: val }));
+  const update = (key, val) => setUser(p => ({ ...p, [key]: val }));
+
   const ensureSupabase = () => {
-    if (supabaseSettings?.supabaseUrl && supabaseSettings?.supabaseAnonKey) return true;
-    Alert.alert('Missing Supabase setup', 'Add your Supabase URL and anon key in Settings first, then come back to test secure login.');
+    const supabase = createSupabaseClient(supabaseSettings || {});
+    if (supabase) return true;
+    const msg = 'Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY, or save the URL and anon key in Settings first.';
+    setLastError(msg);
+    showThemedAlert('Missing Supabase setup', msg);
     return false;
   };
 
   const afterSecureAuth = async (profile) => {
-    if (!assertEnabled(profile?.email || authEmail || user.repEmail)) return;
-
+    const email = profile?.email || user.repEmail || authEmail;
+    if (!assertEnabled(email)) return;
     const nextUser = {
       ...user,
-      repEmail: profile?.email || user.repEmail || authEmail,
+      repEmail: email,
       authProvider: profile?.provider || user.authProvider || 'supabase',
     };
     setUser(nextUser);
-    if (profile?.email) {
-      await AsyncStorage.setItem(AUTH_PROFILE_KEY, JSON.stringify(profile));
-    }
+    if (email) setAuthEmail(email);
+    if (profile?.email) await AsyncStorage.setItem(AUTH_PROFILE_KEY, JSON.stringify({ email: profile.email, provider: profile.provider }));
     setAuthMode('local');
     setStep('role');
-    Alert.alert('Secure sign-in complete', 'Now finish your LeadLens profile so managers and exports know who you are.');
+    showThemedAlert('Signed in', 'Now finish your LeadLens profile.');
   };
 
   const runEmailSignIn = async (kind = 'signin') => {
-    if (!ensureSupabase()) return;
-    if (!assertEnabled(authEmail)) return;
+    setLastError(null);
+    if (!ensureSupabase() || !assertEnabled(authEmail)) return;
     if (!authEmail.trim() || !authPassword) {
-      Alert.alert('Missing credentials', 'Enter your email and password first.');
+      showThemedAlert('Missing credentials', 'Enter your email and password first.');
       return;
     }
     setAuthBusy(true);
@@ -140,116 +258,223 @@ export default function LoginScreen({ navigation }) {
         ? await signUpWithEmailPassword(supabaseSettings, authEmail, authPassword)
         : await signInWithEmailPassword(supabaseSettings, authEmail, authPassword);
       if (!result.ok) {
-        Alert.alert(kind === 'signup' ? 'Sign-up failed' : 'Sign-in failed', result.reason || 'Unknown issue');
+        setLastError(result.reason);
+        showThemedAlert(kind === 'signup' ? 'Sign-up failed' : 'Sign-in failed', result.reason || 'Unknown issue');
         return;
       }
       await afterSecureAuth({ email: result.user?.email || authEmail, provider: 'email' });
-    } finally {
-      setAuthBusy(false);
-    }
+    } finally { setAuthBusy(false); }
   };
 
   const runProviderSignIn = async (provider) => {
+    setLastError(null);
     if (!ensureSupabase()) return;
-    if (!assertEnabled(authEmail)) return;
     setAuthBusy(true);
     try {
       const result = await signInWithOAuthProvider(supabaseSettings, provider);
       if (!result.ok) {
-        Alert.alert('OAuth sign-in failed', result.reason || 'Unknown issue');
+        setLastError(result.reason);
+        showThemedAlert('Sign-in failed', result.reason || 'Please try again or contact support.');
         return;
       }
-      await afterSecureAuth({ email: result.user?.email || '', provider });
+
+      const rawSavedUser = await AsyncStorage.getItem(USER_STORAGE_KEY);
+      const savedUser = normalizeSavedProfile(safeParseJson(rawSavedUser, null));
+      const routeToDashboard = savedUser?.employeeNum && savedUser?.role && savedUser?.firstName && savedUser?.lastName;
+
+      if (routeToDashboard) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Dashboard', params: { user: savedUser } }],
+        });
+        return;
+      }
+
+      await afterSecureAuth({ email: result.user?.email || authEmail || user.repEmail, provider });
     } finally {
       setAuthBusy(false);
     }
   };
 
   const handleForgotPassword = async () => {
+    setLastError(null);
     if (!ensureSupabase()) return;
-    if (!authEmail.trim()) {
-      Alert.alert('Need an email', 'Enter the user email first so LeadLens knows where to send the reset link.');
-      return;
-    }
+    if (!authEmail.trim()) { showThemedAlert('Need an email', 'Enter the user email first.'); return; }
     const result = await sendPasswordReset(supabaseSettings, authEmail.trim());
-    if (!result.ok) Alert.alert('Reset failed', result.reason || 'Unknown issue');
-    else Alert.alert('Reset sent', 'A password reset email has been requested. Check the inbox and the spam dungeon too.');
+    if (!result.ok) {
+      setLastError(result.reason);
+      showThemedAlert('Reset failed', result.reason || 'Unknown issue');
+    } else {
+      showThemedAlert('Reset sent', 'Check your inbox and spam folder.');
+    }
   };
 
   const handleRoleSelect = (role) => {
     setSelectedRole(role);
-    setUser((p) => ({ ...p, role }));
+    setUser(p => ({ ...p, role }));
+    fadeAnim.setValue(0);
+    slideAnim.setValue(30);
     setStep('profile');
   };
 
-  const canLogin = user.repName && user.employeeNum && user.role && (user.role === ROLES.REGIONAL_MANAGER || user.branchNum);
+  const canLogin = user.firstName && user.lastName && user.role;
 
   const handleLogin = async () => {
-    const payload = { ...user, repEmail: user.repEmail || authEmail };
-    if (!assertEnabled(payload.repEmail)) return;
-    await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(payload));
-    const rawLegal = await AsyncStorage.getItem(LEGAL_ACCEPTANCE_KEY);
-    let accepted = false;
-    if (rawLegal) {
-      try {
-        const parsed = JSON.parse(rawLegal);
-        accepted = parsed?.privacyVersion === PRIVACY_POLICY_VERSION && parsed?.termsVersion === TERMS_VERSION;
-      } catch {}
+    setLastError(null);
+    const firstName = String(user.firstName || '').trim();
+    const lastName = String(user.lastName || '').trim();
+    if (!firstName || !lastName) {
+      showThemedAlert('Complete your profile', 'Enter your first and last name before continuing.');
+      return;
     }
-    navigation.replace(accepted ? 'Dashboard' : 'Consent', { user: payload });
+
+    const payload = {
+      ...user,
+      repEmail: user.repEmail || authEmail,
+      firstName,
+      lastName,
+      repName: String(`${firstName} ${lastName}`).trim(),
+    };
+    if (!assertEnabled(payload.repEmail)) return;
+
+    try {
+      if (payload.repEmail) {
+        await BetaTracker.register(payload.repEmail).catch(err => {
+          console.warn('[LoginScreen] BetaTracker registration failed:', err?.message || String(err));
+        });
+      }
+
+      await Promise.all([
+        AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(payload)),
+        AsyncStorage.setItem(REMEMBER_ME_KEY, rememberMe ? 'true' : 'false'),
+        AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, biometricEnabled ? 'true' : 'false'),
+        AsyncStorage.setItem(PIN_LOGIN_ENABLED_KEY, pinEnabled ? 'true' : 'false'),
+      ]);
+
+      if (pinEnabled && pinInput) {
+        await AsyncStorage.setItem(USER_PIN_KEY, pinInput);
+      }
+
+      const rawLegal = await AsyncStorage.getItem(LEGAL_ACCEPTANCE_KEY);
+      const accepted = hasAcceptedLegal(rawLegal);
+
+      try {
+        const supabaseClient = createSupabaseClient(supabaseSettings);
+        if (supabaseClient) {
+          const { data: { user: authUser } } = await supabaseClient.auth.getUser();
+          if (authUser?.id) registerPushToken(authUser.id).catch(() => {});
+        }
+      } catch {}
+
+      navigation.replace(accepted ? 'Dashboard' : 'Consent', { user: payload });
+    } catch (err) {
+      console.warn('[LoginScreen] Login profile save failed:', err?.message || String(err));
+      setLastError(err.message);
+      showThemedAlert('Login failed', 'LeadLens could not save your profile locally. Restart the app and try again.');
+    }
   };
 
+  // ── DEBUG PANEL ─────────────────────────────────────────────────
+  const renderDebugPanel = () => {
+    if (!__DEV__) return null;
+    return (
+      <View style={s.debugPanel}>
+        <Text style={s.debugTitle}>🛠 DEBUG PANEL</Text>
+        <Text style={s.debugText}>Redirect: {getAuthRedirectUrl()}</Text>
+        <Text style={s.debugText}>Supabase URL: {supabaseSettings.supabaseUrl ? '••••• (Configured)' : '❌ Missing'}</Text>
+        <Text style={s.debugText}>Anon Key: {supabaseSettings.supabaseAnonKey ? '••••• (Configured)' : '❌ Missing'}</Text>
+        <Text style={s.debugText}>Last Error: {lastError || 'None'}</Text>
+      </View>
+    );
+  };
+
+  // ── ROLE SELECTION STEP ──────────────────────────────────────────
   if (step === 'role') {
     return (
       <View style={s.root}>
-        <ScrollView contentContainerStyle={s.scroll}>
+      <ThemedAlertHost />
+        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+          {renderDebugPanel()}
+          {/* Logo */}
           <View style={s.logoWrap}>
-            <Image source={require('../../assets/logo.jpg')} style={s.logoImg} resizeMode="contain" />
-            <Text style={s.logoTag}>Field Prospecting · AI-Powered</Text>
+            <View style={s.logoBorder}>
+              <Image source={require('../../assets/leadlens/LeadLens_header_logo_v4.png')} style={s.logoHeroImg} resizeMode="contain" />
+            </View>
+            <View style={s.logoAccentLine}>
+              <View style={s.logoAccentL} /><View style={s.logoAccentR} />
+            </View>
           </View>
 
-          <View style={s.authModeRow}>
-            <TouchableOpacity style={[s.authModeChip, authMode === 'local' && s.authModeChipOn]} onPress={() => setAuthMode('local')}>
-              <Text style={[s.authModeText, authMode === 'local' && s.authModeTextOn]}>Quick Local Login</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.authModeChip, authMode === 'secure' && s.authModeChipOn]} onPress={() => setAuthMode('secure')}>
-              <Text style={[s.authModeText, authMode === 'secure' && s.authModeTextOn]}>Secure Login (Beta)</Text>
-            </TouchableOpacity>
+          {/* Auth mode toggle */}
+          <View style={s.modeRow}>
+            {['local', 'secure'].map(mode => (
+              <TouchableOpacity
+                key={mode}
+                style={[s.modeChip, authMode === mode && s.modeChipOn]}
+                onPress={() => setAuthMode(mode)}
+              >
+                <Text style={[s.modeChipText, authMode === mode && s.modeChipTextOn]}>
+                  {mode === 'local' ? '⚡ Quick Login' : '🔒 Secure Login'}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
+          {/* Secure auth panel */}
           {authMode === 'secure' && (
             <View style={s.authPanel}>
+              <View style={s.authPanelCornerTL} /><View style={s.authPanelCornerBR} />
               <Text style={s.authTitle}>Secure Sign-In</Text>
-              <Text style={s.authSub}>Use Supabase Auth with Google, Microsoft, or email/password. You still finish a LeadLens profile after sign-in.</Text>
+              <Text style={s.authSub}>Supabase Auth with Google, Microsoft, or email/password.</Text>
               <Field label="Email" placeholder="you@company.com" keyboardType="email-address" autoCapitalize="none" value={authEmail} onChangeText={setAuthEmail} />
               <Field label="Password" placeholder="Password" secureTextEntry value={authPassword} onChangeText={setAuthPassword} style={{ marginTop: 10 }} />
               <PrimaryButton title={authBusy ? 'Working...' : 'Sign In with Email'} onPress={() => runEmailSignIn('signin')} disabled={authBusy} style={{ marginTop: 12 }} />
-              <TouchableOpacity style={s.inlineAction} onPress={() => runEmailSignIn('signup')}><Text style={s.inlineActionText}>Create account</Text></TouchableOpacity>
-              <TouchableOpacity style={s.inlineAction} onPress={handleForgotPassword}><Text style={s.inlineActionText}>Forgot password?</Text></TouchableOpacity>
+              <View style={s.authLinks}>
+                <TouchableOpacity onPress={() => runEmailSignIn('signup')}>
+                  <Text style={s.authLinkText}>Create account</Text>
+                </TouchableOpacity>
+                <Text style={s.authLinkSep}>·</Text>
+                <TouchableOpacity onPress={handleForgotPassword}>
+                  <Text style={s.authLinkText}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
               <View style={s.providerRow}>
-                <TouchableOpacity style={s.providerBtn} onPress={() => runProviderSignIn('google')} disabled={authBusy}><Text style={s.providerText}>Continue with Google</Text></TouchableOpacity>
-                <TouchableOpacity style={s.providerBtn} onPress={() => runProviderSignIn('azure')} disabled={authBusy}><Text style={s.providerText}>Continue with Microsoft</Text></TouchableOpacity>
+                {['google', 'azure'].map(p => (
+                  <TouchableOpacity key={p} style={s.providerBtn} onPress={() => runProviderSignIn(p)} disabled={authBusy}>
+                    <Text style={s.providerText}>Continue with {p === 'google' ? 'Google' : 'Microsoft'}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </View>
           )}
 
-          <Text style={s.stepLabel}>Select Your Role</Text>
+          {/* Role selection */}
+          <View style={s.sectionRow}>
+            <View style={s.sectionPip} />
+            <Text style={s.sectionLabel}>Select Your Role</Text>
+            <View style={s.sectionLine} />
+          </View>
 
           {ROLE_OPTIONS.map(({ role, icon, desc, color }) => (
             <TouchableOpacity
               key={role}
-              style={[s.roleCard, { borderColor: color + '55' }]}
+              style={[s.roleCard, { borderColor: color + '50' }]}
               onPress={() => handleRoleSelect(role)}
               activeOpacity={0.75}
             >
-              <View style={[s.roleIcon, { backgroundColor: color + '22' }]}>
-                <Text style={s.roleIconText}>{icon}</Text>
+              {/* Left color bar */}
+              <View style={[s.roleBar, { backgroundColor: color }]} />
+              <View style={[s.roleIconWrap, { backgroundColor: color + '20' }]}>
+                <Text style={s.roleIcon}>{icon}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.roleTitle}>{role}</Text>
                 <Text style={s.roleDesc}>{desc}</Text>
               </View>
               <Text style={[s.roleArrow, { color }]}>›</Text>
+              {/* Corner accents */}
+              <View style={[s.roleCornTL, { borderColor: color + '60' }]} />
+              <View style={[s.roleCornBR, { borderColor: color + '60' }]} />
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -257,103 +482,341 @@ export default function LoginScreen({ navigation }) {
     );
   }
 
-  const roleColor = ROLE_OPTIONS.find((r) => r.role === selectedRole)?.color || COLORS.accent;
+  // ── PROFILE STEP ─────────────────────────────────────────────────
+  const roleOpt   = ROLE_OPTIONS.find(r => r.role === selectedRole);
+  const roleColor = roleOpt?.color || COLORS.accent;
 
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+      <ThemedAlertHost />
+      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {renderDebugPanel()}
         <View style={s.logoWrap}>
-          <Image source={require('../../assets/logo.jpg')} style={s.logoImg} resizeMode="contain" />
+          <Image source={require('../../assets/leadlens/LeadLens_header_logo_v4.png')} style={s.logoProfileImg} resizeMode="contain" />
         </View>
 
-        <TouchableOpacity style={[s.roleBadge, { borderColor: roleColor + '55', backgroundColor: roleColor + '11' }]} onPress={() => setStep('role')}>
-          <Text style={[s.roleBadgeText, { color: roleColor }]}>
-            {ROLE_OPTIONS.find((r) => r.role === selectedRole)?.icon} {selectedRole}
-          </Text>
+        {/* Role badge */}
+        <TouchableOpacity
+          style={[s.roleBadge, { borderColor: roleColor + '55', backgroundColor: roleColor + '10' }]}
+          onPress={() => { fadeAnim.setValue(0); slideAnim.setValue(30); setStep('role'); }}
+        >
+          <View style={[s.roleBadgeDot, { backgroundColor: roleColor }]} />
+          <Text style={[s.roleBadgeText, { color: roleColor }]}>{roleOpt?.icon} {selectedRole}</Text>
           <Text style={[s.roleBadgeChange, { color: roleColor }]}>Change ›</Text>
         </TouchableOpacity>
 
         {!!authEmail && (
           <View style={s.authHint}>
-            <Text style={s.authHintText}>Secure auth linked to: {authEmail}</Text>
+            <Text style={s.authHintText}>🔒 Secure auth: {authEmail}</Text>
           </View>
         )}
 
-        <View style={s.form}>
-          <Field label="Rep Name" placeholder="First Last" value={user.repName} onChangeText={(v) => update('repName', v)} />
-          <Field label="Rep Email" placeholder="you@company.com" keyboardType="email-address" autoCapitalize="none" value={user.repEmail || authEmail} onChangeText={(v) => update('repEmail', v)} />
+        {/* Profile form */}
+        <Animated.View style={[s.formCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <View style={s.formCornerTL} /><View style={s.formCornerBR} />
 
-          <View style={s.row}>
-            <Field label="Employee #" placeholder="6992986" style={{ flex: 1 }} value={user.employeeNum} onChangeText={(v) => update('employeeNum', v)} />
+          <View style={s.sectionRow}>
+            <View style={[s.sectionPip, { backgroundColor: roleColor }]} />
+            <Text style={s.sectionLabel}>Your Profile</Text>
+            <View style={s.sectionLine} />
+          </View>
+
+          <View style={s.fieldRow}>
+            <Field label="First Name" placeholder="First" containerStyle={{ flex: 1 }} value={user.firstName} onChangeText={v => update('firstName', v)} color={roleColor} />
+            <View style={{ width: 12 }} />
+            <Field label="Last Name" placeholder="Last" containerStyle={{ flex: 1 }} value={user.lastName} onChangeText={v => update('lastName', v)} color={roleColor} />
+          </View>
+          <Field label="Rep Email" placeholder="you@company.com" keyboardType="email-address" autoCapitalize="none" value={user.repEmail || authEmail} onChangeText={v => update('repEmail', v)} color={roleColor} />
+
+          <View style={s.fieldRow}>
+            <Field label="Employee # (Optional)" placeholder="e.g. 6992986" containerStyle={{ flex: 1 }} value={user.employeeNum} onChangeText={v => update('employeeNum', v)} color={roleColor} />
             {selectedRole !== ROLES.REGIONAL_MANAGER && (
               <>
-                <View style={{ width: 10 }} />
-                <Field label="Branch #" placeholder="686" style={{ flex: 1 }} value={user.branchNum} onChangeText={(v) => update('branchNum', v)} />
+                <View style={{ width: 12 }} />
+                <Field label="Branch / Dept / Team" placeholder="e.g. 686 or Sales" containerStyle={{ flex: 1 }} value={user.branchNum} onChangeText={v => update('branchNum', v)} color={roleColor} />
               </>
             )}
           </View>
 
           {selectedRole === ROLES.REGIONAL_MANAGER && (
-            <Field label="Region / Market" placeholder="e.g. Gulf Coast" value={user.territory} onChangeText={(v) => update('territory', v)} />
+            <Field label="Region / Market" placeholder="e.g. Gulf Coast" value={user.territory} onChangeText={v => update('territory', v)} color={roleColor} />
           )}
-
           {selectedRole === ROLES.ACCOUNT_MANAGER && (
-            <Field label="Territory (optional)" placeholder="e.g. Houston South" value={user.territory} onChangeText={(v) => update('territory', v)} />
+            <Field label="Territory (optional)" placeholder="e.g. Houston South" value={user.territory} onChangeText={v => update('territory', v)} color={roleColor} />
           )}
 
-          <PrimaryButton title="Enter LeadLens →" onPress={handleLogin} disabled={!canLogin} style={{ marginTop: 8, backgroundColor: roleColor }} />
-        </View>
+          {/* Remember Me & Security */}
+          <View style={s.securitySection}>
+            <TouchableOpacity
+              style={s.checkRow}
+              onPress={() => setRememberMe(!rememberMe)}
+            >
+              <View style={[s.checkbox, rememberMe && s.checkboxOn]}>
+                {rememberMe && <Text style={s.checkTick}>✓</Text>}
+              </View>
+              <Text style={s.checkLabel}>Remember Me</Text>
+            </TouchableOpacity>
+
+            {rememberMe && (
+              <View style={s.securityOptions}>
+                {hasBiometrics && (
+                  <TouchableOpacity
+                    style={s.checkRow}
+                    onPress={() => setBiometricEnabled(!biometricEnabled)}
+                  >
+                    <View style={[s.checkbox, biometricEnabled && s.checkboxOn]}>
+                      {biometricEnabled && <Text style={s.checkTick}>✓</Text>}
+                    </View>
+                    <Text style={s.checkLabel}>Enable Biometric Login</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={s.checkRow}
+                  onPress={() => setPinEnabled(!pinEnabled)}
+                >
+                  <View style={[s.checkbox, pinEnabled && s.checkboxOn]}>
+                    {pinEnabled && <Text style={s.checkTick}>✓</Text>}
+                  </View>
+                  <Text style={s.checkLabel}>Enable PIN Login</Text>
+                </TouchableOpacity>
+
+                {pinEnabled && (
+                  <Field
+                    label="Setup Login PIN"
+                    placeholder="4-8 digits"
+                    value={pinInput}
+                    onChangeText={setPinInput}
+                    keyboardType="numeric"
+                    secureTextEntry
+                    maxLength={8}
+                    color={roleColor}
+                  />
+                )}
+              </View>
+            )}
+          </View>
+
+          <PrimaryButton
+            title="Enter LeadLens  ›"
+            onPress={handleLogin}
+            disabled={!canLogin}
+            style={{ marginTop: 8 }}
+          />
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-function Field({ label, style, ...props }) {
+// ── Local Field component ──────────────────────────────────────────
+function Field({ label, style, containerStyle, color, ...props }) {
+  const focusAnim = useRef(new Animated.Value(0)).current;
+  const borderColor = focusAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [COLORS.border, color || COLORS.accent],
+  });
   return (
-    <View style={[{ marginBottom: 14 }, style]}>
-      <Text style={s.label}>{label}</Text>
-      <TextInput
-        style={s.input}
-        placeholderTextColor={COLORS.muted}
-        {...props}
-      />
+    <View style={[{ marginBottom: 14 }, containerStyle]}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <Animated.View style={[s.fieldInputWrap, { borderColor }]}>
+        <TextInput
+          style={[s.fieldInput, style]}
+          placeholderTextColor={COLORS.muted}
+          onFocus={() => Animated.timing(focusAnim, { toValue: 1, duration: 200, useNativeDriver: false }).start()}
+          onBlur={() =>  Animated.timing(focusAnim, { toValue: 0, duration: 250, useNativeDriver: false }).start()}
+          {...props}
+        />
+      </Animated.View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
-  scroll: { padding: 20, paddingBottom: 40 },
-  logoWrap: { alignItems: 'center', marginBottom: 24, marginTop: 12 },
-  logoImg: { width: 220, height: 140 },
-  logoTag: { color: COLORS.muted, fontSize: 12, marginTop: -4, letterSpacing: 0.4 },
-  authModeRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
-  authModeChip: { flex: 1, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface2, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  authModeChipOn: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.12)' },
-  authModeText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
-  authModeTextOn: { color: COLORS.accent },
-  authPanel: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 16, padding: 16, marginBottom: 20 },
-  authTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
-  authSub: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginTop: 6, marginBottom: 12 },
-  inlineAction: { marginTop: 10, alignItems: 'center' },
-  inlineActionText: { color: COLORS.accent2, fontWeight: '700', fontSize: 12 },
+  scroll: { padding: 20, paddingBottom: 48 },
+
+  // Logo
+  logoWrap: { alignItems: 'center', marginBottom: 22, marginTop: 8 },
+  logoBorder: {
+    borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 16, paddingHorizontal: 10, paddingVertical: 8,
+    backgroundColor: COLORS.surface,
+  },
+  logoHeroImg: { width: 300, height: 120 },
+  logoProfileImg: { width: 250, height: 96 },
+  logoAccentLine: { flexDirection: 'row', width: 280, height: 2, marginTop: 8 },
+  logoAccentL: { flex: 1, backgroundColor: COLORS.purple, opacity: 0.7 },
+  logoAccentR: { flex: 1, backgroundColor: COLORS.accent2, opacity: 0.7 },
+
+  // Mode toggle
+  modeRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  modeChip: {
+    flex: 1, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface2, borderRadius: 12,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  modeChipOn: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.1)' },
+  modeChipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  modeChipTextOn: { color: COLORS.accent },
+
+  // Auth panel
+  authPanel: {
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 16, padding: 16, marginBottom: 20, position: 'relative', overflow: 'hidden',
+  },
+  authPanelCornerTL: {
+    position: 'absolute', top: 0, left: 0, width: 14, height: 14,
+    borderTopWidth: 2, borderLeftWidth: 2, borderColor: COLORS.accent, borderTopLeftRadius: 16,
+  },
+  authPanelCornerBR: {
+    position: 'absolute', bottom: 0, right: 0, width: 14, height: 14,
+    borderBottomWidth: 2, borderRightWidth: 2, borderColor: COLORS.accent2, borderBottomRightRadius: 16,
+  },
+  authTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800', marginBottom: 4 },
+  authSub: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  authLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 10 },
+  authLinkText: { color: COLORS.accent, fontWeight: '700', fontSize: 12 },
+  authLinkSep: { color: COLORS.muted },
   providerRow: { marginTop: 12, gap: 10 },
-  providerBtn: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: COLORS.surface2 },
-  providerText: { color: COLORS.text, fontWeight: '700', fontSize: 13 },
-  stepLabel: { color: COLORS.label, fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 12, textTransform: 'uppercase' },
-  roleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 12 },
-  roleIcon: { width: 48, height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
-  roleIconText: { fontSize: 24 },
-  roleTitle: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  roleDesc: { color: COLORS.muted, fontSize: 12, marginTop: 4, lineHeight: 18 },
-  roleArrow: { fontSize: 26, marginLeft: 12 },
-  roleBadge: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderWidth: 1, borderRadius: 16, marginBottom: 18 },
-  roleBadgeText: { fontSize: 15, fontWeight: '700' },
+  providerBtn: {
+    borderWidth: 1, borderColor: COLORS.borderLit, borderRadius: 12,
+    paddingVertical: 12, alignItems: 'center', backgroundColor: COLORS.surface2,
+  },
+  providerText: { color: COLORS.textDim, fontWeight: '700', fontSize: 13 },
+
+  // Section label
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14, marginTop: 4 },
+  sectionPip: { width: 3, height: 14, borderRadius: 2, backgroundColor: COLORS.purple },
+  sectionLabel: { fontSize: 10, fontWeight: '700', color: COLORS.label, letterSpacing: 1.8, textTransform: 'uppercase' },
+  sectionLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
+
+  // Role cards
+  roleCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderWidth: 1,
+    borderRadius: 16, padding: 14, marginBottom: 12,
+    overflow: 'hidden', position: 'relative',
+  },
+  roleBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
+  roleIconWrap: {
+    width: 46, height: 46, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', marginRight: 14,
+  },
+  roleIcon: { fontSize: 22 },
+  roleTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
+  roleDesc: { color: COLORS.muted, fontSize: 12, marginTop: 3, lineHeight: 17 },
+  roleArrow: { fontSize: 26, marginLeft: 10, fontWeight: '300' },
+  roleCornTL: {
+    position: 'absolute', top: 0, left: 0, width: 10, height: 10,
+    borderTopWidth: 1.5, borderLeftWidth: 1.5, borderTopLeftRadius: 16,
+  },
+  roleCornBR: {
+    position: 'absolute', bottom: 0, right: 0, width: 10, height: 10,
+    borderBottomWidth: 1.5, borderRightWidth: 1.5, borderBottomRightRadius: 16,
+  },
+
+  // Role badge
+  roleBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 12, borderWidth: 1, borderRadius: 14, marginBottom: 16,
+  },
+  roleBadgeDot: { width: 8, height: 8, borderRadius: 4 },
+  roleBadgeText: { flex: 1, fontSize: 14, fontWeight: '700' },
   roleBadgeChange: { fontSize: 12, fontWeight: '700' },
-  authHint: { padding: 12, borderWidth: 1, borderColor: 'rgba(0,201,255,0.22)', backgroundColor: 'rgba(0,201,255,0.08)', borderRadius: 12, marginBottom: 12 },
+
+  authHint: {
+    padding: 10, borderWidth: 1,
+    borderColor: 'rgba(0,201,255,0.22)',
+    backgroundColor: 'rgba(0,201,255,0.07)',
+    borderRadius: 10, marginBottom: 12,
+  },
   authHintText: { color: COLORS.accent, fontWeight: '700', fontSize: 12 },
-  form: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 18 },
-  row: { flexDirection: 'row', alignItems: 'flex-start' },
-  label: { color: COLORS.label, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 },
-  input: { backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: COLORS.text, fontSize: 15 },
+
+  // Form card
+  formCard: {
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 18, padding: 18, position: 'relative', overflow: 'hidden',
+  },
+  formCornerTL: {
+    position: 'absolute', top: 0, left: 0, width: 16, height: 16,
+    borderTopWidth: 2, borderLeftWidth: 2, borderColor: COLORS.purple, borderTopLeftRadius: 18,
+  },
+  formCornerBR: {
+    position: 'absolute', bottom: 0, right: 0, width: 16, height: 16,
+    borderBottomWidth: 2, borderRightWidth: 2, borderColor: COLORS.accent2, borderBottomRightRadius: 18,
+  },
+
+  fieldRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  fieldLabel: {
+    color: COLORS.label, fontSize: 10, fontWeight: '700',
+    letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6,
+  },
+  fieldInputWrap: {
+    borderWidth: 1, borderRadius: 10, backgroundColor: COLORS.surface2, overflow: 'hidden',
+  },
+  fieldInput: {
+    paddingHorizontal: 14, paddingVertical: 13,
+    color: COLORS.text, fontSize: 15,
+  },
+
+  // Security & Checkbox
+  securitySection: {
+    marginTop: 4,
+    marginBottom: 16,
+    gap: 12,
+  },
+  securityOptions: {
+    marginLeft: 28,
+    gap: 12,
+    marginTop: 4,
+  },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderLit,
+    backgroundColor: COLORS.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: {
+    borderColor: COLORS.accent,
+    backgroundColor: 'rgba(0,201,255,0.1)',
+  },
+  checkTick: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  checkLabel: {
+    color: COLORS.textDim,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  debugPanel: {
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  debugTitle: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  debugText: {
+    color: COLORS.textDim,
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
 });

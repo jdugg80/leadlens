@@ -5,9 +5,15 @@ import {
   TextInput, Animated, PermissionsAndroid,
 } from 'react-native';
 import { COLORS, EMPTY_LEAD } from '../constants';
+import { normalizeLead, inferVertical, applyRequiredPlaceholders } from '../utils/leadHelpers';
 import { ScreenHeader, PrimaryButton } from '../components/UI';
+import BetaTracker from '../../utils/betaTracker';
 
 export default function ManualEntryScreen({ navigation, route }) {
+  useEffect(() => {
+    BetaTracker.screen('ManualEntryScreen');
+  }, []);
+
   const { user } = route.params;
   const [lead, setLead] = useState({ ...EMPTY_LEAD });
   const [voiceMode, setVoiceMode] = useState(false);
@@ -17,8 +23,24 @@ export default function ManualEntryScreen({ navigation, route }) {
 
   const update = (key, val) => setLead(p => ({ ...p, [key]: val }));
 
-  const goReview = () =>
-    navigation.navigate('Review', { user, lead: { ...lead, captureMethod: 'manual' }, editIdx: null });
+  const goReview = () => {
+  const normalized = applyRequiredPlaceholders({
+    ...normalizeLead({
+      ...EMPTY_LEAD,
+      ...lead,
+      captureMethod: 'manual',
+      propertyType: 'Commercial',
+    }),
+    ...inferVertical(lead),
+    reviewed: false,
+  });
+
+  navigation.navigate('Review', {
+    user,
+    lead: normalized,
+    editIdx: null,
+  });
+};
 
   const startVoice = async (fieldKey, fieldLabel) => {
     // Request mic permission automatically
@@ -116,6 +138,11 @@ export default function ManualEntryScreen({ navigation, route }) {
               value={lead.email} onChangeText={v => update('email', v)}
               onVoice={() => startVoice('email', 'Email Address')} />
           </View>
+          <View style={{ marginTop: 10 }}>
+            <VF label="Company Website" placeholder="https://example.com" autoCapitalize="none" keyboardType="url"
+              value={lead.website} onChangeText={v => update('website', v)}
+              onVoice={() => startVoice('website', 'Company Website')} />
+          </View>
         </View>
 
         <Text style={s.sectionLabel}>Address</Text>
@@ -130,6 +157,11 @@ export default function ManualEntryScreen({ navigation, route }) {
             <VF label="Street Name" placeholder="Main St"
               value={lead.streetName} onChangeText={v => update('streetName', v)}
               onVoice={() => startVoice('streetName', 'Street Name')} />
+          </View>
+          <View style={{ marginTop: 10 }}>
+            <VF label="Address Line 2 / Suite / Unit" placeholder="Suite 100"
+              value={lead.addressLine2} onChangeText={v => update('addressLine2', v)}
+              onVoice={() => startVoice('addressLine2', 'Address Line 2')} />
           </View>
           <View style={[s.row, { marginTop: 10 }]}>
             <VF label="City" placeholder="Houston"
@@ -150,7 +182,7 @@ export default function ManualEntryScreen({ navigation, route }) {
           </View>
         </View>
 
-        <PrimaryButton title="Review Lead →" onPress={goReview} style={{ marginTop: 20 }} />
+        <PrimaryButton title="Review Prospect →" onPress={goReview} style={{ marginTop: 20 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -172,10 +204,10 @@ function VF({ label, onVoice, ...props }) {
 
 const vfs = StyleSheet.create({
   labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  label: { fontSize: 11, fontWeight: '700', color: COLORS.label, letterSpacing: 1, textTransform: 'uppercase' },
+  label: { fontSize: 10, fontWeight: '700', color: COLORS.label, letterSpacing: 1.2, textTransform: 'uppercase' },
   mic: { fontSize: 13 },
   input: {
-    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.borderLit,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     color: COLORS.text, fontSize: 15,
   },
@@ -185,36 +217,38 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1, paddingHorizontal: 16 },
   sectionLabel: {
-    fontSize: 11, fontWeight: '700', color: COLORS.muted,
-    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10, marginTop: 16,
+    fontSize: 10, fontWeight: '700', color: COLORS.label,
+    letterSpacing: 1.8, textTransform: 'uppercase', marginBottom: 10, marginTop: 18,
   },
   card: {
-    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit,
     borderRadius: 14, padding: 14,
   },
   row: { flexDirection: 'row' },
   voiceTip: {
-    backgroundColor: 'rgba(0,201,255,0.06)', borderWidth: 1, borderColor: 'rgba(0,201,255,0.2)',
+    backgroundColor: 'rgba(123,63,190,0.07)', borderWidth: 1,
+    borderColor: 'rgba(123,63,190,0.25)',
     borderRadius: 10, padding: 10, marginTop: 14,
   },
-  voiceTipText: { fontSize: 12, color: COLORS.accent },
+  voiceTipText: { fontSize: 12, color: COLORS.purple },
   voiceWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 20 },
   voiceFieldLabel: { fontSize: 13, color: COLORS.muted },
   micCircle: {
     width: 96, height: 96, borderRadius: 48,
-    backgroundColor: 'rgba(0,201,255,0.1)', borderWidth: 2, borderColor: COLORS.accent,
+    backgroundColor: 'rgba(123,63,190,0.1)', borderWidth: 2, borderColor: COLORS.purple,
     alignItems: 'center', justifyContent: 'center',
   },
   micIcon: { fontSize: 40 },
   voiceHint: { fontSize: 13, color: COLORS.muted, textAlign: 'center', lineHeight: 20 },
   voiceInput: {
     width: '100%', minHeight: 80,
-    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.accent,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.purple,
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
     color: COLORS.text, fontSize: 16, textAlignVertical: 'top',
   },
   voiceDoneBtn: {
-    backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.purple,
+    borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40,
   },
-  voiceDoneBtnText: { color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 1 },
+  voiceDoneBtnText: { color: COLORS.purple, fontSize: 16, fontWeight: '800', letterSpacing: 1 },
 });

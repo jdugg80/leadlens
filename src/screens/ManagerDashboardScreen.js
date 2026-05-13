@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, INDUSTRY_VERTICALS, ROLES, STATUS_OPTIONS } from '../constants';
 import { Card, SectionLabel } from '../components/UI';
+import { ThemedAlertHost, showThemedAlert } from '../components/ThemedAlert';
+import BetaTracker from '../../utils/betaTracker';
 
 const DATE_FILTERS = [
   { key: 'all', label: 'All Time' },
@@ -92,6 +94,11 @@ function KpiCard({ label, value, accent }) {
 }
 
 export default function ManagerDashboardScreen({ user, navigation, leads = [] }) {
+  useEffect(() => {
+    BetaTracker.screen('ManagerDashboardScreen');
+  }, []);
+
+  const prospects = leads; // alias for UI references
   const insets = useSafeAreaInsets();
   const isBranch = user?.role === ROLES.BRANCH_MANAGER;
   const isRegional = user?.role === ROLES.REGIONAL_MANAGER;
@@ -132,7 +139,7 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
   const duplicateCount = filtered.filter((lead) => lead.possibleDuplicate || lead.duplicateFlag || lead.duplicate_flag).length;
   const exportCount = filtered.filter((lead) => lead.exportedAt || lead.exportStatus === 'exported' || lead.sentAt).length;
   const repBreakdown = groupCounts(filtered, (lead) => lead.repName || user?.repName || 'Unknown Rep');
-  const branchBreakdown = groupCounts(filtered, (lead) => lead.branchNum ? `Branch ${lead.branchNum}` : 'No Branch');
+  const branchBreakdown = groupCounts(filtered, (lead) => lead.branchNum ? `Entity ${lead.branchNum}` : 'No Entity');
   const statusBreakdown = groupCounts(filtered, (lead) => lead.status || 'Suspect');
   const verticalBreakdown = groupCounts(filtered, (lead) => lead.vertical || 'Other');
   const trend = recentDays(filtered, 7);
@@ -148,13 +155,30 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
 
   return (
     <View style={s.root}>
-      <View style={[s.topBar, { paddingTop: insets.top + 8, height: 56 + insets.top }]}> 
-        <Text style={s.topTitle}>LeadLens Manager View</Text>
-        <View style={s.topRight}>
-          <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('Settings', { user })}><Text style={s.iconText}>⚙️</Text></TouchableOpacity>
-          <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('FAQ', { user })}><Text style={s.iconText}>❓</Text></TouchableOpacity>
-          <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('Support', { user })}><Text style={s.iconText}>🛟</Text></TouchableOpacity>
-          <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('Admin', { user })}><Text style={s.iconText}>🔒</Text></TouchableOpacity>
+      <ThemedAlertHost />
+      <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
+        <View style={s.topBarInner}>
+          <Text style={s.topTitle}>LeadLens Manager View</Text>
+          <View style={s.topRight}>
+            <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('Settings', { user })}><Text style={s.iconText}>⚙️</Text></TouchableOpacity>
+            <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('FAQ', { user })}><Text style={s.iconText}>❓</Text></TouchableOpacity>
+            <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('Support', { user })}><Text style={s.iconText}>🛟</Text></TouchableOpacity>
+            <TouchableOpacity
+              style={s.iconBtn}
+              onPress={() => {
+                if (!user) {
+                  showThemedAlert('Admin unavailable', 'Your account information is not available.');
+                  return;
+                }
+                navigation.navigate('Admin', { user });
+              }}
+            >
+              <Text style={s.iconText}>🔒</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={s.topAccentLine}>
+          <View style={s.topAccentL} /><View style={s.topAccentR} />
         </View>
       </View>
 
@@ -162,7 +186,7 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
         <Card style={s.heroCard}>
           <Text style={s.heroTitle}>{user?.role}</Text>
           <Text style={s.heroSub}>
-            {isRegional ? 'Regional activity tracking with branch-level visibility.' : `Branch ${user?.branchNum || '—'} activity tracking and rep oversight.`}
+            {isRegional ? 'Regional activity tracking with branch-level visibility.' : `Branch/Dept/Team ${user?.branchNum || '—'} activity tracking and rep oversight.`}
           </Text>
         </Card>
 
@@ -212,7 +236,7 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
           <KpiCard label="Unreviewed" value={Math.max(filtered.length - reviewedCount, 0)} accent={COLORS.accent2} />
           <KpiCard label="Duplicates" value={duplicateCount} accent={COLORS.danger} />
           <KpiCard label="Exports" value={exportCount} accent={COLORS.accent} />
-          <KpiCard label={isRegional ? 'Active Branches' : 'Active Reps'} value={isRegional ? activeBranches : activeReps} accent={COLORS.success} />
+          <KpiCard label={isRegional ? 'Active Entities' : 'Active Reps'} value={isRegional ? activeBranches : activeReps} accent={COLORS.success} />
         </View>
 
         <SectionLabel>Trend · Last 7 Days</SectionLabel>
@@ -233,7 +257,7 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
           </View>
         </Card>
 
-        {isRegional && <StatBars title="Branch Comparison" rows={branchBreakdown} color={COLORS.success} />}
+        {isRegional && <StatBars title="Entity Comparison" rows={branchBreakdown} color={COLORS.success} />}
         <StatBars title="Rep Rollups" rows={repBreakdown} color={COLORS.accent2} />
         <StatBars title="Status Breakdown" rows={statusBreakdown} color={COLORS.accent} />
         <StatBars title="Vertical Breakdown" rows={verticalBreakdown} color={COLORS.accent2} />
@@ -247,7 +271,7 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
               <View style={{ flex: 1 }}>
                 <Text style={s.activityBiz}>{lead.businessName || 'Unnamed Business'}</Text>
                 <Text style={s.activityMeta}>
-                  {[lead.repName || user?.repName, lead.branchNum ? `Branch ${lead.branchNum}` : null, lead.vertical || 'Other', lead.status || 'Suspect']
+                  {[lead.repName || user?.repName, lead.branchNum ? `Entity ${lead.branchNum}` : null, lead.vertical || 'Other', lead.status || 'Suspect']
                     .filter(Boolean)
                     .join(' · ')}
                 </Text>
@@ -262,44 +286,39 @@ export default function ManagerDashboardScreen({ user, navigation, leads = [] })
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
-  topBar: {
-    backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    justifyContent: 'space-between',
-  },
-  topTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
+  topBar: { backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  topBarInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
+  topAccentLine: { flexDirection: 'row', height: 2 },
+  topAccentL: { flex: 1, backgroundColor: COLORS.purple, opacity: 0.75 },
+  topAccentR: { flex: 1, backgroundColor: COLORS.accent2, opacity: 0.75 },
+  topTitle: { color: COLORS.text, fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.borderLit, alignItems: 'center', justifyContent: 'center' },
   iconText: { fontSize: 15 },
   scroll: { flex: 1, paddingHorizontal: 16 },
   heroCard: { marginTop: 16 },
-  heroTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800' },
+  heroTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
   heroSub: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginTop: 6 },
   filterScroller: { marginTop: 6 },
   filterRow: { gap: 8, paddingBottom: 4 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
-  chipActive: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.10)' },
+  chipActive: { borderColor: COLORS.purple, backgroundColor: 'rgba(123,63,190,0.1)' },
   chipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
-  chipTextActive: { color: COLORS.accent },
+  chipTextActive: { color: COLORS.purple },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  kpiCard: { width: '48%', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 16 },
-  kpiValue: { color: COLORS.text, fontSize: 28, fontWeight: '800' },
-  kpiLabel: { color: COLORS.muted, fontSize: 12, marginTop: 4 },
+  kpiCard: { width: '48%', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit, borderRadius: 14, padding: 16, overflow: 'hidden', position: 'relative' },
+  kpiValue: { color: COLORS.text, fontSize: 28, fontWeight: '900' },
+  kpiLabel: { color: COLORS.muted, fontSize: 11, marginTop: 4, letterSpacing: 0.5 },
   trendRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', minHeight: 150, gap: 8 },
   trendBarWrap: { flex: 1, alignItems: 'center' },
   trendTrack: { height: 100, width: '100%', backgroundColor: COLORS.surface2, borderRadius: 10, justifyContent: 'flex-end', overflow: 'hidden' },
-  trendFill: { width: '100%', backgroundColor: COLORS.accent, borderRadius: 10 },
+  trendFill: { width: '100%', backgroundColor: COLORS.purple, borderRadius: 10 },
   trendCount: { color: COLORS.text, fontSize: 11, fontWeight: '700', marginTop: 6 },
   trendLabel: { color: COLORS.muted, fontSize: 10, marginTop: 2 },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  barLabel: { width: 116, color: COLORS.text, fontSize: 12 },
-  barTrack: { flex: 1, height: 8, backgroundColor: COLORS.surface2, borderRadius: 4, overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 4 },
+  barLabel: { width: 116, color: COLORS.textDim, fontSize: 12 },
+  barTrack: { flex: 1, height: 6, backgroundColor: COLORS.surface2, borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 3 },
   barCount: { width: 28, textAlign: 'right', color: COLORS.text, fontWeight: '700', fontSize: 12 },
   activityRow: { paddingVertical: 10 },
   activityBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },

@@ -1,6 +1,29 @@
-import { Alert, Linking } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
+import { showThemedAlert } from '../components/ThemedAlert';
+
+/**
+ * Opens the Outlook app specifically if installed, otherwise falls back to default.
+ */
+export async function sendOutlookEmail({ to, subject, body }) {
+  try {
+    const encodedSubject = encodeURIComponent(subject || '');
+    const encodedBody = encodeURIComponent(body || '');
+    const url = `ms-outlook://compose?to=${encodeURIComponent(to)}&subject=${encodedSubject}&body=${encodedBody}`;
+
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) {
+      await Linking.openURL(url);
+      return true;
+    }
+
+    // If Outlook deep link fails, try the generic mailto but specifically mention it's a fallback
+    return sendIntroEmail({ to, subject, body });
+  } catch (e) {
+    return sendIntroEmail({ to, subject, body });
+  }
+}
 
 /**
  * Send an intro email (no attachment) - opens default mail app.
@@ -20,10 +43,10 @@ export async function sendIntroEmail({ to, subject, body }) {
       await Linking.openURL(url);
       return true;
     }
-    Alert.alert('No email app found', 'Please set up an email account on your phone first.');
+    showThemedAlert('No email app found', 'Please set up an email account on your phone first.');
     return false;
   } catch (e) {
-    Alert.alert('Email failed', e.message);
+    showThemedAlert('Email failed', e.message);
     return false;
   }
 }
@@ -44,10 +67,10 @@ export async function shareFileWithEmail(fileUri, { subject, body }) {
       });
       return true;
     }
-    Alert.alert('Sharing not available on this device.');
+    showThemedAlert('Sharing not available on this device.');
     return false;
   } catch (e) {
-    Alert.alert('Share failed', e.message);
+    showThemedAlert('Share failed', e.message);
     return false;
   }
 }

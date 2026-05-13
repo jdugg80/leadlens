@@ -2,19 +2,26 @@
   "expo": {
     "name": "LeadLens",
     "slug": "leadlens",
-    "version": "1.12.0",
+    "version": "1.14.1-beta",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/leadlens/LeadLens_app_icon_v3.png",
     "userInterfaceStyle": "dark",
+    "scheme": "leadlens",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/leadlens/LeadLens_splash_static_v3.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0D0F14"
+      "backgroundColor": "#000000"
     },
     "android": {
+      "versionCode": 11401,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0D0F14"
+        "foregroundImage": "./assets/leadlens/LeadLens_adaptive_icon.png",
+        "backgroundColor": "#000000"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI"
+        }
       },
       "package": "com.okaymedia.leadlens",
       "permissions": [
@@ -27,6 +34,7 @@
       ]
     },
     "ios": {
+      "buildNumber": "1.14.1",
       "bundleIdentifier": "com.okaymedia.leadlens",
       "supportsTablet": false,
       "infoPlist": {
@@ -36,10 +44,27 @@
     },
     "plugins": [
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LeadLens uses your location to verify where leads are captured and improve GeoTarget Assist accuracy."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "LeadLens reads photos to extract lead information.",
           "cameraPermission": "LeadLens uses your camera to capture business cards and storefronts."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0",
+            "newArchEnabled": false
+          }
         }
       ]
     ],
@@ -47,7 +72,6 @@
       "eas": {
         "projectId": "a479ffad-128e-455c-8148-7504f53b83e4"
       }
-    },
-    "scheme": "leadlens"
+    }
   }
 }

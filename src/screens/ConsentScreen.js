@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
   APP_VERSION,
   COLORS,
@@ -9,9 +9,10 @@ import {
   TERMS_VERSION,
 } from '../constants';
 import { Card, PrimaryButton, ScreenHeader, SectionLabel } from '../components/UI';
+import { showThemedAlert } from '../components/ThemedAlert';
 
 export default function ConsentScreen({ navigation, route }) {
-  const { user } = route.params || {};
+  const { user } = route?.params || {};
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [termsChecked, setTermsChecked] = useState(false);
   const [lawChecked, setLawChecked] = useState(false);
@@ -19,7 +20,7 @@ export default function ConsentScreen({ navigation, route }) {
 
   const accept = async () => {
     if (!ready) {
-      Alert.alert('Almost there', 'Please check each acknowledgment before continuing.');
+      showThemedAlert('Almost there', 'Please check each acknowledgment before continuing.');
       return;
     }
     const payload = {
@@ -47,7 +48,7 @@ export default function ConsentScreen({ navigation, route }) {
       <ScreenHeader title="Before You Continue" badge={`v${APP_VERSION}`} />
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 32 }}>
         <Card accent>
-          <Text style={s.lead}>LeadLens uses captured images, extracted lead data, local storage, optional automation features, and certain device permissions to support lead capture and export workflows.</Text>
+          <Text style={s.lead}>LeadLens uses captured images, extracted lead data, local storage, optional automation features, and certain device permissions to support prospect capture and export workflows.</Text>
           <Text style={s.sub}>Review and acknowledge the documents below before entering the app.</Text>
         </Card>
 
@@ -82,11 +83,21 @@ const s = StyleSheet.create({
   lead: { color: COLORS.text, fontSize: 14, lineHeight: 22, fontWeight: '700' },
   sub: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginTop: 10 },
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 10 },
-  checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  checkboxOn: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  checkMark: { color: '#000', fontWeight: '900' },
+  checkbox: {
+    width: 24, height: 24, borderRadius: 7,
+    borderWidth: 2, borderColor: COLORS.borderLit,
+    alignItems: 'center', justifyContent: 'center', marginTop: 2,
+    backgroundColor: COLORS.surface2,
+  },
+  checkboxOn: { backgroundColor: COLORS.purple, borderColor: COLORS.purple },
+  checkMark: { color: '#fff', fontWeight: '900', fontSize: 13 },
   checkText: { flex: 1, color: COLORS.text, fontSize: 13, lineHeight: 20 },
-  linkBtn: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: COLORS.surface2, padding: 14, marginBottom: 10 },
+  linkBtn: {
+    borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 12, backgroundColor: COLORS.surface2,
+    padding: 14, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
   linkTitle: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
   linkSub: { color: COLORS.muted, fontSize: 12, marginTop: 3 },
 });

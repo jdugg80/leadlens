@@ -1,29 +1,37 @@
-export type SignalLayer = 'Compliance Signal' | 'Opening Signal';
-export type AlertLevel = 'green' | 'yellow' | 'red' | 'Priority Review' | 'Warning' | 'Good Standing' | 'Opportunity';
+export type LensSignalLayer =
+  | "Compliance Signal"
+  | "Opening Signal"
+  | "Standard Discovery";
 
-export interface LensSignal {
+export type LensSignalAlertLevel =
+  | "Good Standing"
+  | "Monitor"
+  | "Opportunity"
+  | "Priority Review";
+
+export type LensSignalRecord = {
   id: string;
-  signal_layer: SignalLayer;
+  signal_layer?: LensSignalLayer | null;
+  signal_type?: LensSignalLayer | null;
   establishment_name: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-  latitude: number;
-  longitude: number;
-  score?: number;
-  grade?: string;
-  violation_text?: string;
-  pest_indicator: boolean;
-  pest_terms?: string[];
-  opening_status?: string;
-  permit_type?: string;
-  permit_date?: string;
-  alert_level: AlertLevel;
-  source_name?: string;
-  source_record_url?: string;
-  distance_miles?: number;
-}
+  business_name?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  score?: number | null;
+  grade?: string | null;
+  alert_level?: LensSignalAlertLevel | null;
+  pest_indicator?: boolean | null;
+  opening_status?: string | null;
+  source_name?: string | null;
+  source_record_url?: string | null;
+  distance_miles?: number | null;
+  match_confidence?: number | null;
+  match_method?: string | null;
+};
 
 export interface UserPreferences {
   enable_compliance_alerts: boolean;

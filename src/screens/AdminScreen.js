@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
   COLORS,
+  EXPORT_MODES,
   LEADS_STORAGE_KEY,
   STATUS_OPTIONS,
   INDUSTRY_VERTICALS,
@@ -21,22 +21,32 @@ import {
 } from '../constants';
 import { ScreenHeader } from '../components/UI';
 import { exportLeadsToXLSX } from '../utils/exportXlsx';
+import { getExportSettings } from '../utils/templateSettings';
+import { loadExportProfiles } from '../utils/exportProfiles';
 import { sendPasswordReset } from '../utils/auth';
+import { recordUserActivityEvent } from '../utils/userLearning';
+import { showThemedAlert } from '../components/ThemedAlert';
+import BetaTracker from '../../utils/betaTracker';
 
 const ADMIN_PIN_KEY = '@leadlens_admin_pin';
 const DISABLED_USERS_KEY = '@leadlens_disabled_users';
 const DEFAULT_PIN = '1234';
 
 export default function AdminScreen({ navigation, route }) {
-  const { user } = route.params;
-  const isAM = user.role === ROLES.ACCOUNT_MANAGER;
-  const isBM = user.role === ROLES.BRANCH_MANAGER;
-  const isRM = user.role === ROLES.REGIONAL_MANAGER;
+  useEffect(() => {
+    BetaTracker.screen('AdminScreen');
+  }, []);
+
+  const { user } = route.params || {};
+  const isAM = user?.role === ROLES.ACCOUNT_MANAGER;
+  const isBM = user?.role === ROLES.BRANCH_MANAGER;
+  const isRM = user?.role === ROLES.REGIONAL_MANAGER;
 
   const [unlocked, setUnlocked] = useState(isAM);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [leads, setLeads] = useState([]);
+  const prospects = leads; // alias for UI references
   const [tab, setTab] = useState('stats');
   const [adminPin, setAdminPin] = useState(DEFAULT_PIN);
   const [changingPin, setChangingPin] = useState(false);
@@ -76,7 +86,7 @@ export default function AdminScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    if (!unlocked) return;
+    if (!unlocked || !user) return;
 
     (async () => {
       try {
@@ -95,9 +105,13 @@ export default function AdminScreen({ navigation, route }) {
         setLeads([]);
       }
     })();
-  }, [unlocked, isAM, isBM, user.employeeNum, user.branchNum]);
+  }, [unlocked, isAM, isBM, user?.employeeNum, user?.branchNum, user]);
 
   const handleUnlock = () => {
+    if (!user) {
+      showThemedAlert('Admin unavailable', 'No user context was supplied.');
+      return;
+    }
     if (pin === adminPin) {
       setUnlocked(true);
       setError('');
@@ -107,13 +121,24 @@ export default function AdminScreen({ navigation, route }) {
     }
   };
 
+  if (!user) {
+    return (
+      <View style={s.root}>
+        <ScreenHeader title="Admin" onBack={() => navigation.goBack()} />
+        <View style={s.emptyState}>
+          <Text style={s.emptyText}>Admin access requires a logged-in user profile.</Text>
+        </View>
+      </View>
+    );
+  }
+
   const handleChangePin = async () => {
     if (newPin.length < 4) {
-      Alert.alert('PIN must be at least 4 digits');
+      showThemedAlert('PIN must be at least 4 digits');
       return;
     }
     if (newPin !== confirmPin) {
-      Alert.alert('PINs do not match');
+      showThemedAlert('PINs do not match');
       return;
     }
 
@@ -123,14 +148,15 @@ export default function AdminScreen({ navigation, route }) {
       setChangingPin(false);
       setNewPin('');
       setConfirmPin('');
-      Alert.alert('PIN updated');
+      showThemedAlert('PIN updated');
     } catch (e) {
-      Alert.alert('Could not save PIN', e?.message || 'Unknown issue');
+    BetaTracker.crash('AdminScreen', e);
+      showThemedAlert('Could not save PIN', e?.message || 'Unknown issue');
     }
   };
 
   const handleDeleteLead = (idx) => {
-    Alert.alert('Delete Lead', `Remove "${leads[idx]?.businessName || 'this lead'}"?`, [
+    showThemedAlert('Delete Lead', `Remove "${leads[idx]?.businessName || 'this lead'}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -152,8 +178,14 @@ export default function AdminScreen({ navigation, route }) {
 
             await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
             setLeads((prev) => prev.filter((_, i) => i !== idx));
+            recordUserActivityEvent('prospect_deleted', {
+              prospect_id: target.id,
+              zip_code: target.zip,
+              business_type: target.vertical || target.industry || target.businessType || null,
+            }).catch(() => {});
           } catch (e) {
-            Alert.alert('Delete failed', e?.message || 'Unknown issue');
+    BetaTracker.crash('AdminScreen', e);
+            showThemedAlert('Delete failed', e?.message || 'Unknown issue');
           }
         },
       },
@@ -163,7 +195,7 @@ export default function AdminScreen({ navigation, route }) {
   const handleManagerReset = async () => {
     const email = resetEmail.trim();
     if (!email) {
-      Alert.alert('Need an email', 'Enter the user email that should receive the reset link.');
+      showThemedAlert('Need an email', 'Enter the user email that should receive the reset link.');
       return;
     }
 
@@ -173,16 +205,17 @@ export default function AdminScreen({ navigation, route }) {
       const result = await sendPasswordReset(settings, email);
 
       if (!result.ok) {
-        Alert.alert('Reset failed', result.reason || 'Unknown issue');
+        showThemedAlert('Reset failed', result.reason || 'Unknown issue');
       } else {
-        Alert.alert(
+        showThemedAlert(
           'Reset sent',
           `A password reset email was requested for ${email}.`
         );
         setResetEmail('');
       }
     } catch (e) {
-      Alert.alert('Reset failed', e?.message || 'Unknown issue');
+    BetaTracker.crash('AdminScreen', e);
+      showThemedAlert('Reset failed', e?.message || 'Unknown issue');
     }
   };
 
@@ -192,7 +225,8 @@ export default function AdminScreen({ navigation, route }) {
       await AsyncStorage.setItem(DISABLED_USERS_KEY, JSON.stringify(next));
       return true;
     } catch (e) {
-      Alert.alert('Save failed', e?.message || 'Could not update disabled users.');
+    BetaTracker.crash('AdminScreen', e);
+      showThemedAlert('Save failed', e?.message || 'Could not update disabled users.');
       return false;
     }
   };
@@ -200,7 +234,7 @@ export default function AdminScreen({ navigation, route }) {
   const handleDisableUser = async () => {
     const email = disableEmail.trim().toLowerCase();
     if (!email) {
-      Alert.alert('Need an email', 'Enter the user email that should be disabled.');
+      showThemedAlert('Need an email', 'Enter the user email that should be disabled.');
       return;
     }
 
@@ -218,7 +252,7 @@ export default function AdminScreen({ navigation, route }) {
 
     setDisableEmail('');
     setDisableReason('');
-    Alert.alert('Account disabled', `${email} will be blocked until re-enabled.`);
+    showThemedAlert('Account disabled', `${email} will be blocked until re-enabled.`);
   };
 
   const handleEnableUser = async (email) => {
@@ -228,42 +262,65 @@ export default function AdminScreen({ navigation, route }) {
   };
 
   const handleExport = async () => {
-    if (!leads.length) {
-      Alert.alert('No leads to export');
+    if (!prospects.length) {
+      showThemedAlert('No prospects to export');
       return;
     }
 
     try {
-      await exportLeadsToXLSX(leads, user);
+      const exportSettings = await getExportSettings();
+      let options = {};
+
+      if (exportSettings.mode === EXPORT_MODES.STANDARD) {
+        options = { mode: 'standard' };
+      } else if (exportSettings.mode === EXPORT_MODES.SALES_TEMPLATE) {
+        options = { mode: 'template' };
+      } else if (exportSettings.mode === EXPORT_MODES.CUSTOM && exportSettings.profileName) {
+        const profiles = await loadExportProfiles();
+        const profile = profiles.find((item) => item.name === exportSettings.profileName);
+        if (profile) {
+          options = {
+            mode: 'custom',
+            templateUri: profile.templateUri,
+            mapping: profile.mapping,
+            startRow: profile.startRow,
+            fileBaseName: profile.fileBaseName,
+            name: profile.name,
+          };
+        }
+      }
+
+      await exportLeadsToXLSX(leads, user, options);
     } catch (e) {
-      Alert.alert('Export failed', e?.message || 'Unknown issue');
+    BetaTracker.crash('AdminScreen', e);
+      showThemedAlert('Export failed', e?.message || 'Unknown issue');
     }
   };
 
-  const visibleLeads =
+  const visibleProspects =
     filterVertical === 'All'
-      ? leads
-      : leads.filter((l) => l.vertical === filterVertical);
+      ? prospects
+      : prospects.filter((l) => l.vertical === filterVertical);
 
   const statBy = (arr, key, options) =>
     options
       .map((o) => ({ label: o, count: arr.filter((l) => l[key] === o).length }))
       .filter((x) => x.count > 0);
 
-  const byStatus = statBy(visibleLeads, 'status', STATUS_OPTIONS);
-  const byVertical = statBy(visibleLeads, 'vertical', INDUSTRY_VERTICALS);
-  const byRep = [...new Set(leads.map((l) => l.repName || user.repName))]
+  const byStatus = statBy(visibleProspects, 'status', STATUS_OPTIONS);
+  const byVertical = statBy(visibleProspects, 'vertical', INDUSTRY_VERTICALS);
+  const byRep = [...new Set(prospects.map((l) => l.repName || user.repName))]
     .map((rep) => ({
       label: rep,
-      count: visibleLeads.filter((l) => (l.repName || user.repName) === rep).length,
+      count: visibleProspects.filter((l) => (l.repName || user.repName) === rep).length,
     }))
     .filter((x) => x.count > 0);
 
   const byBranch = isRM
-    ? [...new Set(leads.map((l) => l.branchNum))]
+    ? [...new Set(prospects.map((l) => l.branchNum))]
         .map((b) => ({
           label: `Branch ${b}`,
-          count: visibleLeads.filter((l) => l.branchNum === b).length,
+          count: visibleProspects.filter((l) => l.branchNum === b).length,
         }))
         .filter((x) => x.count > 0)
     : [];
@@ -342,7 +399,7 @@ export default function AdminScreen({ navigation, route }) {
 
       <View style={[s.roleBanner, { backgroundColor: `${roleColor}11`, borderColor: `${roleColor}33` }]}>
         <Text style={[s.roleBannerText, { color: roleColor }]}>
-          {isAM ? '👤' : isBM ? '🏢' : '🌐'} {user.role} · {roleLabel} · {visibleLeads.length} leads
+          {isAM ? '👤' : isBM ? '🏢' : '🌐'} {user.role} · {roleLabel} · {visibleProspects.length} prospects
         </Text>
       </View>
 
@@ -354,7 +411,7 @@ export default function AdminScreen({ navigation, route }) {
             onPress={() => setTab(t)}
           >
             <Text style={[s.tabBtnText, tab === t && s.tabBtnTextActive]}>
-              {t === 'stats' ? '📊 Stats' : `📋 Leads (${visibleLeads.length})`}
+              {t === 'stats' ? '📊 Stats' : `📋 Leads (${visibleProspects.length})`}
             </Text>
           </TouchableOpacity>
         ))}
@@ -383,22 +440,22 @@ export default function AdminScreen({ navigation, route }) {
         {tab === 'stats' && (
           <>
             <View style={s.totalCard}>
-              <Text style={[s.totalNum, { color: roleColor }]}>{visibleLeads.length}</Text>
+              <Text style={[s.totalNum, { color: roleColor }]}>{visibleProspects.length}</Text>
               <Text style={s.totalLabel}>
                 {filterVertical === 'All' ? 'Total Leads' : filterVertical} · {roleLabel}
               </Text>
             </View>
 
             {isRM && byBranch.length > 0 && (
-              <StatSection title="By Branch" data={byBranch} total={visibleLeads.length} color={COLORS.success} />
+              <StatSection title="By Branch" data={byBranch} total={visibleProspects.length} color={COLORS.success} />
             )}
 
             {(isBM || isRM) && byRep.length > 0 && (
-              <StatSection title="By Sales Rep" data={byRep} total={visibleLeads.length} color={COLORS.accent2} />
+              <StatSection title="By Sales Rep" data={byRep} total={visibleProspects.length} color={COLORS.accent2} />
             )}
 
-            <StatSection title="By Status" data={byStatus} total={visibleLeads.length} color={COLORS.accent} />
-            <StatSection title="By Industry Vertical" data={byVertical} total={visibleLeads.length} color={COLORS.accent2} />
+            <StatSection title="By Status" data={byStatus} total={visibleProspects.length} color={COLORS.accent} />
+            <StatSection title="By Industry Vertical" data={byVertical} total={visibleProspects.length} color={COLORS.accent2} />
 
             <Text style={s.sectionLabel}>Actions</Text>
 
@@ -484,7 +541,7 @@ export default function AdminScreen({ navigation, route }) {
               <TouchableOpacity
                 style={[s.actionRow, { borderColor: 'rgba(255,59,92,0.3)' }]}
                 onPress={() =>
-                  Alert.alert('Clear Leads', `Clear all ${visibleLeads.length} visible leads?`, [
+                  showThemedAlert('Clear Leads', `Clear all ${visibleProspects.length} visible leads?`, [
                     { text: 'Cancel', style: 'cancel' },
                     {
                       text: 'Clear',
@@ -495,7 +552,7 @@ export default function AdminScreen({ navigation, route }) {
                           const all = raw ? JSON.parse(raw) : [];
                           const kept = all.filter(
                             (l) =>
-                              !visibleLeads.some(
+                              !visibleProspects.some(
                                 (v) =>
                                   v.businessName === l.businessName &&
                                   v.employeeNum === l.employeeNum &&
@@ -505,7 +562,8 @@ export default function AdminScreen({ navigation, route }) {
                           await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(kept));
                           setLeads(kept);
                         } catch (e) {
-                          Alert.alert('Clear failed', e?.message || 'Unknown issue');
+    BetaTracker.crash('AdminScreen', e);
+                          showThemedAlert('Clear failed', e?.message || 'Unknown issue');
                         }
                       },
                     },
@@ -521,10 +579,10 @@ export default function AdminScreen({ navigation, route }) {
         )}
 
         {tab === 'leads' &&
-          (visibleLeads.length === 0 ? (
-            <Text style={s.empty}>No leads matching current filter.</Text>
+          (visibleProspects.length === 0 ? (
+            <Text style={s.empty}>No prospects matching current filter.</Text>
           ) : (
-            visibleLeads.map((lead, idx) => (
+            visibleProspects.map((lead, idx) => (
               <View key={idx} style={s.leadCard}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.leadBiz}>{lead.businessName || 'Unnamed'}</Text>
@@ -598,160 +656,121 @@ function StatSection({ title, data, total, color }) {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1, paddingHorizontal: 16 },
-  roleBanner: {
-    borderBottomWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  roleBannerText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  roleBanner: { borderBottomWidth: 1, paddingHorizontal: 16, paddingVertical: 10 },
+  roleBannerText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
+
+  // PIN screen
   pinWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },
   pinLockIcon: { fontSize: 48 },
-  pinTitle: { fontSize: 20, fontWeight: '700', color: COLORS.text },
-  pinSub: { fontSize: 13, color: COLORS.muted, textAlign: 'center' },
+  pinTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text },
+  pinSub: { fontSize: 13, color: COLORS.muted, textAlign: 'center', lineHeight: 19 },
   pinInput: {
-    width: '100%',
-    backgroundColor: COLORS.surface2,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: COLORS.text,
-    fontSize: 20,
-    textAlign: 'center',
-    letterSpacing: 8,
+    width: '100%', backgroundColor: COLORS.surface2,
+    borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+    color: COLORS.text, fontSize: 20, textAlign: 'center', letterSpacing: 8,
   },
   pinError: { color: COLORS.danger, fontSize: 13 },
   pinBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 40,
-    width: '100%',
-    alignItems: 'center',
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.purple,
+    borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40,
+    width: '100%', alignItems: 'center',
   },
-  pinBtnText: { color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 1 },
+  pinBtnText: { color: COLORS.purple, fontSize: 16, fontWeight: '800', letterSpacing: 1 },
+
+  // Tab bar
   tabBar: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    flexDirection: 'row', backgroundColor: COLORS.surface,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabBtnActive: { borderBottomWidth: 2, borderBottomColor: COLORS.accent },
-  tabBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.muted },
-  tabBtnTextActive: { color: COLORS.accent },
+  tabBtnActive: { borderBottomWidth: 2, borderBottomColor: COLORS.purple },
+  tabBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.muted },
+  tabBtnTextActive: { color: COLORS.purple },
+
+  // Filter chips
   filterScroll: { marginTop: 12 },
   filterRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 4 },
   filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
   },
-  filterChipActive: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.1)' },
+  filterChipActive: { borderColor: 'rgba(123,63,190,0.5)', backgroundColor: 'rgba(123,63,190,0.1)' },
   filterChipText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
-  filterChipTextActive: { color: COLORS.accent },
+  filterChipTextActive: { color: COLORS.purple },
+
+  // Total card
   totalCard: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 14,
-    padding: 24,
-    alignItems: 'center',
-    marginTop: 12,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 14, padding: 24, alignItems: 'center', marginTop: 12,
+    position: 'relative', overflow: 'hidden',
   },
-  totalNum: { fontSize: 52, fontWeight: '800', lineHeight: 56 },
+  totalNum: { fontSize: 52, fontWeight: '900', lineHeight: 56 },
   totalLabel: { fontSize: 13, color: COLORS.muted, marginTop: 4, textAlign: 'center' },
+
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: COLORS.muted,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-    marginTop: 16,
+    fontSize: 10, fontWeight: '700', color: COLORS.label,
+    letterSpacing: 1.8, textTransform: 'uppercase', marginBottom: 10, marginTop: 18,
   },
+
+  // Stat bars
   statCard: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 14,
-    padding: 14,
-    gap: 10,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 14, padding: 14, gap: 10,
   },
   statRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  statLabel: { fontSize: 12, color: COLORS.text, width: 130 },
-  statBarWrap: {
-    flex: 1,
-    height: 6,
-    backgroundColor: COLORS.surface2,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
+  statLabel: { fontSize: 12, color: COLORS.textDim, width: 130 },
+  statBarWrap: { flex: 1, height: 5, backgroundColor: COLORS.surface2, borderRadius: 3, overflow: 'hidden' },
   statBar: { height: '100%', borderRadius: 3 },
-  statCount: { fontSize: 13, fontWeight: '700', color: COLORS.text, width: 28, textAlign: 'right' },
+  statCount: { fontSize: 12, fontWeight: '700', color: COLORS.text, width: 28, textAlign: 'right' },
+
+  // Action rows
   actionRow: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 12, padding: 14, flexDirection: 'row',
+    alignItems: 'center', gap: 12, marginBottom: 8,
   },
   actionIcon: { fontSize: 20 },
   actionLabel: { flex: 1, fontSize: 14, fontWeight: '600', color: COLORS.text },
-  actionArrow: { fontSize: 20, color: COLORS.muted },
+  actionArrow: { fontSize: 18, color: COLORS.muted },
   inlineInput: {
-    backgroundColor: COLORS.surface2,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: COLORS.text,
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, color: COLORS.text,
   },
-  miniBtn: { backgroundColor: COLORS.accent2, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
-  miniBtnText: { color: '#000', fontWeight: '800', fontSize: 12 },
+  miniBtn: {
+    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.accent2,
+    borderRadius: 10, paddingVertical: 10, alignItems: 'center',
+  },
+  miniBtnText: { color: COLORS.accent2, fontWeight: '800', fontSize: 12 },
+
+  // Lead cards
   leadCard: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 12, padding: 12, flexDirection: 'row',
+    alignItems: 'center', marginBottom: 8,
   },
-  leadBiz: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  leadBiz: { fontSize: 14, fontWeight: '700', color: COLORS.text },
   leadContact: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
   leadMeta: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
   leadMetaText: { fontSize: 10, color: COLORS.muted },
   dot: { fontSize: 10, color: COLORS.border },
   deleteBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,59,92,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: 'rgba(255,59,92,0.1)', borderWidth: 1,
+    borderColor: 'rgba(255,59,92,0.25)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  deleteBtnText: { color: COLORS.danger, fontSize: 14, fontWeight: '700' },
+  deleteBtnText: { color: COLORS.danger, fontSize: 13, fontWeight: '700' },
+
+  // Disabled users
   disabledRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: COLORS.surface2,
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 10, padding: 10, backgroundColor: COLORS.surface2,
   },
   disabledEmail: { color: COLORS.text, fontSize: 12, fontWeight: '700' },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+  emptyText: { color: COLORS.textDim, fontSize: 14, textAlign: 'center', lineHeight: 20 },
   disabledReason: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   enableText: { color: COLORS.success, fontWeight: '700', fontSize: 12 },
   empty: { textAlign: 'center', color: COLORS.muted, fontSize: 13, marginTop: 24 },

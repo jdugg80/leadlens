@@ -13,8 +13,27 @@ export function normalizeEmail(value = '') {
   return String(value || '').trim().toLowerCase();
 }
 
+export function normalizeFixedFieldValue(value) {
+  if (!value) return "";
+  const normalized = String(value).trim().toLowerCase();
+  const fixedMap = {
+    suspect: "Suspect",
+    commercial: "Commercial",
+    work: "Work",
+  };
+  return fixedMap[normalized] ?? String(value).trim();
+}
+
+const STATE_NAME_MAP = {
+  alabama:'AL',alaska:'AK',arizona:'AZ',arkansas:'AR',california:'CA',colorado:'CO',connecticut:'CT',delaware:'DE',florida:'FL',georgia:'GA',hawaii:'HI',idaho:'ID',illinois:'IL',indiana:'IN',iowa:'IA',kansas:'KS',kentucky:'KY',louisiana:'LA',maine:'ME',maryland:'MD',massachusetts:'MA',michigan:'MI',minnesota:'MN',mississippi:'MS',missouri:'MO',montana:'MT',nebraska:'NE',nevada:'NV','new hampshire':'NH','new jersey':'NJ','new mexico':'NM','new york':'NY','north carolina':'NC','north dakota':'ND',ohio:'OH',oklahoma:'OK',oregon:'OR',pennsylvania:'PA','rhode island':'RI','south carolina':'SC','south dakota':'SD',tennessee:'TN',texas:'TX',utah:'UT',vermont:'VT',virginia:'VA',washington:'WA','west virginia':'WV',wisconsin:'WI',wyoming:'WY',
+};
+
 export function normalizeState(value = '') {
-  return String(value || '').trim().toUpperCase().slice(0, 2);
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  if (STATE_NAME_MAP[lower]) return STATE_NAME_MAP[lower];
+  return trimmed.toUpperCase().slice(0, 2);
 }
 
 export function normalizeZip(value = '') {
@@ -39,17 +58,16 @@ export function splitStreetAddress(address = '') {
 }
 
 const VERTICAL_PATTERNS = [
-  { vertical: 'Restaurant', terms: ['restaurant', 'grill', 'bbq', 'cafe', 'taqueria', 'taco', 'pizza', 'burger', 'kitchen', 'eatery', 'bistro', 'diner'] },
-  { vertical: 'Food Service / Processing', terms: ['food processing', 'bakery', 'meat market', 'catering', 'commissary', 'food plant', 'brewery'] },
+  { vertical: 'Restaurants', terms: ['restaurant', 'grill', 'bbq', 'cafe', 'taqueria', 'taco', 'pizza', 'burger', 'kitchen', 'eatery', 'bistro', 'diner'] },
+  { vertical: 'Food & Beverage Processing', terms: ['food processing', 'bakery', 'meat market', 'catering', 'commissary', 'food plant', 'brewery'] },
   { vertical: 'Retail', terms: ['store', 'shop', 'boutique', 'retail', 'market', 'grocery', 'pharmacy', 'salon'] },
-  { vertical: 'Warehouse / Distribution', terms: ['warehouse', 'distribution', 'logistics', 'freight', 'storage', 'terminal', 'fulfillment'] },
-  { vertical: 'Multi-Family / Apartments', terms: ['apartments', 'apartment', 'multifamily', 'leasing office', 'resident', 'townhomes'] },
-  { vertical: 'HOA / Community', terms: ['hoa', 'community association', 'clubhouse', 'amenity center'] },
-  { vertical: 'Commercial Office', terms: ['office', 'insurance', 'agency', 'law firm', 'attorney', 'real estate', 'accounting', 'professional'] },
-  { vertical: 'Healthcare / Medical', terms: ['medical', 'clinic', 'hospital', 'dental', 'dentist', 'orthodont', 'doctor', 'pediatric', 'urgent care', 'surgery'] },
-  { vertical: 'School / Daycare', terms: ['school', 'daycare', 'academy', 'learning center', 'childcare', 'elementary', 'isd', 'college'] },
-  { vertical: 'Hotel / Hospitality', terms: ['hotel', 'inn', 'suites', 'hospitality', 'lodge', 'resort'] },
-  { vertical: 'Government / Municipal', terms: ['city of', 'town of', 'police', 'fire department', 'municipal', 'county', 'public works', 'government'] },
+  { vertical: 'Logistics / Distribution', terms: ['distribution', 'logistics', 'freight', 'shipping', 'terminal', 'fulfillment'] },
+  { vertical: 'Warehousing', terms: ['warehouse', 'storage', 'cold storage'] },
+  { vertical: 'Hotels / Motels / Apartments', terms: ['apartments', 'apartment', 'multifamily', 'leasing office', 'resident', 'townhomes', 'hotel', 'motel', 'inn', 'suites', 'hospitality', 'lodge', 'resort'] },
+  { vertical: 'Office Buildings', terms: ['office', 'insurance', 'agency', 'law firm', 'attorney', 'real estate', 'accounting', 'professional', 'hoa', 'community association', 'clubhouse', 'amenity center'] },
+  { vertical: 'Medical', terms: ['medical', 'clinic', 'hospital', 'dental', 'dentist', 'orthodont', 'doctor', 'pediatric', 'urgent care', 'surgery'] },
+  { vertical: 'Schools / Daycares', terms: ['school', 'daycare', 'academy', 'learning center', 'childcare', 'elementary', 'isd', 'college'] },
+  { vertical: 'Government', terms: ['city of', 'town of', 'police', 'fire department', 'municipal', 'county', 'public works', 'government'] },
 ];
 
 export function classifyVertical(lead = {}) {
@@ -89,6 +107,15 @@ export function normalizeLead(rawLead = {}, { fillNameDots = false } = {}) {
   lead.pocLast = normalizeName(lead.pocLast, fillNameDots);
   lead.phone = normalizePhone(lead.phone);
   lead.email = normalizeEmail(lead.email);
+  lead.website = String(lead.website || '').trim();
+  lead.facebookUrl = String(lead.facebookUrl || '').trim();
+  lead.instagramUrl = String(lead.instagramUrl || '').trim();
+  lead.linkedinUrl = String(lead.linkedinUrl || '').trim();
+  lead.tiktokUrl = String(lead.tiktokUrl || '').trim();
+  lead.youtubeUrl = String(lead.youtubeUrl || '').trim();
+  lead.xUrl = String(lead.xUrl || '').trim();
+  lead.socialConfidence = String(lead.socialConfidence || '').trim() || 'none';
+  lead.socialSource = String(lead.socialSource || '').trim();
   lead.state = normalizeState(lead.state);
   lead.zip = normalizeZip(lead.zip);
   lead.streetNumber = String(lead.streetNumber || '').trim();
@@ -104,7 +131,8 @@ export function normalizeLead(rawLead = {}, { fillNameDots = false } = {}) {
   if (!lead.vertical || lead.vertical === 'Restaurant' || lead.vertical === 'Other') {
     lead.vertical = classification.vertical;
   }
-  lead.propertyType = 'Commercial';
+  lead.propertyType = normalizeFixedFieldValue(classification.propertyType || lead.propertyType);
+  lead.status = normalizeFixedFieldValue(lead.status);
   lead.verticalConfidence = classification.verticalConfidence;
   return lead;
 }

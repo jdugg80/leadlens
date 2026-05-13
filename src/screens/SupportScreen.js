@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { APP_VERSION, COLORS, SUPPORT_EMAIL } from '../constants';
 import { Card, FieldInput, PrimaryButton, ScreenHeader, SectionLabel } from '../components/UI';
+import { showThemedAlert } from '../components/ThemedAlert';
 
 const ISSUE_TYPES = ['Bug', 'Export problem', 'Sync problem', 'OCR / scan issue', 'Duplicate issue', 'Login/session issue', 'Feature request', 'General feedback'];
 
@@ -23,7 +24,7 @@ export default function SupportScreen({ navigation, route }) {
       `Platform: ${Platform.OS}`,
       `Rep Name: ${user?.repName || ''}`,
       `Employee #: ${user?.employeeNum || ''}`,
-      `Branch #: ${user?.branchNum || ''}`,
+      `Branch / Dept / Team: ${user?.branchNum || ''}`,
       `Issue Type: ${issueType}`,
       `Time: ${new Date().toISOString()}`,
     ].join('\n');
@@ -32,7 +33,7 @@ export default function SupportScreen({ navigation, route }) {
   const addScreenshot = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
-      Alert.alert('Permission needed', 'Please allow photo library access to attach screenshots.');
+      showThemedAlert('Permission needed', 'Please allow photo library access to attach screenshots.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -58,7 +59,7 @@ export default function SupportScreen({ navigation, route }) {
 
   const send = async () => {
     if (!subject.trim() || !details.trim()) {
-      Alert.alert('Missing details', 'Please enter a subject and describe the issue before sending.');
+      showThemedAlert('Missing details', 'Please enter a subject and describe the issue before sending.');
       return;
     }
 
@@ -80,7 +81,7 @@ export default function SupportScreen({ navigation, route }) {
 
     const available = await MailComposer.isAvailableAsync();
     if (!available) {
-      Alert.alert('No mail app', 'Please configure a mail app on this device first.');
+      showThemedAlert('No mail app', 'Please configure a mail app on this device first.');
       return;
     }
 
@@ -91,9 +92,9 @@ export default function SupportScreen({ navigation, route }) {
         body,
         attachments: attachments.map((item) => item.uri),
       });
-      Alert.alert('Draft opened', 'Your support email draft was opened with the selected attachments.');
+      showThemedAlert('Draft opened', 'Your support email draft was opened with the selected attachments.');
     } catch (err) {
-      Alert.alert('Could not open mail draft', err.message || 'Please try again.');
+      showThemedAlert('Could not open mail draft', err.message || 'Please try again.');
     }
   };
 
@@ -169,15 +170,24 @@ const s = StyleSheet.create({
   lead: { color: COLORS.text, fontSize: 14, lineHeight: 22, fontWeight: '700' },
   sub: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginTop: 8 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 },
-  chip: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface2, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 8 },
-  chipOn: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.1)' },
+  chip: {
+    borderWidth: 1, borderColor: COLORS.borderLit,
+    backgroundColor: COLORS.surface2, borderRadius: 18,
+    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 8,
+  },
+  chipOn: { borderColor: 'rgba(123,63,190,0.5)', backgroundColor: 'rgba(123,63,190,0.12)' },
   chipText: { color: COLORS.muted, fontWeight: '700', fontSize: 12 },
-  chipTextOn: { color: COLORS.accent },
+  chipTextOn: { color: COLORS.purple },
   multi: { minHeight: 130, textAlignVertical: 'top' },
   smallMulti: { minHeight: 88, textAlignVertical: 'top' },
   attachRow: { gap: 10 },
   attachBtn: { marginTop: 0 },
-  attachmentItem: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: COLORS.surface2, padding: 12, marginBottom: 8, gap: 12 },
+  attachmentItem: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.borderLit,
+    borderRadius: 12, backgroundColor: COLORS.surface2,
+    padding: 12, marginBottom: 8, gap: 12,
+  },
   attachmentName: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
   attachmentType: { color: COLORS.muted, fontSize: 11, marginTop: 3 },
   remove: { color: COLORS.danger, fontWeight: '700', fontSize: 12 },

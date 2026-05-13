@@ -23,16 +23,9 @@ export async function resolveJurisdictionsAtCoords(coords: { latitude: number; l
   // For now, let's assume we can get it from the display name if not explicitly in result.
   const info: JurisdictionInfo = {
     city: result.city,
+    county: result.county,
     state: result.state,
   };
-
-  // Crude extraction of county from display name if missing
-  if (result._geoDisplayName && result._geoDisplayName.includes('County')) {
-    const match = result._geoDisplayName.match(/([^,]+ County)/);
-    if (match) {
-      info.county = match[1].replace(' County', '').trim();
-    }
-  }
 
   return [info];
 }

@@ -38,8 +38,12 @@ export async function runLensSignalSearchForViewport(params: {
     longitude: (params.northEast.longitude + params.southWest.longitude) / 2,
   };
 
-  // Calculate radius in miles roughly from bounds
-  const radiusMiles = 10; // Simplified for MVP
+  // Calculate radius from actual viewport bounds so it covers the full visible area
+  const latDiff = Math.abs(params.northEast.latitude - params.southWest.latitude);
+  const lngDiff = Math.abs(params.northEast.longitude - params.southWest.longitude);
+  const latMiles = latDiff * 69;
+  const lngMiles = lngDiff * Math.cos((center.latitude * Math.PI) / 180) * 69;
+  const radiusMiles = Math.min(Math.max(latMiles, lngMiles) / 2 + 10, 75); // half-diagonal + buffer, cap 75mi
 
   const records = await fetchLensSignalNearby(center.latitude, center.longitude, radiusMiles);
 

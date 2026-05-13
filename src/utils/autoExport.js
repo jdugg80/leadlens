@@ -1,16 +1,48 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from './storage';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
+import * as BackgroundFetch from 'expo-background-fetch';
+import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
-import { AUTO_EXPORT_SETTINGS_KEY, LEADS_STORAGE_KEY } from '../constants';
+import { AUTO_EXPORT_SETTINGS_KEY, LEADS_STORAGE_KEY, USER_STORAGE_KEY } from '../constants';
 import { buildXlsxUri } from './exportXlsx';
+import { enqueueTask, TASK_TYPES } from './taskQueue';
+import { processQueue } from './taskRunner';
+
+const AUTO_EXPORT_TASK_NAME = 'BACKGROUND_AUTO_EXPORT_TASK';
+const TASK_QUEUE_PROCESSOR_NAME = 'BACKGROUND_TASK_QUEUE_PROCESSOR';
 
 let appStateListenerBound = false;
 let appStateCallback = null;
 
-function parseTimeToMinutes(time = '17:00') {
-  const [h, m] = String(time || '17:00').split(':').map((v) => parseInt(v, 10));
-  return ((Number.isFinite(h) ? h : 17) * 60) + (Number.isFinite(m) ? m : 0);
+function parseTimeToMinutes(time = '16:00') {
+  const raw = String(time || '16:00').trim();
+  const match = raw.match(/^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$/i);
+  if (!match) {
+    return 16 * 60;
+  }
+
+  let hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2] || '0', 10);
+  const suffix = match[3] ? match[3].toLowerCase() : null;
+
+  if (suffix) {
+    if (hour === 12) {
+      hour = suffix === 'am' ? 0 : 12;
+    } else if (suffix === 'pm') {
+      hour += 12;
+    }
+  }
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return 16 * 60;
+  }
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return 16 * 60;
+  }
+
+  return hour * 60 + minute;
 }
 
 function normalizeRecipients(value = '') {
@@ -26,7 +58,7 @@ export async function loadAutoExportSettings() {
 }
 
 export async function maybeRunAutoExport(user, options = {}) {
-  const { force = false, settingsOverride = null } = options;
+  const { force = false, settingsOverride = null, isBackground = false } = options;
 
   const loadedSettings = await loadAutoExportSettings();
   const settings = settingsOverride || loadedSettings;
@@ -50,6 +82,15 @@ export async function maybeRunAutoExport(user, options = {}) {
   const stamp = now.toISOString().slice(0, 10);
   if (!force && settings.lastRunDate === stamp) {
     return { skipped: true, reason: 'already ran today' };
+  }
+
+  // Background tasks cannot show UI (Sharing/MailComposer with UI)
+  // If we are in background, we might need a non-interactive way to send
+  // For now, we'll focus on the logic and assume resume-based triggers for UI interaction.
+  if (isBackground && !force) {
+     // If we're backgrounded, we can't pop the MailComposer or Share sheet.
+     // We just log that it's ready.
+     return { skipped: true, reason: 'background execution requires user interaction for mail/share' };
   }
 
   const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
@@ -143,4 +184,50 @@ export function bindAutoExportOnAppResume(user) {
   };
   AppState.addEventListener('change', appStateCallback);
   appStateListenerBound = true;
+}
+
+// Register background task
+TaskManager.defineTask(AUTO_EXPORT_TASK_NAME, async () => {
+  try {
+    const rawUser = await AsyncStorage.getItem(USER_STORAGE_KEY);
+    const user = rawUser ? JSON.parse(rawUser) : null;
+    if (!user) return BackgroundFetch.BackgroundFetchResult.NoData;
+
+    const result = await maybeRunAutoExport(user, { isBackground: true });
+    return result.sent ? BackgroundFetch.BackgroundFetchResult.NewData : BackgroundFetch.BackgroundFetchResult.NoData;
+  } catch (error) {
+    return BackgroundFetch.BackgroundFetchResult.Failed;
+  }
+});
+
+TaskManager.defineTask(TASK_QUEUE_PROCESSOR_NAME, async () => {
+  try {
+    await processQueue();
+    return BackgroundFetch.BackgroundFetchResult.NewData;
+  } catch (err) {
+    console.error('[BackgroundTasks] Queue processing failed:', err);
+    return BackgroundFetch.BackgroundFetchResult.Failed;
+  }
+});
+
+export async function registerBackgroundAutoExport() {
+  await BackgroundFetch.registerTaskAsync(TASK_QUEUE_PROCESSOR_NAME, {
+    minimumInterval: 60 * 15,
+    stopOnTerminate: false,
+    startOnBoot: true,
+  });
+
+  return BackgroundFetch.registerTaskAsync(AUTO_EXPORT_TASK_NAME, {
+    minimumInterval: 60 * 15, // 15 minutes
+    stopOnTerminate: false, // android only
+    startOnBoot: true, // android only
+  });
+}
+
+export async function unregisterBackgroundAutoExport() {
+  return BackgroundFetch.unregisterTaskAsync(AUTO_EXPORT_TASK_NAME);
+}
+
+export async function enqueueAutoExport(options = {}) {
+  return enqueueTask(TASK_TYPES.AUTO_EXPORT, { options });
 }

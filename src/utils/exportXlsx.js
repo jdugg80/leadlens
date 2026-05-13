@@ -22,7 +22,7 @@ function buildTemplateRow(lead, user) {
   return [
     user.employeeNum, user.branchNum, '', safe.status, '',
     safe.propertyType, safe.businessName, safe.pocFirst, safe.pocLast, '',
-    safe.phone, '', safe.email, safe.streetNumber, safe.streetName, safe.addressLine2,
+    safe.phone, 'Work', safe.email, safe.streetNumber, safe.streetName, safe.addressLine2,
     safe.city, safe.state, safe.zip, '', '', '', '',
   ];
 }
@@ -36,7 +36,7 @@ function buildStandardRow(lead) {
   ];
 }
 
-function buildWorkbook(leads, user, options = {}) {
+async function buildWorkbook(leads, user, options = {}) {
   const mode = options.mode || 'template';
   const wb = utils.book_new();
   if (mode === 'standard') {
@@ -47,8 +47,16 @@ function buildWorkbook(leads, user, options = {}) {
   }
 
   if (mode === 'custom' && options.templateUri && options.mapping) {
-    const templateB64 = options.templateBase64 || '';
-    const templateWb = templateB64 ? read(templateB64, { type: 'base64' }) : utils.book_new();
+    let templateWb;
+    if (options.templateBase64) {
+      templateWb = read(options.templateBase64, { type: 'base64' });
+    } else {
+      const templateB64 = await FileSystem.readAsStringAsync(options.templateUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      templateWb = read(templateB64, { type: 'base64' });
+    }
+
     const wsName = templateWb.SheetNames[0] || 'Export';
     const ws = templateWb.Sheets[wsName] || utils.aoa_to_sheet([[]]);
     const startRow = Number(options.startRow || 2);

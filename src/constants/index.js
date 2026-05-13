@@ -1,15 +1,25 @@
 export const COLORS = {
-  bg: '#0D0F14',
-  surface: '#13161E',
-  surface2: '#1A1E28',
-  border: '#252A38',
-  accent: '#00C9FF',
-  accent2: '#FF6B2B',
-  danger: '#FF3B5C',
-  success: '#00E5A0',
-  text: '#E8EAF0',
-  muted: '#6B7280',
-  label: '#9CA3AF',
+  bg:        '#080A0F',
+  surface:   '#0E1018',
+  surface2:  '#141720',
+  surface3:  '#1C2030',
+  border:    '#252A3A',
+  borderLit: '#3A4060',
+  accent:    '#00C9FF',
+  accentDim: 'rgba(0,201,255,0.15)',
+  accent2:   '#CC1040',
+  accent2Dim:'rgba(204,16,64,0.15)',
+  purple:    '#7B3FBE',
+  purpleDim: 'rgba(123,63,190,0.15)',
+  chrome:    '#B8BDD0',
+  chromeDim: 'rgba(184,189,208,0.12)',
+  danger:    '#FF3B5C',
+  success:   '#00E5A0',
+  warning:   '#FFC800',
+  text:      '#E8EAF2',
+  textDim:   '#A0A8C0',
+  muted:     '#5A6080',
+  label:     '#7A85A8',
 };
 
 export const STATUS_OPTIONS = [
@@ -22,19 +32,26 @@ export const STATUS_OPTIONS = [
 ];
 
 export const INDUSTRY_VERTICALS = [
-  'Restaurant',
-  'Food Service / Processing',
+  'HVAC / Mechanical',
+  'Security / Access Control',
+  'Solar & Energy',
+  'Real Estate / Property Services',
+  'Pest Control',
+  'Warehousing',
+  'Food & Beverage Processing',
+  'Schools / Daycares',
+  'Medical',
   'Retail',
-  'Warehouse / Distribution',
-  'Multi-Family / Apartments',
-  'HOA / Community',
-  'Commercial Office',
-  'Healthcare / Medical',
-  'School / Daycare',
-  'Hotel / Hospitality',
-  'Government / Municipal',
+  'Office Buildings',
+  'Hotels / Motels / Apartments',
+  'Government',
+  'Logistics / Distribution',
+  'Restaurants',
   'Other',
 ];
+
+export const TARGET_LENS_PROFILES_KEY = '@leadlens_target_lens_profile';
+export const TARGET_LENS_SEARCH_MODE_KEY = '@leadlens_target_lens_search_mode';
 
 export const PROPERTY_TYPES = ['Commercial'];
 
@@ -51,6 +68,15 @@ export const EMPTY_LEAD = {
   pocLast: '',
   phone: '',
   email: '',
+  website: '',
+  facebookUrl: '',
+  instagramUrl: '',
+  linkedinUrl: '',
+  tiktokUrl: '',
+  youtubeUrl: '',
+  xUrl: '',
+  socialConfidence: 'none',
+  socialSource: '',
   streetNumber: '',
   streetName: '',
   addressLine2: '',
@@ -59,7 +85,7 @@ export const EMPTY_LEAD = {
   zip: '',
   status: 'Suspect',
   propertyType: 'Commercial',
-  vertical: 'Restaurant',
+  vertical: 'Retail',
   captureMethod: 'manual',
   imageUri: null,
   notes: '',
@@ -67,6 +93,7 @@ export const EMPTY_LEAD = {
 
 export const USER_STORAGE_KEY = '@leadlens_user';
 export const LEADS_STORAGE_KEY = '@leadlens_leads';
+export const GOALS_STORAGE_KEY = '@leadlens_user_goals';
 export const ALL_LEADS_KEY = '@leadlens_all_leads';
 export const AUTO_INTRO_KEY = '@leadlens_auto_intro';
 export const INTRO_TEMPLATE_SETTINGS_KEY = '@leadlens_intro_template_settings';
@@ -77,6 +104,28 @@ export const SUPABASE_SETTINGS_KEY = '@leadlens_supabase_settings';
 export const AUTOMATION_SETTINGS_KEY = '@leadlens_automation_settings';
 export const LAST_AUTOMATION_RUN_KEY = '@leadlens_last_automation_run';
 export const LEGAL_ACCEPTANCE_KEY = '@leadlens_legal_acceptance';
+export const DAILY_GOAL_CHIME_KEY_PREFIX = 'dailyGoalChimePlayed:';
+export const DAILY_GOAL_CHIME_ENABLED_KEY = '@leadlens_daily_goal_chime_enabled';
+
+export const AI_PERSONALITY_STYLE_KEY = '@leadlens_ai_personality_style';
+export const AI_VOICE_PROFILE_KEY = '@leadlens_ai_voice_profile';
+
+export const AI_PERSONALITY_STYLES = {
+  PROFESSIONAL: 'Professional',
+  FRIENDLY_COACH: 'Friendly Coach',
+  MOTIVATOR: 'Motivator',
+  SARCASTIC: 'Sarcastic / Ornery',
+  MINIMAL: 'Minimal',
+  PREMIUM_EXECUTIVE: 'Premium Executive',
+};
+
+export const AI_VOICE_PROFILES = {
+  SIRIUS: 'Sirius (Neutral)',
+  NOVA: 'Nova (Warm)',
+  ECHO: 'Echo (Deep)',
+  SHIMMER: 'Shimmer (Bright)',
+  ONYX: 'Onyx (Bold)',
+};
 
 export const DISABLED_USERS_KEY = '@leadlens_disabled_users';
 export const STOREFRONT_SCAN_LIMIT = 25;
@@ -90,6 +139,7 @@ export const EXPORT_MODES = {
   SALES_TEMPLATE: 'sales_template',
   TEMPLATE: 'template',
   STANDARD: 'standard',
+  CUSTOM: 'custom',
 };
 
 export const DEFAULT_INTRO_TEMPLATES = {
@@ -101,7 +151,8 @@ export const DEFAULT_INTRO_TEMPLATES = {
 };
 
 export const DEFAULT_EXPORT_SETTINGS = {
-  mode: EXPORT_MODES.SALES_TEMPLATE,
+  mode: EXPORT_MODES.STANDARD,
+  profileName: '',
 };
 
 export const DEFAULT_BACKEND_EMAIL_SETTINGS = {
@@ -112,7 +163,7 @@ export const DEFAULT_BACKEND_EMAIL_SETTINGS = {
   htmlBody: '<strong>Your LeadLens export is ready.</strong>',
 };
 
-export const APP_VERSION = '1.12.0';
+export const APP_VERSION = '1.14.0';
 export const PRIVACY_POLICY_VERSION = '1.1';
 export const TERMS_VERSION = '1.1';
 export const SUPPORT_EMAIL = 'theokaymediafam@gmail.com';

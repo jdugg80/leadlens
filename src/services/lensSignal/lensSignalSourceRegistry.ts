@@ -85,6 +85,62 @@ export const LENS_SIGNAL_SOURCES: LensSignalSource[] = [
     queryMethod: 'api',
     enabled: true,
     refreshDays: 3,
+  },
+  {
+    id: 'tx-statewide-openings',
+    jurisdictionName: 'Texas Statewide',
+    jurisdictionType: 'state',
+    state: 'TX',
+    signalTypes: ['opening'],
+    sourceName: 'Texas Comptroller / SOS',
+    sourceUrl: 'https://mycpa.cpa.state.tx.us/coa/',
+    queryMethod: 'api',
+    enabled: true,
+    refreshDays: 7,
+    apiConfig: {
+      description: 'Covers new sales tax permits and business registrations across all 254 Texas counties.'
+    }
+  },
+  {
+    id: 'tx-brazoria-compliance',
+    jurisdictionName: 'Brazoria County',
+    jurisdictionType: 'county',
+    state: 'TX',
+    county: 'Brazoria',
+    signalTypes: ['compliance'],
+    sourceName: 'Brazoria County Environmental Health',
+    sourceUrl: 'https://www.brazoriacountytx.gov/departments/environmental-health',
+    queryMethod: 'api',
+    enabled: true,
+    refreshDays: 14,
+  },
+  {
+    id: 'tx-brazoria-permits',
+    jurisdictionName: 'Brazoria County',
+    jurisdictionType: 'county',
+    state: 'TX',
+    county: 'Brazoria',
+    signalTypes: ['opening'],
+    sourceName: 'Brazoria County Permitting',
+    sourceUrl: 'https://www.brazoriacountytx.gov/departments/permitting',
+    queryMethod: 'api',
+    enabled: true,
+    refreshDays: 7,
+  },
+  {
+    id: 'us-nationwide-fallback',
+    jurisdictionName: 'United States',
+    jurisdictionType: 'regional',
+    state: 'ALL',
+    signalTypes: ['opening'],
+    sourceName: 'Federal / Multi-State Business Registry',
+    sourceUrl: '',
+    queryMethod: 'api',
+    enabled: true,
+    refreshDays: 30,
+    apiConfig: {
+      description: 'Placeholder for multi-state business signals coverage.'
+    }
   }
 ];
 
@@ -95,6 +151,9 @@ export function getSourcesForJurisdiction(params: {
 }) {
   return LENS_SIGNAL_SOURCES.filter(source => {
     if (!source.enabled) return false;
+
+    // Nationwide sources apply everywhere
+    if (source.state === 'ALL') return true;
 
     if (source.state !== params.state) return false;
 

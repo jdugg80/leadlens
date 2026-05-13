@@ -1,22 +1,36 @@
 import { supabase } from '../../lib/supabase';
-import { LensSignal } from './lenssignalTypes';
+import { LensSignalRecord, LensSignalLayer } from './lenssignalTypes';
 
-export const fetchNearbySignals = async (
-  lat: number,
-  lng: number,
+/**
+ * Fetches LensSignal records from Supabase using spatial RPC.
+ */
+export const fetchLensSignalNearby = async (
+  latitude: number,
+  longitude: number,
   radiusMiles: number = 5,
-  layer?: string
-): Promise<LensSignal[]> => {
-  const { data, error } = await supabase.rpc('get_lenssignal_nearby', {
-    p_latitude: lat,
-    p_longitude: lng,
-    p_radius_miles: radiusMiles,
-    p_signal_layer: layer || null
-  });
+  signalLayer: LensSignalLayer | null = null
+): Promise<LensSignalRecord[]> => {
+  try {
+    const params: any = {
+      p_latitude: latitude,
+      p_longitude: longitude,
+      p_radius_miles: radiusMiles
+    };
 
-  if (error) {
-    console.error('[LensSignalApi] Error fetching signals:', error);
-    throw error;
+    if (signalLayer) {
+      params.p_signal_layer = signalLayer;
+    }
+
+    const { data, error } = await supabase.rpc('get_lenssignal_nearby', params);
+
+    if (error) {
+      console.warn('[LensSignalApi] Error calling get_lenssignal_nearby:', error);
+      return [];
+    }
+
+    return (data as LensSignalRecord[]) || [];
+  } catch (err) {
+    console.warn('[LensSignalApi] Unexpected exception in fetchLensSignalNearby:', err);
+    return [];
   }
-  return data || [];
 };

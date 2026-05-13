@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from './storage';
 import {
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_INTRO_TEMPLATES,
@@ -11,6 +11,7 @@ function normalizeMode(mode) {
   if (mode === 'template') return EXPORT_MODES.SALES_TEMPLATE;
   if (mode === 'sales_template') return EXPORT_MODES.SALES_TEMPLATE;
   if (mode === 'standard') return EXPORT_MODES.STANDARD;
+  if (mode === 'custom' || mode === EXPORT_MODES.CUSTOM) return EXPORT_MODES.CUSTOM;
   return DEFAULT_EXPORT_SETTINGS.mode;
 }
 
@@ -40,14 +41,24 @@ export async function getExportSettings() {
   if (!raw) return DEFAULT_EXPORT_SETTINGS;
   try {
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_EXPORT_SETTINGS, ...parsed, mode: normalizeMode(parsed.mode) };
+    return {
+      ...DEFAULT_EXPORT_SETTINGS,
+      ...parsed,
+      mode: normalizeMode(parsed.mode),
+      profileName: parsed.profileName || '',
+    };
   } catch {
     return DEFAULT_EXPORT_SETTINGS;
   }
 }
 
 export async function saveExportSettings(settings) {
-  const next = { ...DEFAULT_EXPORT_SETTINGS, ...settings, mode: normalizeMode(settings.mode) };
+  const next = {
+    ...DEFAULT_EXPORT_SETTINGS,
+    ...settings,
+    mode: normalizeMode(settings.mode),
+    profileName: settings.profileName || '',
+  };
   await AsyncStorage.setItem(EXPORT_SETTINGS_KEY, JSON.stringify(next));
   return next;
 }

@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from './storage';
 
 const TASK_QUEUE_KEY = '@leadlens_task_queue';
 
@@ -9,6 +9,7 @@ export const TASK_TYPES = {
   EXTRACT_LEADS: 'EXTRACT_LEADS_FROM_IMAGE',
   AUTO_EXPORT: 'AUTO_EXPORT',
   EXCEL_IMPORT: 'PROCESS_EXCEL_IMPORT',
+  NEARBY_HYDRATE: 'NEARBY_HYDRATE',
 };
 
 export const TASK_STATUS = {
