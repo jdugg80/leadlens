@@ -1,6 +1,6 @@
 create table if not exists contact_candidates (
   id uuid default gen_random_uuid() primary key,
-  prospect_id uuid nullable,
+  prospect_id uuid,
   business_name text,
   normalized_business_name text,
   contact_full_name text,

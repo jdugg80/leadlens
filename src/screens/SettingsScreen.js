@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
 import {
   View,
@@ -8,6 +9,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  Alert,
+  Modal,
+  TextInput,
+  Linking,
 } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { Picker } from '@react-native-picker/picker';
@@ -21,6 +26,9 @@ import {
   LEADS_STORAGE_KEY,
   SUPABASE_SETTINGS_KEY,
   USER_STORAGE_KEY,
+  APP_VERSION,
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE,
 } from '../constants';
 import {
   ScreenHeader,
@@ -91,6 +99,7 @@ const SETTINGS_TABS = [
   { key: 'exports', label: 'Exports' },
   { key: 'backend', label: 'Backend' },
   { key: 'tools', label: 'Tools' },
+  { key: 'info', label: 'App Info' },
 ];
 
 const DEFAULT_AUTO_EXPORT = {
@@ -99,7 +108,10 @@ const DEFAULT_AUTO_EXPORT = {
   recipients: '',
   subject: 'LeadLens Scheduled Export ({count} prospects)',
   body: 'Attached is your scheduled LeadLens export containing {count} queued prospects.',
-  exportMode: 'template',
+  exportMode: 'template', // legacy field, keeping for fallback
+  exportFormat: 'universal_excel',
+  templateId: null,
+  templateName: null,
   reviewedOnly: false,
   excludeDuplicates: true,
   clearAfterSend: false,
@@ -208,11 +220,10 @@ async function handleTestBackendEmail(settings) {
 export default function SettingsScreen({ navigation, route }) {
   useEffect(() => {
     BetaTracker.screen('SettingsScreen');
+    console.log("[Settings] Opening settings screen");
   }, []);
 
-  console.log("[Settings] Opening settings screen");
   const routeUser = route?.params?.user || {};
-  console.log("[Settings] Initial user from route:", routeUser?.id || 'none');
   const [activeTab, setActiveTab] = useState('profile');
   const [userProfile, setUserProfile] = useState(() => ({
     ...routeUser,
@@ -236,6 +247,26 @@ export default function SettingsScreen({ navigation, route }) {
   const [queueCount, setQueueCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const [lockSupabase, setLockSupabase] = useState(true);
+  const [lockBackend, setLockBackend] = useState(true);
+  const [adminAuthVisible, setAdminAuthVisible] = useState(false);
+  const [adminAuthTarget, setAdminAuthTarget] = useState(null);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+
+  const handleAdminUnlock = () => {
+    if (adminPasswordInput === 'JJ.0324!!!!') {
+      if (adminAuthTarget === 'supabase') setLockSupabase(false);
+      if (adminAuthTarget === 'backend') setLockBackend(false);
+      setAdminAuthVisible(false);
+      setAdminPasswordInput('');
+    } else {
+      showThemedAlert('Access Denied', 'Incorrect admin password.');
+    }
+  };
+
+  const openAdminAuth = (target) => {
+    setAdminAuthTarget(target);
+    setAdminAuthVisible(true);
+  };
   const [soundsEnabled, setSoundsEnabledState] = useState(true);
   const [dailyGoalChimeEnabled, setDailyGoalChimeEnabledState] = useState(true);
   const [exportSoundsEnabled, setExportSoundsEnabledState] = useState(true);
@@ -521,6 +552,8 @@ export default function SettingsScreen({ navigation, route }) {
               if (authUser?.id) await unregisterPushToken(authUser.id);
             }
           } catch {}
+          // Push all data before logout
+await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
           navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         },
       },
@@ -1207,10 +1240,51 @@ export default function SettingsScreen({ navigation, route }) {
         </View>
 
         <View style={{ marginTop: 12 }}>
-          <Text style={s.modeLabel}>Export Format</Text>
-          <TouchableOpacity style={[s.modeBtn, autoExport.exportMode === 'standard' && s.modeBtnActive]} onPress={() => updateAutoExport('exportMode', 'standard')}>
-            <Text style={[s.modeTitle, autoExport.exportMode === 'standard' && s.modeTitleActive]}>Standard Spreadsheet</Text>
+          <Text style={s.modeLabel}>Export Format (Default)</Text>
+          <TouchableOpacity
+            style={[s.modeBtn, (autoExport.exportFormat === 'universal_excel' || (!autoExport.exportFormat && autoExport.exportMode === 'standard')) && s.modeBtnActive]}
+            onPress={() => {
+              updateAutoExport('exportFormat', 'universal_excel');
+              updateAutoExport('templateId', null);
+              updateAutoExport('templateName', null);
+            }}
+          >
+            <Text style={[s.modeTitle, (autoExport.exportFormat === 'universal_excel' || (!autoExport.exportFormat && autoExport.exportMode === 'standard')) && s.modeTitleActive]}>Universal Excel</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.modeBtn, autoExport.exportFormat === 'csv' && s.modeBtnActive]}
+            onPress={() => {
+              updateAutoExport('exportFormat', 'csv');
+              updateAutoExport('templateId', null);
+              updateAutoExport('templateName', null);
+            }}
+          >
+            <Text style={[s.modeTitle, autoExport.exportFormat === 'csv' && s.modeTitleActive]}>CSV</Text>
+          </TouchableOpacity>
+
+          {savedExportProfiles.length > 0 && (
+            <>
+              <Text style={[s.modeLabel, { marginTop: 14 }]}>Export Format (Custom Templates)</Text>
+              {savedExportProfiles.map((profile) => (
+                <TouchableOpacity
+                  key={profile.id || profile.name}
+                  style={[s.modeBtn, autoExport.exportFormat === 'custom_template' && autoExport.templateName === profile.name && s.modeBtnActive]}
+                  onPress={() => {
+                    updateAutoExport('exportFormat', 'custom_template');
+                    updateAutoExport('templateId', profile.id || profile.name);
+                    updateAutoExport('templateName', profile.name);
+                  }}
+                >
+                  <Text style={[s.modeTitle, autoExport.exportFormat === 'custom_template' && autoExport.templateName === profile.name && s.modeTitleActive]}>
+                    {profile.name}
+                  </Text>
+                  <Text style={s.profileRowSub}>
+                    {profile.headers?.length || 0} columns
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
         </View>
 
         <View style={s.dayRow}>
@@ -1235,7 +1309,13 @@ export default function SettingsScreen({ navigation, route }) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <Text style={s.modeLabel}>Supabase Connection</Text>
           <TouchableOpacity
-            onPress={() => setLockSupabase(!lockSupabase)}
+            onPress={() => {
+              if (lockSupabase) {
+                openAdminAuth('supabase');
+              } else {
+                setLockSupabase(true);
+              }
+            }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={{ color: COLORS.accent, fontWeight: '700', fontSize: 12 }}>
@@ -1314,13 +1394,32 @@ export default function SettingsScreen({ navigation, route }) {
           <Switch value={backendEmail.enabled} onValueChange={(v) => updateBackendEmail('enabled', v)} trackColor={{ true: COLORS.accent }} />
         </View>
 
+        <View style={{ marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={s.modeLabel}>Endpoint Security</Text>
+          <TouchableOpacity
+            onPress={() => {
+              if (lockBackend) {
+                openAdminAuth('backend');
+              } else {
+                setLockBackend(true);
+              }
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={{ color: COLORS.accent, fontWeight: '700', fontSize: 12 }}>
+              {lockBackend ? '🔓 Edit' : '🔒 Lock'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={{ marginTop: 12 }}>
           <FieldInput
             label="Backend Endpoint"
-            value={backendEmail.endpoint}
+            value={lockBackend ? '••••••••••••••••••••' : backendEmail.endpoint}
             onChangeText={(v) => updateBackendEmail('endpoint', v)}
             autoCapitalize="none"
             placeholder="https://okayestmedia.netlify.app/.netlify/functions/send-email"
+            editable={!lockBackend}
           />
         </View>
 
@@ -1376,6 +1475,71 @@ export default function SettingsScreen({ navigation, route }) {
     </>
   );
 
+  const renderInfoTab = () => (
+    <>
+      <SectionLabel>Software Information</SectionLabel>
+      <Card>
+        <View style={s.infoRow}>
+          <Text style={s.infoLabel}>App Name</Text>
+          <Text style={s.infoValue}>LeadLens</Text>
+        </View>
+        <View style={s.infoRow}>
+          <Text style={s.infoLabel}>Version</Text>
+          <Text style={s.infoValue}>v{APP_VERSION}{Constants.expoConfig?.extra?.betaBuild ? `-BETA.${Constants.expoConfig.extra.betaBuild}` : ''}</Text>
+        </View>
+        <View style={s.infoRow}>
+          <Text style={s.infoLabel}>Build Type</Text>
+          <Text style={s.infoValue}>Beta Release Candidate</Text>
+        </View>
+        <View style={s.infoRow}>
+          <Text style={s.infoLabel}>Developer</Text>
+          <Text style={s.infoValue}>Joseph Dugger</Text>
+        </View>
+      </Card>
+
+      <SectionLabel>Contact & Support</SectionLabel>
+      <Card>
+        <Text style={s.help}>
+          For feedback, bug reports, or feature requests, please reach out directly:
+        </Text>
+
+        <TouchableOpacity
+          style={s.contactRow}
+          onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+        >
+          <Text style={s.contactIcon}>✉️</Text>
+          <View>
+            <Text style={s.contactLabel}>Email</Text>
+            <Text style={s.contactValue}>{SUPPORT_EMAIL}</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.contactRow}
+          onPress={() => Linking.openURL(`tel:${SUPPORT_PHONE}`)}
+        >
+          <Text style={s.contactIcon}>📞</Text>
+          <View>
+            <Text style={s.contactLabel}>Phone</Text>
+            <Text style={s.contactValue}>{SUPPORT_PHONE}</Text>
+          </View>
+        </TouchableOpacity>
+      </Card>
+
+      <SectionLabel>Legal</SectionLabel>
+      <Card>
+        <TouchableOpacity style={s.actionRow} onPress={() => navigation.navigate('LegalDocument', { type: 'privacy' })}>
+          <Text style={s.actionLabel}>Privacy Policy</Text>
+          <Text style={s.actionArrow}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.actionRow} onPress={() => navigation.navigate('LegalDocument', { type: 'terms' })}>
+          <Text style={s.actionLabel}>Terms of Use</Text>
+          <Text style={s.actionArrow}>›</Text>
+        </TouchableOpacity>
+      </Card>
+    </>
+  );
+
   const renderActiveTab = () => {
     switch (activeTab) {
       case 'experience':
@@ -1386,6 +1550,8 @@ export default function SettingsScreen({ navigation, route }) {
         return renderBackendTab();
       case 'tools':
         return renderToolsTab();
+      case 'info':
+        return renderInfoTab();
       case 'profile':
       default:
         return renderProfileTab();
@@ -1421,6 +1587,38 @@ export default function SettingsScreen({ navigation, route }) {
           style={{ marginTop: 20 }}
         />
       </ScrollView>
+
+      <Modal visible={adminAuthVisible} transparent animationType="fade">
+        <View style={s.adminModalBackdrop}>
+          <Card style={s.adminModalCard}>
+            <Text style={s.adminModalTitle}>Admin Authentication</Text>
+            <Text style={s.adminModalSub}>Enter password to unlock protected settings:</Text>
+            <TextInput
+              style={s.adminModalInput}
+              value={adminPasswordInput}
+              onChangeText={setAdminPasswordInput}
+              secureTextEntry
+              autoFocus
+              placeholder="Admin Password"
+              placeholderTextColor={COLORS.muted}
+            />
+            <View style={s.adminModalActions}>
+              <TouchableOpacity
+                style={[s.adminModalBtn, s.adminModalCancel]}
+                onPress={() => { setAdminAuthVisible(false); setAdminPasswordInput(''); }}
+              >
+                <Text style={s.adminModalBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.adminModalBtn, s.adminModalUnlock]}
+                onPress={handleAdminUnlock}
+              >
+                <Text style={s.adminModalBtnText}>Unlock</Text>
+              </TouchableOpacity>
+            </View>
+          </Card>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1642,4 +1840,119 @@ const s = StyleSheet.create({
   dayTextActive: { color: COLORS.accent },
   help: { color: '#8a9bb0', fontSize: 12, lineHeight: 18, marginTop: 10 },
   queueCount: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
+  adminModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  adminModalCard: {
+    backgroundColor: COLORS.surface,
+  },
+  adminModalTitle: {
+    color: COLORS.accent,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  adminModalSub: {
+    color: COLORS.textDim,
+    fontSize: 14,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  adminModalInput: {
+    backgroundColor: COLORS.surface2,
+    borderWidth: 1,
+    borderColor: COLORS.borderLit,
+    borderRadius: 12,
+    color: COLORS.text,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  adminModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  adminModalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminModalBtnText: {
+    color: COLORS.text,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  adminModalCancel: {
+    backgroundColor: COLORS.surface2,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  adminModalUnlock: {
+    backgroundColor: COLORS.accent,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  infoLabel: {
+    color: COLORS.textDim,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  infoValue: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  contactIcon: {
+    fontSize: 24,
+  },
+  contactLabel: {
+    color: COLORS.label,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  contactValue: {
+    color: COLORS.accent,
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  actionLabel: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  actionArrow: {
+    color: COLORS.muted,
+    fontSize: 20,
+  },
 });

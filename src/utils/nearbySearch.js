@@ -21,7 +21,7 @@ function getGoogleMapsKey(overrideKey = null) {
     extraConfig.googlePlacesApiKey ||
     androidConfig.apiKey ||
     process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
-    null
+    'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI'
   );
 
   if (!key) {
@@ -144,6 +144,7 @@ function normalizeGoogleNewPlace(place) {
     opening_hours: place.regularOpeningHours ? {
       weekday_text: place.regularOpeningHours.weekdayDescriptions || []
     } : null,
+    addressComponents: place.addressComponents || [],
     raw: place,
   };
 }
@@ -275,7 +276,7 @@ export async function searchGooglePlacesByText({ query, center, radiusMeters = 5
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': apiKey,
         'X-Goog-FieldMask':
-          'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.types,places.businessStatus,places.primaryType,places.googleMapsUri,places.websiteUri,places.internationalPhoneNumber,places.rating,places.userRatingCount,places.regularOpeningHours',
+          'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.types,places.businessStatus,places.primaryType,places.googleMapsUri,places.websiteUri,places.internationalPhoneNumber,places.rating,places.userRatingCount,places.regularOpeningHours,places.addressComponents',
       },
       body: JSON.stringify(body),
     });
@@ -511,7 +512,7 @@ export async function fetchPlaceDetails(placeId) {
   const apiKey = getGoogleMapsKey();
   if (!apiKey) return null;
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,website,address_components&key=${apiKey}`;
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,international_phone_number,website,address_components,opening_hours,rating,user_ratings_total,business_status&key=${apiKey}`;
     const resp = await fetch(url);
     const data = await resp.json();
     return data.result || null;
@@ -520,13 +521,159 @@ export async function fetchPlaceDetails(placeId) {
   }
 }
 
+/**
+ * Enriches a prospect with missing address data by searching Google Places.
+ * Uses a prioritized strategy based on available data points.
+ */
+export async function enrichMissingBusinessAddress(prospect) {
+  if (!prospect.businessName) {
+    return { ok: false, reason: 'missing_name' };
+  }
+
+  // 1. Detect if address data is actually missing
+  const isMissing = !prospect.streetName || !prospect.city || !prospect.state || !prospect.zip;
+  if (!isMissing) {
+    return { ok: true, skipped: true, reason: 'address_exists' };
+  }
+
+  console.log(`[AddressEnrich] Starting lookup for: ${prospect.businessName}`);
+
+  try {
+    const apiKey = getGoogleMapsKey();
+    if (!apiKey) return { ok: false, reason: 'no_api_key' };
+
+    // Determine biasing location
+    const leadLat = prospect.latitude ?? prospect.lat ?? prospect.locationLat;
+    const leadLng = prospect.longitude ?? prospect.lng ?? prospect.locationLng;
+    const leadCoords = (leadLat && leadLng) ? { latitude: Number(leadLat), longitude: Number(leadLng) } : null;
+
+    let results = null;
+    let strategy = '';
+
+    // Strategy A: Coordinates + Name
+    if (leadCoords) {
+      strategy = 'A (Coords + Name)';
+      results = await searchGooglePlacesByText({
+        query: prospect.businessName,
+        center: leadCoords,
+        radiusMeters: 1000,
+        apiKey,
+      });
+    }
+
+    // Strategy B: Name + City/State
+    if ((!results || results.length === 0) && prospect.city) {
+      strategy = 'B (Name + City)';
+      results = await searchGooglePlacesByText({
+        query: `${prospect.businessName} ${prospect.city} ${prospect.state || ''}`,
+        center: leadCoords,
+        radiusMeters: 5000,
+        apiKey,
+      });
+    }
+
+    // Strategy C: Name + Phone
+    if ((!results || results.length === 0) && prospect.phone) {
+      strategy = 'C (Name + Phone)';
+      results = await searchGooglePlacesByText({
+        query: `${prospect.businessName} ${prospect.phone}`,
+        center: leadCoords,
+        radiusMeters: 10000,
+        apiKey,
+      });
+    }
+
+    // Strategy D: Name + Website
+    if ((!results || results.length === 0) && prospect.website) {
+      strategy = 'D (Name + Website)';
+      results = await searchGooglePlacesByText({
+        query: `${prospect.businessName} ${prospect.website}`,
+        center: leadCoords,
+        radiusMeters: 10000,
+        apiKey,
+      });
+    }
+
+    // Strategy E: Name Only
+    if (!results || results.length === 0) {
+      strategy = 'E (Name Only)';
+      results = await searchGooglePlacesByText({
+        query: prospect.businessName,
+        center: leadCoords,
+        radiusMeters: 20000,
+        apiKey,
+      });
+    }
+
+    if (!results || results.length === 0) {
+      console.log(`[AddressEnrich] No matches found for ${prospect.businessName}`);
+      return { ok: true, found: false };
+    }
+
+    // 2. Score matches by confidence
+    const scoredResults = results.map(match => {
+      let score = 0;
+      const reasons = [];
+
+      // Name similarity (basic check)
+      const nameMatch = match.name.toLowerCase().includes(prospect.businessName.toLowerCase()) ||
+                       prospect.businessName.toLowerCase().includes(match.name.toLowerCase());
+      if (nameMatch) { score += 40; reasons.push('name_match'); }
+
+      // Supporting evidence
+      if (prospect.phone && match.phone && prospect.phone.replace(/\D/g,'') === match.phone.replace(/\D/g,'')) {
+        score += 50; reasons.push('phone_verified');
+      }
+      if (prospect.website && match.website && match.website.includes(prospect.website.replace(/^https?:\/\//,''))) {
+        score += 50; reasons.push('website_verified');
+      }
+      if (leadCoords && match.coords) {
+        const dist = getDistanceBetweenMeters(leadCoords, match.coords);
+        if (dist !== null && dist < 200) { score += 40; reasons.push('proximity_match'); }
+      }
+
+      const confidence = score >= 80 ? 'high' : score >= 40 ? 'medium' : 'low';
+      return { ...match, score, confidence, reasons };
+    }).sort((a, b) => b.score - a.score);
+
+    const best = scoredResults[0];
+    console.log(`[AddressEnrich] Best match: ${best.name} (${best.confidence} confidence) via Strategy ${strategy}`);
+
+    return {
+      ok: true,
+      found: true,
+      best,
+      allMatches: scoredResults,
+      strategy
+    };
+
+  } catch (error) {
+    console.error('[AddressEnrich] Fatal Error:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
+function getDistanceBetweenMeters(a, b) {
+  const R = 6371000;
+  const toRad = (deg) => deg * Math.PI / 180;
+  if (!a?.latitude || !b?.latitude) return null;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon), Math.sqrt(1 - (sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon)));
+  return Math.round(R * c);
+}
+
 export function parseAddressComponents(components = []) {
-  const getComp = (type) => components.find((c) => c.types.includes(type))?.long_name || '';
-  const getShortComp = (type) => components.find((c) => c.types.includes(type))?.short_name || '';
+  const getComp = (type) => components.find((c) => c.types.includes(type))?.longText || components.find((c) => c.types.includes(type))?.long_name || '';
+  const getShortComp = (type) => components.find((c) => c.types.includes(type))?.shortText || components.find((c) => c.types.includes(type))?.short_name || '';
   return {
     streetNumber: getComp('street_number'),
     streetName: getComp('route'),
-    city: getComp('locality') || getComp('sublocality'),
+    city: getComp('locality') || getComp('sublocality') || getComp('administrative_area_level_2'),
     state: getShortComp('administrative_area_level_1'),
     zip: getComp('postal_code'),
   };

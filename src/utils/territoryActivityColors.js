@@ -16,6 +16,15 @@ export function normalizeActivityLevel(activityLevel) {
   return 'none';
 }
 
+/**
+ * REVERSED HEAT MAP COLORS:
+ * - high activity (many prospects) = BLUE/GREEN (cold colors)
+ * - medium activity = CYAN/YELLOW
+ * - low activity = ORANGE
+ * - no activity = RED
+ * 
+ * This makes sense visually: green = go, red = stop/warning
+ */
 export function getTerritoryActivityColors(activityLevel) {
   const level = normalizeActivityLevel(activityLevel);
 
@@ -23,32 +32,32 @@ export function getTerritoryActivityColors(activityLevel) {
     case 'high':
       return {
         level,
-        fillColor: 'rgba(255, 48, 96, 0.36)',
-        strokeColor: 'rgba(255, 48, 96, 0.88)',
+        fillColor: 'rgba(34, 197, 94, 0.28)',    // Green fill
+        strokeColor: 'rgba(34, 197, 94, 0.85)',  // Green stroke
         label: 'High Activity',
       };
 
     case 'medium':
       return {
         level,
-        fillColor: 'rgba(255, 180, 40, 0.30)',
-        strokeColor: 'rgba(255, 180, 40, 0.82)',
+        fillColor: 'rgba(0, 201, 255, 0.24)',    // Cyan fill
+        strokeColor: 'rgba(0, 201, 255, 0.76)',  // Cyan stroke
         label: 'Medium Activity',
       };
 
     case 'low':
       return {
         level,
-        fillColor: 'rgba(0, 180, 255, 0.24)',
-        strokeColor: 'rgba(0, 180, 255, 0.76)',
+        fillColor: 'rgba(255, 140, 0, 0.20)',    // Orange fill
+        strokeColor: 'rgba(255, 140, 0, 0.75)',  // Orange stroke
         label: 'Low Activity',
       };
 
     default:
       return {
         level: 'none',
-        fillColor: 'rgba(255, 255, 255, 0.065)',
-        strokeColor: 'rgba(255, 255, 255, 0.22)',
+        fillColor: 'rgba(239, 68, 68, 0.15)',    // Red fill
+        strokeColor: 'rgba(239, 68, 68, 0.65)',  // Red stroke
         label: 'No Activity',
       };
   }

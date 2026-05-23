@@ -5,7 +5,9 @@ import {
   EXPORT_SETTINGS_KEY,
   INTRO_TEMPLATE_SETTINGS_KEY,
   EXPORT_MODES,
+  SUPABASE_SETTINGS_KEY,
 } from '../constants';
+import { createSupabaseClient } from './supabaseClient';
 
 function normalizeMode(mode) {
   if (mode === 'template') return EXPORT_MODES.SALES_TEMPLATE;
@@ -13,6 +15,39 @@ function normalizeMode(mode) {
   if (mode === 'standard') return EXPORT_MODES.STANDARD;
   if (mode === 'custom' || mode === EXPORT_MODES.CUSTOM) return EXPORT_MODES.CUSTOM;
   return DEFAULT_EXPORT_SETTINGS.mode;
+}
+
+async function syncSettingsToSupabase(key, data) {
+  try {
+    const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+    const config = raw ? JSON.parse(raw) : null;
+    const supabase = createSupabaseClient(config);
+    if (!supabase) return;
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return;
+
+    // Get current settings first
+    const { data: existing } = await supabase
+      .from('user_settings')
+      .select('settings')
+      .eq('user_id', user.id)
+      .single();
+
+    const nextSettings = { ...(existing?.settings || {}), [key]: data };
+
+    const { error } = await supabase
+      .from('user_settings')
+      .upsert({
+        user_id: user.id,
+        settings: nextSettings,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+
+    if (error) console.warn('[syncSettingsToSupabase] Failed:', error.message);
+  } catch (err) {
+    console.warn('[syncSettingsToSupabase] Unexpected error:', err.message);
+  }
 }
 
 export async function getIntroTemplates() {
@@ -28,11 +63,13 @@ export async function getIntroTemplates() {
 export async function saveIntroTemplates(templates) {
   const next = { ...DEFAULT_INTRO_TEMPLATES, ...templates };
   await AsyncStorage.setItem(INTRO_TEMPLATE_SETTINGS_KEY, JSON.stringify(next));
+  syncSettingsToSupabase('intro_templates', next);
   return next;
 }
 
 export async function resetIntroTemplates() {
   await AsyncStorage.setItem(INTRO_TEMPLATE_SETTINGS_KEY, JSON.stringify(DEFAULT_INTRO_TEMPLATES));
+  syncSettingsToSupabase('intro_templates', DEFAULT_INTRO_TEMPLATES);
   return DEFAULT_INTRO_TEMPLATES;
 }
 
@@ -60,6 +97,7 @@ export async function saveExportSettings(settings) {
     profileName: settings.profileName || '',
   };
   await AsyncStorage.setItem(EXPORT_SETTINGS_KEY, JSON.stringify(next));
+  syncSettingsToSupabase('export_settings', next);
   return next;
 }
 

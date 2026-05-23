@@ -1,13 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import GeoTargetProjectionBadge from '../components/GeoTargetProjectionBadge';
-import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, Linking, ActivityIndicator, Animated, Dimensions } from 'react-native';
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, Linking, ActivityIndicator, Animated, Dimensions, PanResponder } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, LEADS_STORAGE_KEY, EMPTY_LEAD, ROLES, DAILY_GOAL_CHIME_KEY_PREFIX } from '../constants';
+import { COLORS, LEADS_STORAGE_KEY, SUPABASE_SETTINGS_KEY, EMPTY_LEAD, ROLES, DAILY_GOAL_CHIME_KEY_PREFIX } from '../constants';
 import { maybeRunAutoExport } from '../utils/autoExport';
 import { preloadSoundEffects, playSoundEffect, getSoundsEnabled, getDailyGoalChimeEnabled } from '../utils/soundManager';
-import { sortLeadsNewestFirst, getLeadTimestamp, ensureLeadCreatedAt } from '../utils/leadHelpers';
+import { sortLeadsNewestFirst, getLeadTimestamp, ensureLeadCreatedAt, sortQueueProspects, calculateLeadViability } from '../utils/leadHelpers';
 import { SectionLabel, StatusBadge, Card } from '../components/UI';
 import ManagerDashboardScreen from './ManagerDashboardScreen';
 import { saveLeads } from '../utils/exportProfiles';
@@ -26,8 +26,13 @@ import { saveUserLocationStatus } from '../features/lenssignal/saveUserLocationS
 
 import { registerLensSignalPushToken } from '../features/lenssignal/registerPushToken';
 import { processQueue } from '../utils/taskRunner';
+import { deleteProspect, deleteProspects } from '../utils/backendSync';
 import { hasRequestedBulkPermissions, markBulkPermissionsRequested, requestAllPermissions } from '../utils/permissionManager';
 import BetaTracker from '../../utils/betaTracker';
+
+import { createSupabaseClient } from '../utils/supabaseClient';
+
+import { syncProspectsFromSupabase } from '../utils/backendSync';
 
 const safeText = (value, fallback = '') => {
   if (value === null || value === undefined) return fallback;
@@ -131,6 +136,40 @@ const getGeoTargetSummary = (lead = {}) => {
     longitude,
   };
 };
+
+function getWorkingDaysRemaining() {
+  const today = new Date();
+  const month = today.getMonth();
+  const year = today.getFullYear();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let remaining = 0;
+  for (let day = today.getDate(); day <= daysInMonth; day++) {
+    const d = new Date(year, month, day);
+    if (d.getDay() >= 1 && d.getDay() <= 5) { // Mon-Fri
+      remaining++;
+    }
+  }
+  return remaining;
+}
+
+function getAverageDailyExports(leads) {
+  if (!leads || leads.length === 0) return '0.0';
+
+  const exportsByDay = leads.reduce((acc, lead) => {
+    if (lead.exportedAt) {
+      const day = new Date(lead.exportedAt).toISOString().slice(0, 10);
+      acc[day] = (acc[day] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const daysWithExports = Object.keys(exportsByDay).length;
+  if (daysWithExports === 0) return '0.0';
+
+  const totalExports = Object.values(exportsByDay).reduce((sum, count) => sum + count, 0);
+  return (totalExports / daysWithExports).toFixed(1);
+}
+
 const { width: SW } = Dimensions.get('window');
 
 export default function DashboardScreen({ navigation, route }) {
@@ -180,13 +219,34 @@ export default function DashboardScreen({ navigation, route }) {
         return list.sort((a, b) => (a.status || '').localeCompare(b.status || ''));
       case 'newest':
       default:
-        return list.sort((a, b) => getLeadTimestamp(b) - getLeadTimestamp(a));
+        return sortQueueProspects(list);
     }
   };
 
   useEffect(() => {
-  BetaTracker.screen('Dashboard');
-}, []);
+    BetaTracker.screen('Dashboard');
+
+    // Heartbeat: Update last_seen_at in Supabase
+    if (user?.id) {
+      (async () => {
+        try {
+          const [rawSupa] = await Promise.all([
+            AsyncStorage.getItem('@leadlens_supabase_settings'),
+          ]);
+          const settings = rawSupa ? JSON.parse(rawSupa) : {};
+          const supabase = createSupabaseClient(settings);
+          if (supabase) {
+            await supabase
+              .from('profiles')
+              .update({ last_seen_at: new Date().toISOString() })
+              .eq('id', user.id);
+          }
+        } catch (err) {
+          console.warn('[Dashboard] Heartbeat failed:', err.message);
+        }
+      })();
+    }
+  }, []);
 
 
   useEffect(() => {
@@ -500,10 +560,25 @@ export default function DashboardScreen({ navigation, route }) {
   }
 
   const handleSignOut = () => {
-    showThemedAlert('Sign Out', 'Clear your profile and start over?', [
+    showThemedAlert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: async () => {
-        await AsyncStorage.removeItem('@leadlens_user');
+        // Best-effort cleanup — navigation always happens even if something fails
+        try {
+          await AsyncStorage.removeItem('@leadlens_auth_profile').catch(() => {});
+          await AsyncStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
+
+          const rawSupa = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY).catch(() => null);
+          const settings = rawSupa ? JSON.parse(rawSupa) : {};
+          const supabase = createSupabaseClient(settings);
+          if (supabase) await supabase.auth.signOut().catch(() => {});
+
+          await BetaTracker.endSession().catch(() => {});
+        } catch (err) {
+          console.warn('[Dashboard] Sign out cleanup failed:', err?.message);
+        }
+
+        // Always navigate — never block sign out on cleanup failures
         navigation.replace('Login');
       }},
     ]);
@@ -582,8 +657,20 @@ export default function DashboardScreen({ navigation, route }) {
             business_type: lead.vertical || lead.industry || lead.businessType
           }).catch(() => {});
         });
+
+        try {
+          const rawSupa = await AsyncStorage.getItem('@leadlens_supabase_settings');
+          const settings = rawSupa ? JSON.parse(rawSupa) : {};
+          await deleteProspects(selectedLeadIds, settings);
+
+          if (__DEV__) {
+            console.log("BATCH DELETE BUTTON PRESSED FOR PROSPECTS:", selectedLeadIds);
+          }
+        } catch (e) {
+          console.error("DELETE PROSPECTS FAILED:", e);
+        }
+
         const updated = prospects.filter((lead) => !selectedLeadIds.includes(getLeadId(lead)));
-        await persistQueue(updated);
         setLeads(updated);
         clearLeadSelection();
       }},
@@ -592,17 +679,37 @@ export default function DashboardScreen({ navigation, route }) {
 
   const deleteSingleLead = (lead) => {
     const id = getLeadId(lead);
-    if (!id) return;
+    if (!id) {
+      console.warn("DELETE PROSPECT FAILED: Missing prospect ID");
+      return;
+    }
+
     showThemedAlert('Delete lead?', 'This will remove this lead from your queue.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
+        if (__DEV__) {
+          console.log("DELETE BUTTON PRESSED FOR PROSPECT:", lead);
+          console.log("DELETE TARGET ID:", id);
+        }
         recordUserActivityEvent('prospect_deleted', {
           prospect_id: id,
           zip: lead.zip,
           business_type: lead.vertical || lead.industry || lead.businessType
         }).catch(() => {});
+
+        try {
+          const rawSupa = await AsyncStorage.getItem('@leadlens_supabase_settings');
+          const settings = rawSupa ? JSON.parse(rawSupa) : {};
+          await deleteProspect(id, settings);
+
+          if (__DEV__) {
+            console.log("PROSPECT DELETED FROM QUEUE:", id);
+          }
+        } catch (e) {
+          console.error("DELETE PROSPECT FAILED:", e);
+        }
+
         const updated = prospects.filter((item) => getLeadId(item) !== id);
-        await persistQueue(updated);
         setLeads(updated);
         setSelectedLeadIds((prev) => {
           const next = prev.filter(existingId => existingId !== id);
@@ -624,7 +731,8 @@ export default function DashboardScreen({ navigation, route }) {
       // Immediate attempt for UX
       const enriched = await enrichLead(lead);
       const updated = [...leads];
-      updated[idx] = { ...lead, ...enriched };
+      const mergedLead = { ...lead, ...enriched };
+      updated[idx] = { ...mergedLead, ...calculateLeadViability(mergedLead) };
       await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
       setLeads(updated);
       const filled = ['phone', 'email', 'streetName', 'city'].filter(k => enriched[k] && !lead[k]);
@@ -730,17 +838,13 @@ export default function DashboardScreen({ navigation, route }) {
           </View>
           <View style={[s.metricTile, { borderColor: 'rgba(0,229,160,0.3)' }]}>
             <View style={[s.metricTileCornerTL, { borderColor: COLORS.success }]} />
-            <Text style={[s.metricValue, { color: COLORS.success }]}>
-              {prospects.filter(l => l.status === 'Contacted' || l.status === 'In Progress').length}
-            </Text>
-            <Text style={s.metricLabel}>ACTIVE</Text>
+            <Text style={[s.metricValue, { color: COLORS.success }]}>{getAverageDailyExports(prospects)}</Text>
+            <Text style={s.metricLabel}>AVG DAILY EXPORTS</Text>
           </View>
           <View style={[s.metricTile, { borderColor: 'rgba(204,16,64,0.3)' }]}>
             <View style={[s.metricTileCornerTL, { borderColor: COLORS.accent2 }]} />
-            <Text style={[s.metricValue, { color: COLORS.accent2 }]}>
-              {user.branchNum || user.branch || '—'}
-            </Text>
-            <Text style={s.metricLabel}>BRANCH/DEPT/TEAM</Text>
+            <Text style={[s.metricValue, { color: COLORS.accent2 }]}>{getWorkingDaysRemaining()}</Text>
+            <Text style={s.metricLabel}>WORK DAYS LEFT</Text>
           </View>
         </View>
 
@@ -933,132 +1037,222 @@ export default function DashboardScreen({ navigation, route }) {
             <Text style={s.emptySub}>Capture your first prospect above.</Text>
           </View>
         ) : (
-          prospects.map((lead, idx) => (
-            <TouchableOpacity
-              key={getLeadCardKey(lead, idx, 'queue')}
-              style={[s.queueCard, selectionMode && isLeadSelected(lead) && s.queueCardSelected]}
-              onPress={() => selectionMode ? toggleLeadSelection(lead) : goEdit(lead, idx)}
-              onLongPress={() => toggleLeadSelection(lead)}
-              activeOpacity={0.75}
-            >
-              {/* Left status bar */}
-              <View style={[s.queueCardBar, {
-                backgroundColor:
-                  lead.status === 'New' ? COLORS.accent
-                  : lead.status === 'Contacted' || lead.status === 'In Progress' ? COLORS.purple
-                  : COLORS.success,
-              }]} />
+          prospects.map((rawLead, idx) => {
+            const lead = { ...rawLead, ...calculateLeadViability(rawLead) };
 
-              {/* Selection circle */}
-              {selectionMode && (
-                <View style={[s.selectCircle, isLeadSelected(lead) && s.selectCircleOn]}>
-                  {isLeadSelected(lead) && <Text style={s.selectCheck}>✓</Text>}
-                </View>
-              )}
+            let bgColor = COLORS.surface;
+            if (lead.shadeKey === 'green') bgColor = 'rgba(0, 255, 100, 0.03)';
+            else if (lead.shadeKey === 'yellow') bgColor = 'rgba(255, 200, 0, 0.04)';
+            else if (lead.shadeKey === 'orange') bgColor = 'rgba(255, 140, 0, 0.04)';
+            else if (lead.shadeKey === 'red') bgColor = 'rgba(255, 0, 0, 0.03)';
 
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <Text style={s.queueBiz} numberOfLines={1}>{lead.businessName || 'Unnamed Business'}</Text>
-                  {!!lead.updatedAt && (
-                    <Text style={s.updatedAtText}>
-                      Updated: {new Date(lead.updatedAt).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
-                    </Text>
-                  )}
-                </View>
-                <Text style={s.queueSub} numberOfLines={1}>
-                  {[lead.pocFirst, lead.pocLast].filter(Boolean).join(' ')}
-                  {lead.phone ? ` · ${lead.phone}` : ''}
-              </Text>
-                {/* Missing field badges */}
-                {(!lead.phone || !lead.email || !lead.streetName) && (
-                  <View style={s.missingRow}>
-                    {!lead.phone    && <View style={s.missingBadge}><Text style={s.missingText}>no phone</Text></View>}
-                    {!lead.email    && <View style={s.missingBadge}><Text style={s.missingText}>no email</Text></View>}
-                    {!lead.streetName && <View style={s.missingBadge}><Text style={s.missingText}>no address</Text></View>}
-                  </View>
-                )}
-{(() => {
-  const geo = getGeoTargetSummary(lead);
-
-  if (!geo.hasGeoTarget) return null;
-
-  return (
-    <View style={s.geoTargetRow}>
-    <View style={s.geoTargetBadge}>
-  <Text style={s.geoTargetBadgeText}>
-    {`GT Lock: ${safeText(geo.status)}`}
-  </Text>
-</View>
-
-<Text style={s.geoTargetMeta}>
-  {`${geo.accuracy !== null
-    ? `Accuracy: ${Math.round(Number(geo.accuracy))}m`
-    : 'Accuracy: —'}${geo.confidence !== null
-    ? ` · Confidence: ${Math.round(Number(geo.confidence))}%`
-    : ''}`}
-</Text>
-
-       <GeoTargetProjectionBadge geo={geo} />
-    </View>
-  );
-})()}
-                {/* Quick action buttons */}
-                {!selectionMode && (
-                  <View style={s.qaRow}>
-                    {!!lead.phone && (
-                      <>
-                        <TouchableOpacity style={s.qaBtn} onPress={() => quickCall(lead)} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
-                          <Text style={s.qaIcon}>📞</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={s.qaBtn} onPress={() => quickText(lead)} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
-                          <Text style={s.qaIcon}>💬</Text>
-                        </TouchableOpacity>
-                      </>
-                    )}
-                    {!!lead.email && (
-                      <TouchableOpacity style={s.qaBtn} onPress={() => quickEmail(lead)} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
-                        <Text style={s.qaIcon}>✉️</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!!(lead.streetName || lead.city) && (
-                      <TouchableOpacity style={s.qaBtn} onPress={() => quickMaps(lead)} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
-                        <Text style={s.qaIcon}>📍</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!!lead.website && (
-                      <TouchableOpacity style={s.qaBtn} onPress={() => quickWebsite(lead.website)} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
-                        <Text style={s.qaIcon}>🌐</Text>
-                      </TouchableOpacity>
-                    )}
-                    {(!lead.phone || !lead.email || !lead.streetName) && (
-                      <TouchableOpacity
-                        style={[s.qaBtn, s.enrichBtn]}
-                        onPress={() => enrichProspect(lead, idx)}
-                        disabled={enrichingId === (lead.id || `idx_${idx}`)}
-                        hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                      >
-                        {enrichingId === (lead.id || `idx_${idx}`)
-                          ? <ActivityIndicator size={12} color={COLORS.accent} />
-                          : <Text style={s.qaIcon}>✨</Text>
-                        }
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity
-                      style={[s.qaBtn, s.deleteBtn]}
-                      onPress={() => deleteSingleLead(lead)}
-                      hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                    >
-                      <Text style={s.qaIcon}>🗑</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              <StatusBadge status={lead.status} />
-            </TouchableOpacity>
-          ))
+            return (
+              <SwipeableQueueCard
+                key={getLeadCardKey(lead, idx, 'queue')}
+                lead={lead}
+                idx={idx}
+                bgColor={bgColor}
+                selectionMode={selectionMode}
+                isSelected={isLeadSelected(lead)}
+                onPress={() => selectionMode ? toggleLeadSelection(lead) : goEdit(lead, idx)}
+                onLongPress={() => toggleLeadSelection(lead)}
+                onDelete={() => deleteSingleLead(lead)}
+                onCall={() => quickCall(lead)}
+                onText={() => quickText(lead)}
+                onEmail={() => quickEmail(lead)}
+                onMaps={() => quickMaps(lead)}
+                onWebsite={() => quickWebsite(lead.website)}
+                onEnrich={(e) => { e?.stopPropagation?.(); enrichProspect(lead, idx); }}
+                enrichingId={enrichingId}
+                getGeoTargetSummary={getGeoTargetSummary}
+                safeText={safeText}
+              />
+            );
+          })
         )}
       </ScrollView>
+    </View>
+  );
+}
+
+// ── Swipeable Queue Card ──────────────────────────────────────────
+function SwipeableQueueCard({
+  lead, idx, bgColor, selectionMode, isSelected,
+  onPress, onLongPress, onDelete,
+  onCall, onText, onEmail, onMaps, onWebsite, onEnrich,
+  enrichingId, getGeoTargetSummary, safeText,
+}) {
+  const swipeOffset = useRef(new Animated.Value(0)).current;
+  const SWIPE_THRESHOLD = SW * 0.38;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        !selectionMode && Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_, g) => {
+        if (g.dx < 0) swipeOffset.setValue(g.dx);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dx < -SWIPE_THRESHOLD) {
+          Animated.timing(swipeOffset, {
+            toValue: -SW, duration: 220, useNativeDriver: true,
+          }).start(() => onDelete());
+        } else {
+          Animated.spring(swipeOffset, {
+            toValue: 0, useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  const deleteOpacity = swipeOffset.interpolate({
+    inputRange: [-SWIPE_THRESHOLD, -40],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const barColor =
+    lead.shadeKey === 'green' ? COLORS.success
+    : lead.shadeKey === 'yellow' ? '#f5b041'
+    : lead.shadeKey === 'orange' ? '#e67e22'
+    : COLORS.accent2;
+
+  const geo = getGeoTargetSummary(lead);
+
+  return (
+    <View style={s.swipeCardContainer}>
+      {/* Delete action revealed behind */}
+      <Animated.View style={[s.swipeDeleteAction, { opacity: deleteOpacity }]}>
+        <TouchableOpacity style={s.swipeDeleteBtn} onPress={onDelete}>
+          <Text style={s.swipeDeleteText}>🗑{'\n'}Delete</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Card sliding on top */}
+      <Animated.View style={{ transform: [{ translateX: swipeOffset }] }} {...panResponder.panHandlers}>
+        <TouchableOpacity
+          style={[s.queueCard, { backgroundColor: bgColor }, selectionMode && isSelected && s.queueCardSelected]}
+          onPress={onPress}
+          onLongPress={onLongPress}
+          activeOpacity={0.75}
+        >
+          {/* Left status bar */}
+          <View style={[s.queueCardBar, { backgroundColor: barColor }]} />
+
+          {/* Selection circle */}
+          {selectionMode && (
+            <View style={[s.selectCircle, isSelected && s.selectCircleOn]}>
+              {isSelected && <Text style={s.selectCheck}>✓</Text>}
+            </View>
+          )}
+
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Text style={s.queueBiz} numberOfLines={1}>{lead.businessName || 'Unnamed Business'}</Text>
+            </View>
+            <Text style={s.queueSub} numberOfLines={1}>
+              {[lead.pocFirst, lead.pocLast].filter(Boolean).join(' ')}
+              {lead.phone ? ` · ${lead.phone}` : ''}
+            </Text>
+
+            {/* Viability and Missing field badges */}
+            <View style={s.missingRow}>
+              <View style={[s.missingBadge, {
+                backgroundColor: lead.shadeKey === 'green' ? 'rgba(0,200,100,0.1)' : lead.shadeKey === 'yellow' ? 'rgba(255,200,0,0.1)' : lead.shadeKey === 'orange' ? 'rgba(255,140,0,0.1)' : 'rgba(255,0,0,0.1)',
+                borderColor: lead.shadeKey === 'green' ? 'rgba(0,200,100,0.3)' : lead.shadeKey === 'yellow' ? 'rgba(255,200,0,0.3)' : lead.shadeKey === 'orange' ? 'rgba(255,140,0,0.3)' : 'rgba(255,0,0,0.3)'
+              }]}>
+                <Text style={[s.missingText, {
+                  color: lead.shadeKey === 'green' ? '#00b359' : lead.shadeKey === 'yellow' ? '#b38600' : lead.shadeKey === 'orange' ? '#cc7000' : '#cc0000'
+                }]}>
+                  {lead.viabilityLabel} · {lead.viabilityScore}/3
+                </Text>
+              </View>
+              {lead.missingViabilityFields?.length > 0 && (
+                <Text style={{ fontSize: 10, color: COLORS.muted, marginLeft: 4, alignSelf: 'center' }}>
+                  Missing: {lead.missingViabilityFields.join(', ')}
+                </Text>
+              )}
+            </View>
+
+            {geo.hasGeoTarget && (
+              <View style={s.geoTargetRow}>
+                <View style={s.geoTargetBadge}>
+                  <Text style={s.geoTargetBadgeText}>{`GT Lock: ${safeText(geo.status)}`}</Text>
+                </View>
+                <Text style={s.geoTargetMeta}>
+                  {`${geo.accuracy !== null ? `Accuracy: ${Math.round(Number(geo.accuracy))}m` : 'Accuracy: —'}${geo.confidence !== null ? ` · Confidence: ${Math.round(Number(geo.confidence))}%` : ''}`}
+                </Text>
+                <GeoTargetProjectionBadge geo={geo} />
+              </View>
+            )}
+
+            {/* Quick action buttons */}
+            {!selectionMode && (
+              <View style={s.qaRow}>
+                {!!lead.phone && (
+                  <>
+                    <TouchableOpacity style={s.qaBtn} onPress={onCall} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
+                      <Text style={s.qaIcon}>📞</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.qaBtn} onPress={onText} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
+                      <Text style={s.qaIcon}>💬</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+                {!!lead.email && (
+                  <TouchableOpacity style={s.qaBtn} onPress={onEmail} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
+                    <Text style={s.qaIcon}>✉️</Text>
+                  </TouchableOpacity>
+                )}
+                {!!(lead.streetName || lead.city) && (
+                  <TouchableOpacity style={s.qaBtn} onPress={onMaps} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
+                    <Text style={s.qaIcon}>📍</Text>
+                  </TouchableOpacity>
+                )}
+                {!!lead.website && (
+                  <TouchableOpacity style={s.qaBtn} onPress={onWebsite} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}>
+                    <Text style={s.qaIcon}>🌐</Text>
+                  </TouchableOpacity>
+                )}
+                {(!lead.phone || !lead.email || !lead.streetName) && (
+                  <TouchableOpacity
+                    style={[s.qaBtn, s.enrichBtn]}
+                    onPress={onEnrich}
+                    disabled={enrichingId === (lead.id || `idx_${idx}`)}
+                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  >
+                    {enrichingId === (lead.id || `idx_${idx}`)
+                      ? <ActivityIndicator size={12} color={COLORS.accent} />
+                      : <Text style={s.qaIcon}>✨</Text>
+                    }
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[s.qaBtn, s.deleteBtn]}
+                  onPress={onDelete}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                >
+                  <Text style={s.qaIcon}>🗑</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* Right column: status badge + updated timestamp stacked */}
+          <View style={{ alignItems: 'flex-end', justifyContent: 'space-between', alignSelf: 'stretch' }}>
+            <StatusBadge status={lead.status} />
+            {!!lead.updatedAt && (
+              <Text style={s.updatedAtText}>
+                {'Updated: ' + new Date(lead.updatedAt).toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + '\n' + new Date(lead.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+              </Text>
+            )}
+          </View>
+        </TouchableOpacity>
+        {!selectionMode && (
+          <Text style={s.swipeHint}>← swipe to delete</Text>
+        )}
+      </Animated.View>
     </View>
   );
 }
@@ -1270,7 +1464,7 @@ const s = StyleSheet.create({
   selectCheck: { color: '#000', fontWeight: '900', fontSize: 12 },
 
   queueBiz: { fontSize: 14, fontWeight: '700', color: COLORS.text },
-  updatedAtText: { fontSize: 9, color: COLORS.muted, fontWeight: '600', marginTop: 2 },
+  updatedAtText: { fontSize: 9, color: COLORS.muted, fontWeight: '600', textAlign: 'right', lineHeight: 13 },
   queueSub: { fontSize: 11, color: COLORS.muted, marginTop: 2 },
 
   // Missing badges
@@ -1320,4 +1514,42 @@ geoTargetMeta: {
   color: COLORS.muted,
   fontWeight: '600',
 },
+
+  // ── Swipe-to-delete styles ──
+  swipeCardContainer: {
+    position: 'relative',
+    marginBottom: 10,
+  },
+  swipeDeleteAction: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 18, // accounts for swipeHint height
+    width: 80,
+    backgroundColor: COLORS.accent2,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swipeDeleteBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  swipeDeleteText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  swipeHint: {
+    fontSize: 9,
+    color: COLORS.muted,
+    textAlign: 'right',
+    paddingRight: 6,
+    paddingBottom: 2,
+    opacity: 0.5,
+  },
 });

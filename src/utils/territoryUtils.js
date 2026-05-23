@@ -55,28 +55,225 @@ export function validateZipBatch(rawZips = [], existingZips = []) {
   return { valid, duplicates, invalid };
 }
 
-// ─── Activity / Heat Map ──────────────────────────────────────────────────────
+// ─── Activity / Heat Map with 90-DAY PROSPECT COUNTING ───────────────────────
 
-const DAILY_TARGET_LOW  = 10;
-const DAILY_TARGET_HIGH = 15;
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 
-export function buildZipActivity(myZips = [], leads = []) {
+/**
+ * Calculate 90-day prospect count and heat level for each ZIP.
+ * Based on TOTAL PROSPECTS in that territory (not just weekly).
+ */
+export function calculateZipActivity(myZips = [], allProspects = []) {
   const now = Date.now();
-  const weekAgo = now - WEEK_MS;
+  const ninetyDaysAgo = now - NINETY_DAYS_MS;
 
   const activity = {};
+
+  // Initialize all ZIPs
   for (const entry of myZips) {
     activity[entry.zip] = {
       ...entry,
-      leadCount:    0,
-      weeklyCount:  0,
-      dailyAvg:     0,
-      lastActivity: null,
-      leads:        [],
+      prospectCount: 0,
+      prospectCount90d: 0,
+      heatLevel: 'none',
+      lastProspectDate: null,
     };
   }
 
+  // Count prospects in each ZIP (90-day window)
+  for (const prospect of allProspects) {
+    const zip = String(prospect.zip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+
+    if (!zip || !activity[zip]) continue;
+
+    // Total count
+    activity[zip].prospectCount += 1;
+
+    // 90-day count
+    const capturedAt = prospect.capturedAt || prospect.savedAt || prospect.createdAt || '';
+    const captureTime = capturedAt ? new Date(capturedAt).getTime() : 0;
+
+    if (captureTime >= ninetyDaysAgo) {
+      activity[zip].prospectCount90d += 1;
+    }
+
+    // Track most recent prospect date
+    if (capturedAt && (!activity[zip].lastProspectDate || capturedAt > activity[zip].lastProspectDate)) {
+      activity[zip].lastProspectDate = capturedAt;
+    }
+  }
+
+  // Assign heat levels based on 90-day prospect count
+  for (const zip of Object.keys(activity)) {
+    const count90d = activity[zip].prospectCount90d;
+    activity[zip].heatLevel = getHeatLevelFromProspectCount(count90d);
+  }
+
+  return Object.values(activity).sort((a, b) => b.prospectCount90d - a.prospectCount90d);
+}
+
+/**
+ * Map prospect count to heat level.
+ * These thresholds can be adjusted based on your sales targets.
+ */
+export function getHeatLevelFromProspectCount(count = 0) {
+  if (count >= 50) return 'high';          // 50+ prospects = high activity
+  if (count >= 25) return 'medium';        // 25-49 = medium
+  if (count >= 5) return 'low';            // 5-24 = low
+  return 'none';                           // 0-4 = no activity
+}
+
+/**
+ * Get descriptive label for heat level.
+ * Handles both OLD (on-target, warm, light, cold, inactive)
+ * and NEW (high, medium, low, none) heat level names.
+ */
+export function getHeatLabel(level) {
+  const normalized = String(level || '').toLowerCase();
+
+  // NEW system labels
+  switch (normalized) {
+    case 'high': return '50+ prospects';
+    case 'medium': return '25-49 prospects';
+    case 'low': return '5-24 prospects';
+    case 'none': return '0-4 prospects';
+    
+    // OLD system labels (for backward compatibility)
+    case 'on-target': return '10+/day';
+    case 'warm': return '7-9/day';
+    case 'light': return '3-6/day';
+    case 'cold': return '1-2/day';
+    case 'inactive': return 'None';
+    
+    default: return 'Unknown';
+  }
+}
+
+/**
+ * BACKWARD COMPATIBILITY: Old function name for existing code.
+ * Maps from the new prospect-count system to the old heat level names.
+ * Some screens (TerritoryManagerScreen, etc.) still call this.
+ */
+export function getHeatLevel(countOrLevel = 0) {
+  // If it's a string, it's already a heat level
+  if (typeof countOrLevel === 'string') {
+    return countOrLevel;
+  }
+  // If it's a number, it's a prospect count
+  return getHeatLevelFromProspectCount(countOrLevel);
+}
+
+/**
+ * Get color scheme for heat level (returns object with border/bg/text).
+ * Handles BOTH old heat levels (on-target, warm, light, cold, inactive)
+ * AND new heat levels (high, medium, low, none).
+ * 
+ * GREEN = high activity (go work that territory!)
+ * CYAN = medium activity
+ * ORANGE = low activity
+ * RED = no activity (warning)
+ */
+export function getHeatColor(level) {
+  const normalized = String(level || '').toLowerCase();
+
+  // NEW system: prospect-count based
+  if (normalized === 'high') {
+    return {
+      border: 'rgba(34, 197, 94, 0.85)',
+      bg: 'rgba(34, 197, 94, 0.28)',
+      text: '#22C55E',
+    };
+  }
+  if (normalized === 'medium') {
+    return {
+      border: 'rgba(0, 201, 255, 0.76)',
+      bg: 'rgba(0, 201, 255, 0.24)',
+      text: '#00C9FF',
+    };
+  }
+  if (normalized === 'low') {
+    return {
+      border: 'rgba(255, 140, 0, 0.75)',
+      bg: 'rgba(255, 140, 0, 0.20)',
+      text: '#FF8C00',
+    };
+  }
+  if (normalized === 'none') {
+    return {
+      border: 'rgba(239, 68, 68, 0.65)',
+      bg: 'rgba(239, 68, 68, 0.15)',
+      text: '#EF4444',
+    };
+  }
+
+  // OLD system: daily average based (for backward compatibility)
+  if (normalized === 'on-target') {
+    return {
+      border: 'rgba(34, 197, 94, 0.85)',
+      bg: 'rgba(34, 197, 94, 0.28)',
+      text: '#22C55E',
+    };
+  }
+  if (normalized === 'warm') {
+    return {
+      border: 'rgba(0, 201, 255, 0.76)',
+      bg: 'rgba(0, 201, 255, 0.24)',
+      text: '#00C9FF',
+    };
+  }
+  if (normalized === 'light') {
+    return {
+      border: 'rgba(255, 140, 0, 0.75)',
+      bg: 'rgba(255, 140, 0, 0.20)',
+      text: '#FF8C00',
+    };
+  }
+  if (normalized === 'cold' || normalized === 'inactive') {
+    return {
+      border: 'rgba(239, 68, 68, 0.65)',
+      bg: 'rgba(239, 68, 68, 0.15)',
+      text: '#EF4444',
+    };
+  }
+
+  // Fallback
+  return {
+    border: 'rgba(239, 68, 68, 0.65)',
+    bg: 'rgba(239, 68, 68, 0.15)',
+    text: '#EF4444',
+  };
+}
+
+/**
+ * Legacy function for backward compatibility.
+ * Returns objects with the OLD shape (dailyAvg, weeklyCount, etc.)
+ * but using NEW 90-day activity calculation underneath.
+ * 
+ * This keeps existing code (like TerritoryManagerScreen) working without changes.
+ */
+export function buildZipActivity(myZips = [], leads = []) {
+  const now = Date.now();
+  const ninetyDaysAgo = now - NINETY_DAYS_MS;
+
+  const activity = {};
+
+  // Initialize all ZIPs with OLD object shape
+  for (const entry of myZips) {
+    activity[entry.zip] = {
+      ...entry,
+      leadCount: 0,
+      weeklyCount: 0,
+      prospectCount90d: 0,
+      dailyAvg: 0,
+      lastActivity: null,
+      leads: [],
+      heatLevel: 'none',
+    };
+  }
+
+  // Count prospects in OLD format (weekly + daily avg)
   for (const lead of leads) {
     const zip = String(lead.zip || '').replace(/\D/g, '').slice(0, 5);
     if (!zip || !activity[zip]) continue;
@@ -87,47 +284,28 @@ export function buildZipActivity(myZips = [], leads = []) {
     const ts = lead.capturedAt || lead.savedAt || '';
     const captureTime = ts ? new Date(ts).getTime() : 0;
 
-    if (captureTime >= weekAgo) activity[zip].weeklyCount += 1;
+    // Count in both weekly AND 90-day windows
+    const weekAgo = now - (7 * 24 * 60 * 60 * 1000);
+    if (captureTime >= weekAgo) {
+      activity[zip].weeklyCount += 1;
+    }
+    if (captureTime >= ninetyDaysAgo) {
+      activity[zip].prospectCount90d += 1;
+    }
 
     if (!activity[zip].lastActivity || ts > activity[zip].lastActivity) {
       activity[zip].lastActivity = ts;
     }
   }
 
-  // Calculate daily avg from weekly count (÷7)
+  // Calculate daily avg from weekly count (÷7) - for backward compatibility
   for (const zip of Object.keys(activity)) {
     activity[zip].dailyAvg = parseFloat((activity[zip].weeklyCount / 7).toFixed(1));
+    // Also set the new heat level based on 90-day count
+    activity[zip].heatLevel = getHeatLevelFromProspectCount(activity[zip].prospectCount90d);
   }
 
-  return Object.values(activity).sort((a, b) => b.weeklyCount - a.weeklyCount);
-}
-
-export function getHeatLevel(dailyAvg = 0) {
-  if (dailyAvg >= DAILY_TARGET_LOW) return 'on-target';
-  if (dailyAvg >= 7)  return 'warm';
-  if (dailyAvg >= 3)  return 'light';
-  if (dailyAvg >= 1)  return 'cold';
-  return 'inactive';
-}
-
-export function getHeatLabel(level) {
-  switch (level) {
-    case 'on-target': return '10+/day';
-    case 'warm':      return '7-9/day';
-    case 'light':     return '3-6/day';
-    case 'cold':      return '1-2/day';
-    default:          return 'None';
-  }
-}
-
-export function getHeatColor(level) {
-  switch (level) {
-    case 'on-target': return { border: 'rgba(0,201,100,0.7)',   bg: 'rgba(0,201,100,0.12)',   text: '#00C964' };
-    case 'warm':      return { border: 'rgba(0,201,255,0.6)',   bg: 'rgba(0,201,255,0.08)',   text: '#00C9FF' };
-    case 'light':     return { border: 'rgba(255,200,0,0.6)',   bg: 'rgba(255,200,0,0.08)',   text: '#FFC800' };
-    case 'cold':      return { border: 'rgba(255,107,43,0.6)',  bg: 'rgba(255,107,43,0.08)',  text: '#FF6B2B' };
-    default:          return { border: 'rgba(107,114,128,0.3)', bg: 'rgba(107,114,128,0.05)', text: '#6B7280' };
-  }
+  return Object.values(activity).sort((a, b) => b.prospectCount90d - a.prospectCount90d);
 }
 
 export function matchLeadsToTerritory(leads = [], myZips = []) {
@@ -138,28 +316,20 @@ export function matchLeadsToTerritory(leads = [], myZips = []) {
 /** Aggregate stats for AI / dashboard copy (safe if activity is missing or malformed). */
 export function summarizeZipActivity(zipActivity = []) {
   if (!Array.isArray(zipActivity)) {
-    return { zipCount: 0, leadCount: 0, weeklyLeadCount: 0, hottestZip: null };
+    return { zipCount: 0, prospectCount: 0, prospectCount90d: 0, hottestZip: null };
   }
-  let leadCount = 0;
-  let weeklyLeadCount = 0;
+  let prospectCount = 0;
+  let prospectCount90d = 0;
   for (const z of zipActivity) {
-    leadCount += Number(z?.leadCount) || 0;
-    weeklyLeadCount += Number(z?.weeklyCount) || 0;
+    prospectCount += Number(z?.prospectCount) || 0;
+    prospectCount90d += Number(z?.prospectCount90d) || 0;
   }
   return {
     zipCount: zipActivity.length,
-    leadCount,
-    weeklyLeadCount,
+    prospectCount,
+    prospectCount90d,
     hottestZip: zipActivity[0]?.zip ?? null,
   };
-}
-
-const OPEN_STATUSES = new Set(['Suspect', 'New', '']);
-
-function countOpenProspectsForZip(zipActivityRow) {
-  const leads = zipActivityRow?.leads;
-  if (!Array.isArray(leads)) return 0;
-  return leads.filter((l) => OPEN_STATUSES.has(l?.status || 'Suspect')).length;
 }
 
 /**
@@ -171,19 +341,16 @@ export function getRecommendedZipAreas(_leads = [], myZips = [], _currentLocatio
 
   let ranked = zipActivity.map((row) => ({
     ...row,
-    openProspects: countOpenProspectsForZip(row),
   }));
 
   if (!ranked.length && Array.isArray(myZips) && myZips.length) {
     ranked = myZips.map((e) => ({
       zip: e.zip,
       notes: e.notes,
-      leadCount: 0,
-      weeklyCount: 0,
-      dailyAvg: 0,
-      leads: [],
-      lastActivity: null,
-      openProspects: 0,
+      prospectCount: 0,
+      prospectCount90d: 0,
+      heatLevel: 'none',
+      lastProspectDate: null,
     }));
   }
 
@@ -197,14 +364,14 @@ export function getRecommendedZipAreas(_leads = [], myZips = [], _currentLocatio
 
   const scoreRow = (row) => {
     let score = 0;
+    // Prioritize high prospect counts
     if (options.highActivity !== false) {
-      score += (Number(row.weeklyCount) || 0) * 3 + (Number(row.dailyAvg) || 0) * 2;
+      score += (Number(row.prospectCount90d) || 0) * 2;
+      score += (Number(row.prospectCount) || 0) * 0.5;
     }
-    if (options.openProspects !== false) {
-      score += (Number(row.openProspects) || 0) * 4;
-    }
-    if (options.leastRecent !== false && row.lastActivity) {
-      const t = new Date(row.lastActivity).getTime();
+    // Bonus for recent activity
+    if (options.leastRecent !== false && row.lastProspectDate) {
+      const t = new Date(row.lastProspectDate).getTime();
       if (!Number.isNaN(t)) {
         const days = (Date.now() - t) / 86400000;
         score += Math.min(Math.max(days, 0), 14) * 0.5;
@@ -224,10 +391,10 @@ export function getRecommendedZipAreas(_leads = [], myZips = [], _currentLocatio
   const recommendedZip = {
     zip: zipStr,
     reason:
-      (top.openProspects || 0) > 0
-        ? 'Open prospects still waiting in this ZIP.'
-        : (top.weeklyCount || 0) > 0
-          ? 'Recent activity in this territory ZIP.'
+      (top.prospectCount90d || 0) > 0
+        ? `${top.prospectCount90d} prospects in this ZIP (90-day window).`
+        : (top.prospectCount || 0) > 0
+          ? `${top.prospectCount} total prospects in this territory.`
           : 'Territory ZIP selected from your saved list.',
     summary: top.notes || '',
   };
@@ -247,50 +414,71 @@ export async function syncTerritoryToSupabase(supabase, user, myZips) {
   try {
     if (!supabase) return { ok: false, reason: 'no-client' };
 
-    const rows = myZips.map(entry => ({
-      zip:          entry.zip,
-      notes:        entry.notes || '',
-      rep_name:     user?.repName || '',
-      employee_num: user?.employeeNum || '',
-      branch_num:   user?.branchNum || '',
-      added_at:     entry.addedAt,
-    }));
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) {
+      console.error('[syncTerritoryToSupabase] Auth failed:', authError?.message);
+      return { ok: false, reason: 'unauthorized' };
+    }
 
-    // Delete this rep's existing rows then reinsert
-    await supabase
+    // Deduplicate by zip_code — prevent ON CONFLICT errors from duplicate entries
+    const seen = new Set();
+    const rows = myZips
+      .filter(entry => {
+        const zip = String(entry.zip || '').trim();
+        if (!zip || seen.has(zip)) return false;
+        seen.add(zip);
+        return true;
+      })
+      .map(entry => ({
+        user_id:      authUser.id,
+        zip_code:     entry.zip,
+        notes:        entry.notes || '',
+        rep_name:     user?.repName || '',
+        employee_num: user?.employeeNum || '',
+        branch_num:   user?.branchNum || '',
+        added_at:     entry.addedAt || new Date().toISOString(),
+      }));
+
+    if (!rows.length) return { ok: true };
+
+    const { error } = await supabase
       .from('territory_zips')
-      .delete()
-      .eq('employee_num', user?.employeeNum || '');
+      .upsert(rows, { onConflict: 'user_id,zip_code' });
 
-    if (rows.length) {
-      const { error } = await supabase.from('territory_zips').insert(rows);
-      if (error) throw error;
+    if (error) {
+      console.error('[syncTerritoryToSupabase] Upsert failed:', error.message, error.details);
+      throw error;
     }
 
     return { ok: true };
   } catch (err) {
+    console.error('[syncTerritoryToSupabase] Unexpected error:', err.message);
     return { ok: false, reason: err?.message };
   }
 }
 
 // ─── Supabase: Pull MY ZIPs down ──────────────────────────────────────────────
-// FIX: This was the missing function. Without it, ZIPs in Supabase never
-// made it back into the app on a fresh install or after clearing local storage.
 
 export async function fetchMyTerritoryFromSupabase(supabase, user) {
   try {
     if (!supabase) return { ok: false, data: [] };
 
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) return { ok: false, data: [], reason: 'unauthorized' };
+
     const { data, error } = await supabase
       .from('territory_zips')
-      .select('zip, notes, added_at')
-      .eq('employee_num', user?.employeeNum || '');
+      .select('zip_code, notes, added_at')
+      .eq('user_id', authUser.id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[fetchMyTerritoryFromSupabase] Query failed:', error.message);
+      throw error;
+    }
     if (!data?.length) return { ok: true, data: [] };
 
     const zips = data.map(row => ({
-      zip:     row.zip,
+      zip:     row.zip_code,
       notes:   row.notes || '',
       addedAt: row.added_at || new Date().toISOString(),
     }));
@@ -304,33 +492,6 @@ export async function fetchMyTerritoryFromSupabase(supabase, user) {
 // ─── Supabase: Fetch other reps' territories ──────────────────────────────────
 
 export async function fetchSharedTerritories(supabase, user) {
-  try {
-    if (!supabase) return { ok: false, data: [] };
-
-    const { data, error } = await supabase
-      .from('territory_zips')
-      .select('zip, rep_name, employee_num, branch_num')
-      .neq('employee_num', user?.employeeNum || '');
-
-    if (error) throw error;
-
-    // Group by rep
-    const byRep = {};
-    for (const row of data || []) {
-      const key = row.employee_num || row.rep_name;
-      if (!byRep[key]) {
-        byRep[key] = {
-          repName:     row.rep_name,
-          employeeNum: row.employee_num,
-          branchNum:   row.branch_num,
-          zips:        [],
-        };
-      }
-      byRep[key].zips.push(row.zip);
-    }
-
-    return { ok: true, data: Object.values(byRep) };
-  } catch (err) {
-    return { ok: false, data: [], reason: err?.message };
-  }
+  // Team territory sharing is not enabled for private beta.
+  return { ok: true, data: [], note: 'Team territory sharing is disabled.' };
 }

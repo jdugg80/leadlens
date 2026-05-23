@@ -17,7 +17,7 @@ import { syncAllProspectsToSupabase, enqueueSyncAll } from '../utils/backendSync
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
-import { COLORS, EXPORT_MODES } from '../constants';
+import { COLORS, EXPORT_MODES, USER_STORAGE_KEY } from '../constants';
 import {
   ScreenHeader,
   Card,
@@ -82,7 +82,8 @@ export default function ExportScreen({ navigation, route }) {
     BetaTracker.screen('ExportScreen');
   }, []);
 
-  const { user } = route.params;
+  const routeUser = route.params?.user || {};
+  const [user, setUser] = useState(routeUser);
   const [leads, setLeads] = useState([]);
   const prospects = leads; // alias for UI references
   const [profiles, setProfiles] = useState([]);
@@ -95,6 +96,19 @@ export default function ExportScreen({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       (async () => {
+        // Load latest user profile from AsyncStorage in case it was edited in settings
+        try {
+          const rawUser = await AsyncStorage.getItem(USER_STORAGE_KEY);
+          if (rawUser) {
+            const parsed = JSON.parse(rawUser);
+            if (parsed) {
+              setUser(parsed);
+            }
+          }
+        } catch (e) {
+          console.warn('[ExportScreen] Failed to load latest user profile:', e);
+        }
+
         const [storedLeads, storedProfiles, exportSettings] = await Promise.all([
           loadLeads(),
           loadExportProfiles(),
@@ -132,7 +146,7 @@ export default function ExportScreen({ navigation, route }) {
 
   const buildSelectedExportFile = async () => {
     if (selectedMode === 'standard') {
-      return buildStandardSpreadsheetFile(normalizedPreview);
+      return buildStandardSpreadsheetFile(normalizedPreview, user);
     }
 
     if (selectedMode === 'sales_template') {
@@ -171,7 +185,7 @@ export default function ExportScreen({ navigation, route }) {
 
   try {
     if (selectedMode === 'standard') {
-      await exportStandardSpreadsheet(normalizedPreview);
+      await exportStandardSpreadsheet(normalizedPreview, user);
     } else if (selectedMode === 'sales_template') {
       await exportSalesTemplate(normalizedPreview, user);
     } else if (selectedMode === 'saved' && selectedProfile) {
@@ -269,9 +283,8 @@ export default function ExportScreen({ navigation, route }) {
       const fileUri = await buildSelectedExportFile();
 
       setStatusText('Uploading export...');
-      const { publicUrl } = await uploadExportAndGetLink(fileUri);
-
       const leadCount = normalizedPreview.length;
+      const { publicUrl } = await uploadExportAndGetLink(fileUri, leadCount);
       const subject =
         settings.subject || `LeadLens Export (${leadCount} prospects)`;
 
@@ -510,9 +523,15 @@ export default function ExportScreen({ navigation, route }) {
         <View style={s.modeGrid}>
           <ModeCard
             title="Standard Sheet"
-            subtitle="General Excel file"
+            subtitle="General LeadLens layout"
             active={selectedMode === 'standard'}
             onPress={() => setSelectedMode('standard')}
+          />
+          <ModeCard
+            title="Sales Module"
+            subtitle="Official Import Template"
+            active={selectedMode === 'sales_template'}
+            onPress={() => setSelectedMode('sales_template')}
           />
           <ModeCard
             title="Saved Profile"
@@ -522,7 +541,7 @@ export default function ExportScreen({ navigation, route }) {
           />
           <ModeCard
             title="Custom Template"
-            subtitle="Upload and map fields"
+            subtitle="Upload and map new fields"
             active={selectedMode === 'custom'}
             onPress={() => setSelectedMode('custom')}
           />

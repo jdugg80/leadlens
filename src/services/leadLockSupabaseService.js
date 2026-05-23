@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 /**
  * Service to handle LeadLock server-side intelligence via Supabase.
@@ -58,12 +59,29 @@ export const LeadLockSupabaseService = {
         .select()
         .single();
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error('[LeadLockSupabase] Capture DB insertion failed:', dbError.message, dbError.details);
+        throw dbError;
+      }
 
       // 2. Upload image to Storage
       // Path: {user_id}/{capture_id}.jpg
       const filePath = `${user.id}/${capture.id}.jpg`;
-      const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
+
+      let uploadUri = imageUri;
+      try {
+        // Safe resize/compress of the image before uploading to Supabase Storage
+        const manipulated = await ImageManipulator.manipulateAsync(
+          imageUri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        uploadUri = manipulated.uri;
+      } catch (manipErr) {
+        console.warn('[LeadLockSupabase] Image manipulation failed, uploading original:', manipErr);
+      }
+
+      const base64 = await FileSystem.readAsStringAsync(uploadUri, { encoding: FileSystem.EncodingType.Base64 });
 
       const { error: uploadError } = await supabase.storage
         .from('leadlock-captures')
@@ -112,20 +130,25 @@ export const LeadLockSupabaseService = {
   async saveFeedback({ captureId, action, matchedId, notes }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
       const { error } = await supabase
         .from('leadlock_match_feedback')
         .insert({
           capture_id: captureId,
-          user_id: user?.id,
+          user_id: user.id,
           action,
           matched_id: matchedId,
           feedback_notes: notes
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[LeadLockSupabase] Feedback insertion failed:', error.message);
+        throw error;
+      }
       return true;
     } catch (err) {
-      console.error('[LeadLockSupabase] saveFeedback failed:', err);
+      console.error('[LeadLockSupabase] saveFeedback failed:', err.message);
       return false;
     }
   },

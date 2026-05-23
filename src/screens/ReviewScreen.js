@@ -20,6 +20,12 @@ import GeoTargetAutoModeCard from '../components/GeoTargetAutoModeCard';
 import { applyAutoTargetModeToLead } from '../utils/geoTargetAutoMode';
 import TargetDistanceSelector from '../components/TargetDistanceSelector';
 import { applyTargetDistanceToLead } from '../utils/applyTargetDistanceToLead';
+import { applyAddressCandidateToProspect } from '../utils/leadLockUpdates';
+import {
+  buildProspectUpdatesFromLookup,
+  normalizeContactCandidates,
+  enrichBusinessWithPublicSources,
+} from '../utils/enrichmentNormalizer';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
   sendIntroEmail as composeIntroEmail,
@@ -45,6 +51,7 @@ import {
   inferVertical,
   normalizeLead,
   ensureLeadCreatedAt,
+  calculateLeadViability
 } from '../utils/leadHelpers';
 import {
   applyTemplate,
@@ -59,14 +66,16 @@ import {
   extractSocialLinksFromWebsite,
   leadFieldsToSocialLinks,
   mergeSocialFieldsIntoLead,
+  enrichMissingPOC
 } from '../utils/socialEnrichment';
 import { showThemedAlert } from '../components/ThemedAlert';
-import { searchGooglePlacesByText } from '../utils/nearbySearch';
+import { searchGooglePlacesByText, enrichMissingBusinessAddress, parseAddressComponents } from '../utils/nearbySearch';
 import { getCurrentCoords } from '../utils/geoEnrich';
 
 const GOOGLE_PLACES_API_KEY = 'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI';
 
 import { getStyledMessage } from '../utils/aiPersonality';
+import { upsertProspect, deleteProspect } from '../utils/backendSync';
 import Constants from 'expo-constants';
 import BetaTracker from '../../utils/betaTracker';
 
@@ -166,102 +175,43 @@ export default function ReviewScreen({ navigation, route }) {
     setProfileLoading(true);
 
     try {
-      console.log('[ReviewScreen] Starting business profile lookup (v2) for:', lead.businessName);
+      const enriched = await enrichBusinessWithPublicSources(lead);
+      if (enriched) {
+        setBusinessProfile(enriched.enrichment.rawLookup || enriched);
 
-      // Attempt to get location to bias the search
-      const userCoords = await getCurrentCoords().catch(() => null);
-      const searchCenter = userCoords || (lead.latitude ? { latitude: lead.latitude, longitude: lead.longitude } : null);
+        // Auto-apply logic if high confidence or user chooses
+        const updates = buildProspectUpdatesFromLookup(lead, enriched.enrichment.rawLookup || enriched);
+        setLead(updates);
 
-      const fullQuery = [lead.businessName, lead.streetNumber, lead.streetName, lead.city, lead.state]
-        .filter(Boolean).join(' ');
+        if (enriched.website) runBackgroundSocialScan(enriched);
 
-      console.log('[ReviewScreen] Attempting full query:', fullQuery);
-
-      let results = await searchGooglePlacesByText({
-        query: fullQuery,
-        center: searchCenter,
-        radiusMeters: 5000,
-        apiKey: getGoogleMapsKey(),
-      });
-
-      // Fallback 1: Business Name + City
-      if ((!results || results.length === 0) && lead.city) {
-        const fallbackQuery = `${lead.businessName} ${lead.city}`;
-        console.log('[ReviewScreen] No results for full query. Trying fallback:', fallbackQuery);
-        results = await searchGooglePlacesByText({
-          query: fallbackQuery,
-          center: searchCenter,
-          radiusMeters: 10000,
-          apiKey: getGoogleMapsKey(),
-        });
+        showThemedAlert('Profile Enriched', 'Found data from Google, Texas Comptroller, and public records.');
+      } else {
+        showThemedAlert('No Results', 'Could not find reliable public information for this business.');
       }
-
-      // Fallback 2: Business Name only (with location bias)
-      if (!results || results.length === 0) {
-        console.log('[ReviewScreen] Still no results. Trying name only:', lead.businessName);
-        results = await searchGooglePlacesByText({
-          query: lead.businessName,
-          center: searchCenter,
-          radiusMeters: 20000,
-          apiKey: getGoogleMapsKey(),
-        });
-      }
-
-      if (!results || results.length === 0) {
-        console.warn('[ReviewScreen] No results found after fallbacks.');
-        showThemedAlert('No Results', 'Google could not find a match for this business. Try adjusting the name or adding more address details.');
-        setProfileLoading(false);
-        return;
-      }
-
-      const profile = results[0];
-      console.log('[ReviewScreen] Found matching profile:', profile.name);
-
-      // Show profile immediately — don't block on social scan
-      setBusinessProfile(profile);
-      showThemedAlert('Profile Found', `Loaded details for ${profile.name}.`);
-      setProfileLoading(false);
-
-      // Background scan for social links AND emails — updates profile when done
-      if (profile.website) {
-        console.log('[ReviewScreen] Background scanning for social links + emails:', profile.website);
-        extractSocialLinksFromWebsite(profile.website, {
-          deep: false,
-          pocFirst: lead.pocFirst || '',
-          pocLast:  lead.pocLast  || '',
-        })
-          .then((scanResult) => {
-            const updates = {};
-            if (scanResult?.socialLinks && Object.keys(scanResult.socialLinks).length > 0) {
-              Object.assign(updates, scanResult);
-            }
-            // Apply best discovered email if lead has no email yet
-            if (!lead.email && scanResult?.bestEmail) {
-              updates.email = scanResult.bestEmail;
-            }
-            // Store all candidates for display
-            if (scanResult?.discoveredEmails?.length > 0 || scanResult?.inferredEmails?.length > 0) {
-              updates.emailCandidates = [
-                ...(scanResult.discoveredEmails || []),
-                ...(scanResult.inferredEmails  || []),
-              ].filter((e, i, arr) => arr.indexOf(e) === i).slice(0, 8);
-            }
-            if (Object.keys(updates).length > 0) {
-              setBusinessProfile((prev) => ({ ...prev, ...updates }));
-            }
-          })
-          .catch((scanErr) => {
-            console.warn('[ReviewScreen] Background scan failed:', scanErr.message);
-          });
-      }
-    } catch (err) {
-    BetaTracker.crash('ReviewScreen', err);
-      console.error('[ReviewScreen] fetchBusinessProfile exception:', err);
-      showThemedAlert('Network Error', 'Could not connect to Google services. Please check your internet connection.');
-      setBusinessProfile(null);
+    } catch (error) {
+      console.error('[ReviewScreen] Enrichment failed:', error);
+      BetaTracker.crash('ReviewScreen', error);
+      showThemedAlert('Enrichment Error', 'An error occurred while fetching public records.');
     } finally {
       setProfileLoading(false);
     }
+  };
+
+  const runBackgroundSocialScan = (profile) => {
+    extractSocialLinksFromWebsite(profile.website, {
+      deep: false,
+      pocFirst: lead.pocFirst || '',
+      pocLast:  lead.pocLast  || '',
+    })
+      .then((scanResult) => {
+        if (scanResult) {
+          const updates = { ...scanResult };
+          if (!lead.email && scanResult.bestEmail) updates.email = scanResult.bestEmail;
+          setBusinessProfile(prev => ({ ...prev, ...updates }));
+        }
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -489,13 +439,17 @@ export default function ReviewScreen({ navigation, route }) {
         return;
       }
 
-      const newLead = ensureLeadCreatedAt({
+      const initialLead = ensureLeadCreatedAt({
         ...normalized,
         savedAt: new Date().toISOString(),
+        collectedAt: new Date().toISOString(),
+        queueStatus: 'new',
+        queueSortGroup: 0,
         duplicateWarning: duplicate
           ? `${duplicate.confidence === 'high' ? 'Likely duplicate' : 'Possible duplicate'}: ${duplicate.reason}`
           : '',
       });
+      const newLead = { ...initialLead, ...calculateLeadViability(initialLead) };
       leads.push(newLead);
 
       recordUserActivityEvent('prospect_added', {
@@ -505,14 +459,46 @@ export default function ReviewScreen({ navigation, route }) {
         source_type: newLead.captureMethod
       }).catch(() => {});
     } else {
-      leads[editIdx] = ensureLeadCreatedAt({
+      const baseLead = ensureLeadCreatedAt({
         ...normalized,
         createdAt: lead.createdAt || lead.savedAt || lead.capturedAt || lead.created_at_client || new Date().toISOString(),
         savedAt: lead.savedAt || new Date().toISOString(),
+        reviewedAt: new Date().toISOString(),
+        lastEditedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        queueStatus: 'reviewed',
+        queueSortGroup: 1,
       });
+
+      // Find actual position in raw storage array by unique ID
+      // Fallback to editIdx if ID match fails (safeguard for leads without IDs)
+      let storageIdx = leads.findIndex(l => l.id && l.id === lead.id);
+      if (storageIdx === -1 && editIdx !== null && editIdx < leads.length) {
+        storageIdx = editIdx;
+      }
+
+      if (storageIdx !== -1) {
+        // Remove existing version from its old position
+        leads.splice(storageIdx, 1);
+      }
+
+      // Always push the updated lead to the end of the array.
+      // This ensures it moves to the "bottom" in terms of array order.
+      leads.push({ ...baseLead, ...calculateLeadViability(baseLead) });
     }
 
     await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+
+    // AUTO-SYNC to Supabase
+    try {
+      const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
+      const settings = supaRaw ? JSON.parse(supaRaw) : {};
+      const savedLead = leads[leads.length - 1]; // The one we just pushed
+      await upsertProspect(savedLead, user, settings);
+      console.log('[Review] Auto-sync successful for:', savedLead.businessName);
+    } catch (err) {
+      console.warn('[Review] Auto-sync failed (saved locally):', err.message);
+    }
 
     // Soft confirmation sound after a successful save
     playSoundEffect('prospect-added').catch(() => {});
@@ -596,13 +582,16 @@ export default function ReviewScreen({ navigation, route }) {
             zip: lead.zip,
             business_type: lead.vertical || lead.industry || lead.businessType
           }).catch(() => {});
-          const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
-          const leads = raw ? JSON.parse(raw) : [];
-          const updated = lead.id
-            ? leads.filter((l) => l.id !== lead.id)
-            : leads.filter((_, idx) => idx !== editIdx);
 
-          await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+          // AUTO-SYNC Delete
+          try {
+            const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
+            const settings = supaRaw ? JSON.parse(supaRaw) : {};
+            await deleteProspect(lead.id, settings);
+          } catch (err) {
+            console.warn('[Review] Auto-sync delete failed:', err.message);
+          }
+
           navigation.navigate('Dashboard', { user });
         },
       },
@@ -641,6 +630,12 @@ export default function ReviewScreen({ navigation, route }) {
     if (!businessProfile?.socialLinks) return;
     setLead((prev) => mergeSocialFieldsIntoLead(prev, businessProfile));
   };
+
+  const contactCandidatesNormalized = normalizeContactCandidates(
+    lead?.contactCandidates?.length
+      ? { contacts: lead.contactCandidates }
+      : lead?.enrichment?.rawLookup || lead?.enrichment || lead
+  );
 
   return (
     <KeyboardAvoidingView
@@ -976,9 +971,9 @@ export default function ReviewScreen({ navigation, route }) {
                   {!!businessProfile.rating && (
                     <Text style={s.profileDetail}>⭐ {businessProfile.rating} ({businessProfile.user_ratings_total} reviews)</Text>
                   )}
-                  {!!businessProfile.formatted_phone_number && (
-                    <TouchableOpacity onPress={() => { update('phone', businessProfile.formatted_phone_number); }}>
-                      <Text style={s.profileDetail}>📞 {businessProfile.formatted_phone_number} <Text style={{ color: COLORS.accent, fontSize: 11 }}>tap to apply</Text></Text>
+                  {!!(businessProfile.formatted_phone_number || businessProfile.phone) && (
+                    <TouchableOpacity onPress={() => { update('phone', businessProfile.formatted_phone_number || businessProfile.phone); }}>
+                      <Text style={s.profileDetail}>📞 {businessProfile.formatted_phone_number || businessProfile.phone} <Text style={{ color: COLORS.accent, fontSize: 11 }}>tap to apply</Text></Text>
                     </TouchableOpacity>
                   )}
                   {!!businessProfile.website && (
@@ -995,6 +990,31 @@ export default function ReviewScreen({ navigation, route }) {
                     </View>
                   )}
 
+                  {/* Phone candidates */}
+                  {!!(businessProfile.phoneCandidates?.length > 0) && (
+                    <View style={s.emailWrap}>
+                      <Text style={s.hoursTitle}>📞 Phone Candidates:</Text>
+                      <Text style={s.emailSub}>Tap to apply to lead</Text>
+                      {businessProfile.phoneCandidates.map((item, i) => (
+                        <TouchableOpacity
+                          key={`${item.phone}-${i}`}
+                          style={[s.emailRow, lead.phone === item.phone && s.emailRowActive]}
+                          onPress={() => update('phone', item.phone)}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[s.emailText, lead.phone === item.phone && s.emailTextActive]} numberOfLines={1}>
+                              {item.phone}
+                            </Text>
+                            {!!item.source && <Text style={{ color: COLORS.muted, fontSize: 9 }}>Source: {item.source}</Text>}
+                          </View>
+                          {lead.phone === item.phone && (
+                            <Text style={s.emailApplied}>Applied</Text>
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
                   {/* Email candidates */}
                   {!!(businessProfile.emailCandidates?.length > 0) && (
                     <View style={s.emailWrap}>
@@ -1003,20 +1023,85 @@ export default function ReviewScreen({ navigation, route }) {
                       {businessProfile.emailCandidates.map((email, i) => (
                         <TouchableOpacity
                           key={email}
-                          style={[s.emailRow, lead.email === email && s.emailRowActive]}
-                          onPress={() => update('email', email)}
+                          style={[s.emailRow, String(lead.email || '').toLowerCase().trim() === String(email).toLowerCase().trim() && s.emailRowActive]}
+                          onPress={() => update('email', String(email).toLowerCase().trim())}
                         >
-                          <Text style={[s.emailText, lead.email === email && s.emailTextActive]} numberOfLines={1}>
+                          <Text style={[s.emailText, String(lead.email || '').toLowerCase().trim() === String(email).toLowerCase().trim() && s.emailTextActive]} numberOfLines={1}>
                             {i === 0 && businessProfile.discoveredEmails?.includes(email) ? '✓ ' : '◦ '}
                             {email}
                           </Text>
-                          {lead.email === email && (
+                          {String(lead.email || '').toLowerCase().trim() === String(email).toLowerCase().trim() && (
                             <Text style={s.emailApplied}>Applied</Text>
                           )}
                         </TouchableOpacity>
                       ))}
                     </View>
                   )}
+
+                  {/* Discovered POC candidates */}
+                  <View style={s.emailWrap}>
+                    <Text style={s.hoursTitle}>👤 Discovered Contacts:</Text>
+                    <Text style={s.emailSub}>ContactSignal Enrichment</Text>
+
+                    {(!contactCandidatesNormalized || contactCandidatesNormalized.length === 0) && (
+                      <View style={{ padding: 16, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, marginTop: 8, alignItems: 'center' }}>
+                        <Text style={{ color: COLORS.muted, fontSize: 13, textAlign: 'center' }}>No verified contacts found yet.{"\n"}Try Look Up Business Information again or add one manually.</Text>
+                      </View>
+                    )}
+
+                    {contactCandidatesNormalized && contactCandidatesNormalized.map((poc, i) => (
+                      <View key={`${poc.id}-${i}`} style={{ marginTop: 12, marginBottom: 12, padding: 12, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, borderWidth: 1, borderColor: COLORS.border }}>
+                        <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 14 }}>
+                          {poc.name || 'Unknown contact'} <Text style={{ color: COLORS.accent, fontWeight: '600' }}>{poc.title ? `(${poc.title})` : '(No title found)'}</Text>
+                        </Text>
+
+                        <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 4 }}>📞 {poc.phone || 'No phone found'}</Text>
+                        <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>✉️ {poc.email || 'No email found'}</Text>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                          <Text style={{ color: COLORS.muted, fontSize: 11 }}>Source: {poc.source || 'Lookup'}</Text>
+                          {!!poc.confidence && (
+                            <Text style={{ color: String(poc.confidence).toLowerCase() === 'high' ? COLORS.success : String(poc.confidence).toLowerCase() === 'medium' ? '#f5b041' : COLORS.muted, fontSize: 11, fontWeight: '700' }}>
+                              {String(poc.confidence).toUpperCase()} CONFIDENCE
+                            </Text>
+                          )}
+                        </View>
+
+                        <View style={{ flexDirection: 'row', marginTop: 12, gap: 10 }}>
+                          <TouchableOpacity
+                            style={{ flex: 1, backgroundColor: (lead.pocFirst && poc.name?.includes(lead.pocFirst)) ? COLORS.surface2 : COLORS.accent, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}
+                            onPress={() => {
+                              const nameParts = (poc.name || '').split(' ');
+                              const first = nameParts[0] || '';
+                              const last = nameParts.slice(1).join(' ') || '';
+                              setLead(prev => ({
+                                ...prev,
+                                pocFirst: first,
+                                pocLast: last,
+                                title: poc.title || prev.title,
+                                phone: poc.phone || prev.phone,
+                                email: poc.email || prev.email,
+                              }));
+                            }}
+                            disabled={!!(lead.pocFirst && poc.name?.includes(lead.pocFirst))}
+                          >
+                            <Text style={{ color: (lead.pocFirst && poc.name?.includes(lead.pocFirst)) ? COLORS.muted : '#000', fontSize: 12, fontWeight: '800' }}>
+                              {(lead.pocFirst && poc.name?.includes(lead.pocFirst)) ? '✓ Applied' : 'Use Contact'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {!!poc.sourceUrl && (
+                            <TouchableOpacity
+                              style={{ flex: 1, backgroundColor: COLORS.surface2, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' }}
+                              onPress={() => Linking.openURL(poc.sourceUrl).catch(()=>{})}
+                            >
+                              <Text style={{ color: COLORS.textDim, fontSize: 12, fontWeight: '700' }}>View Source</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
 
                   {/* Social media links */}
                   {!!businessProfile.socialLinks && Object.keys(businessProfile.socialLinks).length > 0 && (

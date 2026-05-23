@@ -1,6 +1,6 @@
 {
   "name": "leadlens",
-  "version": "1.14.0",
+  "version": "2.0.2",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
@@ -58,7 +58,8 @@
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "patch-package": "^8.0.1",
-    "postinstall-postinstall": "^2.1.0"
+    "postinstall-postinstall": "^2.1.0",
+    "tar": "^7.5.15"
   },
   "private": true
 }

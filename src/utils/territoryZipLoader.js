@@ -1,182 +1,150 @@
 // src/utils/territoryZipLoader.js
-// LeadLens production-leaning territory ZIP loader.
+// LeadLens territory ZIP loader with CACHE-ONLY mode (skip Nominatim)
 //
-// Purpose:
-// - Use the real Supabase client when available.
-// - Pull assigned territory ZIPs from Supabase.
-// - Fall back to AsyncStorage only when needed.
-// - Cache ZIP boundary markers so the app is not fetching boundaries every map open.
-// - Return markers shaped for TerritoryMapScreen:
-//
-// {
-//   zip,
-//   coords,
-//   polygon,
-//   allRings,
-//   colors,
-//   level,
-//   source
-// }
+// Key enhancement: Load ZIP boundaries from cache only.
+// No Nominatim API calls - avoids rate limiting.
+// 
+// Cache Priority:
+// 1. Supabase (persistent, fastest)
+// 2. MMKV via storageBridge (offline, very fast)
+// 3. Fallback circle polygon (if no cache)
+const { createSupabaseClient } = require('./supabaseClient.js');
 
-let AsyncStorage = null;
+let storageBridge = null;
 
 try {
-  AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  storageBridge = require('./storage').storageBridge;
 } catch (error) {
-  AsyncStorage = null;
+  console.log('[TerritoryZipLoader] Storage bridge import failed:', error?.message);
+  storageBridge = null;
 }
 
-const CACHE_KEY_PREFIX = 'leadlens:territoryZipBoundary:';
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const CACHE_KEY_PREFIX = '@leadlens_zip_bounds_v5_';
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-const DEFAULT_ZIP_COLORS = {
-  text: '#8B5CF6',
-  stroke: '#8B5CF6',
-  fill: 'rgba(124, 58, 237, 0.18)',
-  glow: 'rgba(124, 58, 237, 0.32)',
-  bg: 'rgba(124, 58, 237, 0.12)',
-};
-
+// Rate limit queue for Nominatim (NOT USED - cache only)
+let nominatimQueue = [];
+let lastNominatimFetch = 0;
+console.log('[TerritoryZipLoader] Module loaded, about to define candidates...');
 const TERRITORY_TABLE_CANDIDATES = [
   'territory_zips',
-  'territory_zip_codes',
-  'user_territory_zips',
-  'assigned_zips',
-  'zip_codes',
-  'territories',
+  'user_territories',
+  'assigned_territories',
+  'my_territories',
 ];
 
-function normalizeZip(value) {
-  if (value === null || value === undefined) return null;
-  const match = String(value).match(/\b\d{5}\b/);
-  return match ? match[0] : null;
+/**
+ * Normalize ZIP code
+ */
+function normalizeZip(zip) {
+  if (!zip) return null;
+  const cleaned = String(zip).replace(/\D/g, '').slice(0, 5);
+  return cleaned.length === 5 ? cleaned : null;
 }
 
-function uniqueZips(values) {
-  return Array.from(new Set(values.map(normalizeZip).filter(Boolean))).sort();
+/**
+ * Get unique ZIPs from array
+ */
+function uniqueZips(zips) {
+  return [...new Set(zips.filter(Boolean).map(z => normalizeZip(z)).filter(Boolean))];
 }
 
-function collectZipsDeep(value, found = new Set(), depth = 0) {
-  if (depth > 5 || value === null || value === undefined) return found;
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    const matches = String(value).match(/\b\d{5}\b/g);
-    if (matches) matches.forEach((zip) => found.add(zip));
-    return found;
-  }
-
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectZipsDeep(item, found, depth + 1));
-    return found;
-  }
-
-  if (typeof value === 'object') {
-    const likelyZipFields = [
-      'zip',
-      'zip_code',
-      'zipcode',
-      'postal_code',
-      'postalCode',
-      'territory_zip',
-      'territoryZip',
-      'zips',
-      'zipCodes',
-      'zip_codes',
-      'assigned_zips',
-      'assignedZips',
-    ];
-
-    for (const field of likelyZipFields) {
-      if (Object.prototype.hasOwnProperty.call(value, field)) {
-        collectZipsDeep(value[field], found, depth + 1);
-      }
-    }
-
-    if (depth <= 1) {
-      Object.values(value).forEach((item) => collectZipsDeep(item, found, depth + 1));
-    }
-  }
-
-  return found;
-}
-
-async function getCurrentUserId(supabaseClient) {
-  if (!supabaseClient?.auth?.getUser) return null;
-
+/**
+ * Get Supabase client
+ */
+async function getSupabaseClient() {
   try {
-    const { data, error } = await supabaseClient.auth.getUser();
-    if (error) {
-      console.log('[TerritoryZipLoader] auth.getUser error:', error.message);
-      return null;
-    }
-
-    return data?.user?.id || null;
+    console.log('[DEBUG] Attempting to create Supabase client...');
+    console.log('[DEBUG] EXPO_PUBLIC_SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL);
+    console.log('[DEBUG] EXPO_PUBLIC_SUPABASE_ANON_KEY:', process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 20) + '...');
+    
+    const client = createSupabaseClient();
+    console.log('[DEBUG] Client created:', !!client);
+    return client;
   } catch (error) {
-    console.log('[TerritoryZipLoader] auth.getUser failed:', error?.message || String(error));
+    console.log('[DEBUG] Error creating client:', error?.message);
     return null;
   }
 }
 
-async function queryTableForZips(supabaseClient, table, userId) {
-  // Try broad query first. RLS should restrict rows if policies are configured.
-  // If it fails, we just skip that candidate table.
+/**
+ * Get current authenticated user ID
+ */
+async function getCurrentUserId(supabaseClient) {
   try {
-    // Explicitly filter by user_id when available — bypasses RLS ambiguity
-    let query = supabaseClient.from(table).select('*').limit(1000);
-    if (userId) query = query.eq('user_id', userId);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.log('[TerritoryZipLoader] Table skipped:', {
-        table,
-        message: error.message,
-      });
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    return session?.user?.id || null;
+  } catch {
+    return null;
+  }
+}
+async function queryTableForZips(supabaseClient, tableName, userId) {
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const userEmail = session?.user?.email;
+    
+    console.log('[queryTableForZips] User email:', userEmail);
+    
+    if (!userEmail) {
+      console.log('[queryTableForZips] No email found!');
       return [];
     }
 
-    if (__DEV__) console.log('[TerritoryZipLoader] Table result:', {
-      table,
-      count: Array.isArray(data) ? data.length : 0,
-      sample: Array.isArray(data) ? data[0] : data,
-    });
-
-    // Only extract from known zip fields — never deep-scan all fields
-    // since collectZipsDeep would find 5-digit patterns in UUIDs, timestamps etc.
-    const found = new Set();
-    if (Array.isArray(data)) {
-      for (const row of data) {
-        const zipFields = ['zip', 'zip_code', 'zipcode', 'postal_code', 'postalCode'];
-        for (const field of zipFields) {
-          if (row[field]) {
-            const z = normalizeZip(row[field]);
-            if (z) found.add(z);
-          }
-        }
-      }
+    // Query profiles table to get rep_name by email
+    const { data: profileData, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('rep_name')
+      .eq('email', userEmail)
+      .single();
+    
+    console.log('[queryTableForZips] Profile lookup result:', { profileData, profileError });
+    
+    const repName = profileData?.rep_name;
+    if (!repName) {
+      console.log('[queryTableForZips] No rep_name found for email:', userEmail);
+      return [];
     }
-    return Array.from(found);
+
+    console.log('[queryTableForZips] Found rep_name:', repName, '- querying', tableName);
+
+    // Query territory_zips by rep_name
+    const { data, error } = await supabaseClient
+      .from(tableName)
+      .select('zip')
+      .eq('rep_name', repName)
+      .limit(100);
+
+    console.log('[queryTableForZips] Territory query result:', { dataCount: data?.length, error });
+
+    if (!Array.isArray(data)) return [];
+    const zips = [];
+    for (const row of data) {
+      if (row.zip) zips.push(row.zip);
+      if (row.zips) {
+        if (Array.isArray(row.zips)) zips.push(...row.zips);
+        else if (typeof row.zips === 'string') zips.push(...row.zips.split(','));
+      }
+      if (row.zip) zips.push(row.zip);
+    }
+    return zips;
   } catch (error) {
-    console.log('[TerritoryZipLoader] Table query failed:', {
-      table,
-      message: error?.message || String(error),
-    });
+    console.log('[queryTableForZips] Error:', error?.message);
     return [];
   }
 }
 
+/**
+ * Get ZIPs from Supabase
+ */
 async function getZipsFromSupabase(supabaseClient) {
   if (!supabaseClient || typeof supabaseClient.from !== 'function') {
-    console.log('[TerritoryZipLoader] Supabase client unavailable. Using AsyncStorage fallback only.');
+    console.log('[TerritoryZipLoader] Supabase client unavailable.');
     return [];
   }
 
   const userId = await getCurrentUserId(supabaseClient);
 
-  if (__DEV__) console.log('[TerritoryZipLoader] Supabase client connected:', {
-    hasUserId: Boolean(userId),
-    userId,
-  });
+  if (__DEV__) console.log('[TerritoryZipLoader] Supabase client connected:', { hasUserId: Boolean(userId) });
 
   const allZips = [];
 
@@ -188,98 +156,14 @@ async function getZipsFromSupabase(supabaseClient) {
   return uniqueZips(allZips);
 }
 
-async function getZipsFromAsyncStorage() {
-  if (!AsyncStorage) return [];
-
-  const found = new Set();
-
-  // AsyncStorage is used ONLY as a boundary polygon cache, not as a zip source.
-  // Supabase is the authoritative source for territory zips.
-  // Returning empty here prevents stale/incorrect zip lists from polluting the map.
-  return [];
-}
-
-function coordinatePairToLatLng(pair) {
-  if (!Array.isArray(pair) || pair.length < 2) return null;
-
-  const longitude = Number(pair[0]);
-  const latitude = Number(pair[1]);
-
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return null;
-  }
-
-  return { latitude, longitude };
-}
-
-function geoJsonToRings(geojson) {
-  if (!geojson || !geojson.type || !Array.isArray(geojson.coordinates)) return [];
-
-  if (geojson.type === 'Polygon') {
-    return geojson.coordinates
-      .map((ring) => ring.map(coordinatePairToLatLng).filter(Boolean))
-      .filter((ring) => ring.length >= 3);
-  }
-
-  if (geojson.type === 'MultiPolygon') {
-    return geojson.coordinates
-      .flatMap((polygon) =>
-        polygon.map((ring) => ring.map(coordinatePairToLatLng).filter(Boolean))
-      )
-      .filter((ring) => ring.length >= 3);
-  }
-
-  return [];
-}
-
-function makeCircleFallbackPolygon(center, radiusMiles = 2.5, sides = 36) {
-  const latitude = Number(center?.latitude);
-  const longitude = Number(center?.longitude);
-
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
-
-  const radiusLat = radiusMiles / 69;
-  const radiusLng = radiusMiles / (69 * Math.cos((latitude * Math.PI) / 180));
-
-  return Array.from({ length: sides }, (_, index) => {
-    const angle = (index / sides) * Math.PI * 2;
-
-    return {
-      latitude: latitude + Math.sin(angle) * radiusLat,
-      longitude: longitude + Math.cos(angle) * radiusLng,
-    };
-  });
-}
-
-function getCentroidFromRing(ring) {
-  if (!Array.isArray(ring) || ring.length === 0) return null;
-
-  const total = ring.reduce(
-    (sum, point) => ({
-      latitude: sum.latitude + Number(point.latitude || 0),
-      longitude: sum.longitude + Number(point.longitude || 0),
-    }),
-    { latitude: 0, longitude: 0 }
-  );
-
-  return {
-    latitude: total.latitude / ring.length,
-    longitude: total.longitude / ring.length,
-  };
-}
-
+/**
+ * Get cached boundary from MMKV
+ */
 async function getCachedBoundary(zip) {
-  if (!AsyncStorage) return null;
+  if (!storageBridge) return null;
 
   try {
-    const raw = await AsyncStorage.getItem(`${CACHE_KEY_PREFIX}${zip}`);
+    const raw = await storageBridge.getItem(`${CACHE_KEY_PREFIX}${zip}`);
     if (!raw) return null;
 
     const parsed = JSON.parse(raw);
@@ -292,121 +176,91 @@ async function getCachedBoundary(zip) {
       return null;
     }
 
-    if (__DEV__) console.log('[TerritoryZipLoader] Boundary cache hit:', zip);
+    if (__DEV__) console.log('[TerritoryZipLoader] MMKV cache hit:', zip);
     return parsed.marker;
   } catch {
     return null;
   }
 }
 
-async function setCachedBoundary(zip, marker) {
-  if (!AsyncStorage || !marker) return;
+/**
+ * Get cached boundary from Supabase
+ */
+async function getCachedBoundaryFromSupabase(zip, supabase) {
+  if (!supabase) return null;
 
   try {
-    await AsyncStorage.setItem(
-      `${CACHE_KEY_PREFIX}${zip}`,
-      JSON.stringify({
-        savedAt: Date.now(),
-        marker,
-      })
-    );
-  } catch (error) {
-    console.log('[TerritoryZipLoader] Boundary cache save failed:', {
-      zip,
-      message: error?.message || String(error),
-    });
-  }
-}
+    const { data } = await supabase
+      .from('zip_boundaries')
+      .select('polygon,all_rings,coords')
+      .eq('zip_code', zip)
+      .single();
 
-async function fetchZipBoundary(zip) {
-  const cleanZip = normalizeZip(zip);
-  if (!cleanZip) return null;
-
-  const cached = await getCachedBoundary(cleanZip);
-  if (cached) return cached;
-
-  const url =
-    `https://nominatim.openstreetmap.org/search?` +
-    `postalcode=${encodeURIComponent(cleanZip)}` +
-    `&country=USA&countrycodes=us&format=json&polygon_geojson=1&limit=1`;
-
-  try {
-    if (__DEV__) console.log('[TerritoryZipLoader] Fetching boundary:', cleanZip);
-
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'LeadLens Territory Map',
-      },
-    });
-
-    if (!response.ok) {
-      console.log('[TerritoryZipLoader] Boundary fetch failed:', {
-        zip: cleanZip,
-        status: response.status,
-      });
-      return null;
-    }
-
-    const result = await response.json();
-    const first = Array.isArray(result) ? result[0] : null;
-
-    if (!first) {
-      console.log('[TerritoryZipLoader] No boundary result:', cleanZip);
-      return null;
-    }
-
-    let allRings = geoJsonToRings(first.geojson);
-
-    const center = {
-      latitude: Number(first.lat),
-      longitude: Number(first.lon),
-    };
-
-    if (allRings.length === 0 && Number.isFinite(center.latitude) && Number.isFinite(center.longitude)) {
-      console.log('[TerritoryZipLoader] Using fallback circle polygon:', cleanZip);
-      allRings = [makeCircleFallbackPolygon(center)];
-    }
-
-    if (!Array.isArray(allRings) || allRings.length === 0) return null;
+    if (!data) return null;
 
     const marker = {
-      zip: cleanZip,
-      coords: getCentroidFromRing(allRings[0]) || center,
-      polygon: allRings[0],
-      allRings,
-      colors: DEFAULT_ZIP_COLORS,
-      level: 1,
-      source: 'territoryZipLoader',
+      zip,
+      polygon: data.polygon,
+      allRings: data.all_rings,
+      coords: data.coords,
     };
 
-    await setCachedBoundary(cleanZip, marker);
-
+    if (__DEV__) console.log('[TerritoryZipLoader] Supabase cache hit:', zip);
     return marker;
-  } catch (error) {
-    console.log('[TerritoryZipLoader] Boundary fetch error:', {
-      zip: cleanZip,
-      message: error?.message || String(error),
-    });
+  } catch {
     return null;
   }
 }
 
+/**
+ * Create fallback circle polygon (2.5 mile radius)
+ */
+function createFallbackCircle(zip) {
+  // Fallback: return undefined to use map's default circle
+  // The calling code will handle circle rendering
+  return null;
+}
+
+/**
+ * Fetch ZIP boundary (CACHE ONLY - no Nominatim)
+ */
+async function fetchZipBoundary(zip) {
+  const cleanZip = normalizeZip(zip);
+  if (!cleanZip) return null;
+
+  // 1. Try Supabase cache first
+  const supabase = await getSupabaseClient();
+  if (supabase) {
+    const cached = await getCachedBoundaryFromSupabase(cleanZip, supabase);
+    if (cached) return cached;
+  }
+
+  // 2. Try MMKV cache
+  const mmkvCached = await getCachedBoundary(cleanZip);
+  if (mmkvCached) return mmkvCached;
+
+  // 3. No cache - return null (will render fallback circle)
+  if (__DEV__) console.log('[TerritoryZipLoader] No cache for ZIP:', cleanZip);
+  return null;
+}
+
+/**
+ * Public function: Load territory ZIP markers from cache only
+ */
 export async function loadTerritoryZipMarkersFallback({ supabaseClient } = {}) {
-  if (__DEV__) console.log('[TerritoryZipLoader] Territory ZIP loader started.');
+  if (!supabaseClient) {
+    supabaseClient = await getSupabaseClient();
+  }
+  console.log('[loadTerritoryZipMarkersFallback] Function called with supabaseClient:', !!supabaseClient);
+  if (__DEV__) console.log('[TerritoryZipLoader] Territory ZIP loader started (CACHE ONLY).');
 
   const supabaseZips = await getZipsFromSupabase(supabaseClient);
-  const storageZips = await getZipsFromAsyncStorage();
+  const zips = uniqueZips(supabaseZips);
 
-  const zips = uniqueZips([...supabaseZips, ...storageZips]);
-
-  if (__DEV__) console.log('[TerritoryZipLoader] ZIP candidates found:', {
-    count: zips.length,
-    zips,
-  });
+  if (__DEV__) console.log('[TerritoryZipLoader] ZIP candidates found:', { count: zips.length });
 
   if (zips.length === 0) {
-    console.log('[TerritoryZipLoader] No territory ZIPs found from Supabase or AsyncStorage.');
+    console.log('[TerritoryZipLoader] No territory ZIPs found.');
     return [];
   }
 
@@ -414,13 +268,26 @@ export async function loadTerritoryZipMarkersFallback({ supabaseClient } = {}) {
 
   for (const zip of zips) {
     const marker = await fetchZipBoundary(zip);
-    if (marker) markers.push(marker);
+    if (marker) {
+      markers.push(marker);
+    } else {
+      // Return fallback circle marker
+      markers.push({
+        zip,
+        isFallback: true,
+      });
+    }
   }
 
-  if (__DEV__) console.log('[TerritoryZipLoader] ZIP markers built:', {
-    count: markers.length,
-    sample: markers[0],
-  });
+  if (__DEV__) console.log('[TerritoryZipLoader] ZIP markers built:', { count: markers.length, fallbacks: markers.filter(m => m.isFallback).length });
 
   return markers;
 }
+
+// Export fetchZipBoundary as named export
+export { fetchZipBoundary };
+
+export default {
+  fetchZipBoundary,
+  loadTerritoryZipMarkersFallback,
+};

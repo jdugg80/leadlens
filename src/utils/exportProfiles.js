@@ -4,8 +4,9 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { read, utils, write } from 'xlsx';
 
-import { LEADS_STORAGE_KEY } from '../constants';
+import { LEADS_STORAGE_KEY, SUPABASE_SETTINGS_KEY } from '../constants';
 import { normalizeLead } from './leadProcessing';
+import { createSupabaseClient } from './supabaseClient';
 
 export const EXPORT_PROFILES_KEY = '@leadlens_export_profiles';
 
@@ -246,6 +247,30 @@ const AUTO_HEADER_MATCHES = {
   imageuri: 'imageUri',
 };
 
+async function syncProfileToSupabase(profile) {
+  try {
+    const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+    const config = raw ? JSON.parse(raw) : null;
+    const supabase = createSupabaseClient(config);
+    if (!supabase) return;
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return;
+
+    const { error } = await supabase
+      .from('export_templates')
+      .upsert({
+        user_id: user.id,
+        name: profile.name,
+        config: profile
+      }, { onConflict: 'user_id,name' });
+
+    if (error) console.warn('[syncProfileToSupabase] Failed:', error.message);
+  } catch (err) {
+    console.warn('[syncProfileToSupabase] Unexpected error:', err.message);
+  }
+}
+
 export async function loadLeads() {
   const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
   return raw ? JSON.parse(raw) : [];
@@ -262,6 +287,9 @@ export async function loadExportProfiles() {
 
 export async function saveExportProfiles(profiles) {
   await AsyncStorage.setItem(EXPORT_PROFILES_KEY, JSON.stringify(profiles || []));
+  if (Array.isArray(profiles)) {
+    profiles.forEach(p => syncProfileToSupabase(p));
+  }
 }
 
 export function buildSuggestedMapping(headers = []) {
@@ -274,9 +302,9 @@ export function buildSuggestedMapping(headers = []) {
   return mapping;
 }
 
-export function buildStandardRows(leads = []) {
+export function buildStandardRows(leads = [], user = {}) {
   return leads.map((lead) => {
-    const l = normalizeLead(lead || {}, { fillNameDots: true });
+    const l = normalizeLeadForExport(lead || {}, user);
 
     return [
       l.businessName || '',
@@ -374,10 +402,10 @@ function normalizeLeadForExport(lead = {}, user = {}) {
   return normalizeLead(merged, { fillNameDots: true });
 }
 
-export async function buildStandardSpreadsheetFile(leads = []) {
+export async function buildStandardSpreadsheetFile(leads = [], user = {}) {
   const ws = utils.aoa_to_sheet([
     STANDARD_COLUMNS,
-    ...buildStandardRows(leads),
+    ...buildStandardRows(leads, user),
   ]);
 
   ws['!cols'] = STANDARD_COLUMNS.map((h) => ({
@@ -457,10 +485,10 @@ export async function buildProfileExportFile(leads = [], profile = {}, user = {}
   );
 }
 
-export async function exportStandardSpreadsheet(leads = []) {
+export async function exportStandardSpreadsheet(leads = [], user = {}) {
   const ws = utils.aoa_to_sheet([
     STANDARD_COLUMNS,
-    ...buildStandardRows(leads),
+    ...buildStandardRows(leads, user),
   ]);
 
   ws['!cols'] = STANDARD_COLUMNS.map((h) => ({

@@ -25,12 +25,16 @@ export type LensSignalRecord = {
   grade?: string | null;
   alert_level?: LensSignalAlertLevel | null;
   pest_indicator?: boolean | null;
+  pest_details?: string | null;
   opening_status?: string | null;
   source_name?: string | null;
   source_record_url?: string | null;
   distance_miles?: number | null;
   match_confidence?: number | null;
   match_method?: string | null;
+  owner_name?: string | null;
+  phone?: string | null;
+  raw_record?: any | null;
 };
 
 export interface UserPreferences {

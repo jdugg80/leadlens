@@ -83,6 +83,44 @@ export async function cropImageToLeadLockTarget(imageUri, targetBox, options = {
   };
 }
 
+export async function cropImageToRegion(imageUri, normalizedRegion, options = {}) {
+  if (!imageUri || !normalizedRegion) return null;
+
+  const size = await getImageSize(imageUri);
+  const imageWidth = safeNumber(size.width);
+  const imageHeight = safeNumber(size.height);
+
+  if (!imageWidth || !imageHeight) return null;
+
+  const originX = Math.round(clamp(normalizedRegion.x * imageWidth, 0, imageWidth - 1));
+  const originY = Math.round(clamp(normalizedRegion.y * imageHeight, 0, imageHeight - 1));
+  const width = Math.round(clamp(normalizedRegion.width * imageWidth, 24, imageWidth - originX));
+  const height = Math.round(clamp(normalizedRegion.height * imageHeight, 24, imageHeight - originY));
+
+  const crop = { originX, originY, width, height };
+  const actions = [{ crop }];
+
+  const maxWidth = safeNumber(options.maxWidth, 2000);
+  if (width > maxWidth) {
+    actions.push({ resize: { width: maxWidth } });
+  }
+
+  const result = await ImageManipulator.manipulateAsync(
+    imageUri,
+    actions,
+    {
+      compress: safeNumber(options.compress, 0.9),
+      format: ImageManipulator.SaveFormat.JPEG,
+    }
+  );
+
+  return {
+    uri: result.uri,
+    crop: { ...crop, imageWidth, imageHeight },
+    output: { width: result.width, height: result.height },
+  };
+}
+
 export async function createLeadLockFullImageVariant(imageUri, options = {}) {
   if (!imageUri) return null;
 

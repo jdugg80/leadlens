@@ -6,6 +6,7 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { AUTO_EXPORT_SETTINGS_KEY, LEADS_STORAGE_KEY, USER_STORAGE_KEY } from '../constants';
 import { buildXlsxUri } from './exportXlsx';
+import { loadExportProfiles, buildProfileExportFile, buildStandardSpreadsheetFile, buildSalesTemplateFile } from './exportProfiles';
 import { enqueueTask, TASK_TYPES } from './taskQueue';
 import { processQueue } from './taskRunner';
 
@@ -103,7 +104,27 @@ export async function maybeRunAutoExport(user, options = {}) {
     return { skipped: true, reason: 'empty queue' };
   }
 
-  const attachment = await buildXlsxUri(sendable, user, { mode: settings.exportMode || 'template' });
+  let attachment;
+  if (settings.exportFormat === "custom_template") {
+    const profiles = await loadExportProfiles();
+    const template = profiles.find(p => p.id === settings.templateId || p.name === settings.templateName || p.name === settings.templateId);
+
+    if (!template) {
+      const err = `Scheduled export template not found: ${settings.templateName || settings.templateId}`;
+      await saveAutoExportSettings({ ...settings, lastRunDate: stamp, lastStatus: err });
+      throw new Error(err);
+    }
+
+    attachment = await buildProfileExportFile(sendable, template, user);
+  } else if (settings.exportFormat === "universal_excel" || settings.exportMode === "standard") {
+    attachment = await buildStandardSpreadsheetFile(sendable, user);
+  } else if (settings.exportFormat === "sales_module" || settings.exportMode === "template" || !settings.exportFormat) {
+    attachment = await buildSalesTemplateFile(sendable, user);
+  } else {
+    // CSV not fully fleshed out in exportProfiles yet, fallback to universal
+    attachment = await buildStandardSpreadsheetFile(sendable, user);
+  }
+
   const subject = (settings.subject || 'LeadLens Scheduled Export').replace('{count}', String(sendable.length));
   const body = (settings.body || 'Attached is your scheduled LeadLens export.').replace('{count}', String(sendable.length));
   const recipients = normalizeRecipients(settings.recipients);

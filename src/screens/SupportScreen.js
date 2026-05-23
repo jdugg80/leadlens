@@ -1,196 +1,476 @@
-import { useMemo, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import * as MailComposer from 'expo-mail-composer';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import { APP_VERSION, COLORS, SUPPORT_EMAIL } from '../constants';
-import { Card, FieldInput, PrimaryButton, ScreenHeader, SectionLabel } from '../components/UI';
-import { showThemedAlert } from '../components/ThemedAlert';
+import React, { useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Modal,
+  FlatList,
+  SafeAreaView,
+  Image,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { createSupabaseClient } from '../utils/supabaseClient';
+import { storageBridge } from '../utils/storage';
+import { showThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
 
-const ISSUE_TYPES = ['Bug', 'Export problem', 'Sync problem', 'OCR / scan issue', 'Duplicate issue', 'Login/session issue', 'Feature request', 'General feedback'];
+const COLORS = {
+  bg: '#080A0F',
+  accent: '#00C9FF',
+  accent2: '#CC1040',
+  purple: '#7B3FBE',
+  chrome: '#B8BDD0',
+  surface: '#1A1D24',
+  border: '#2A2D34',
+  error: '#FF6B6B',
+  success: '#4ECB71',
+};
 
-export default function SupportScreen({ navigation, route }) {
-  const { user } = route.params || {};
+export default function SupportScreen({ navigation }) {
+  const supabase = createSupabaseClient();
+  const [expectedIssue, setExpectedIssue] = useState('');
+  const [actualIssue, setActualIssue] = useState('');
   const [issueType, setIssueType] = useState('Bug');
-  const [subject, setSubject] = useState('');
-  const [details, setDetails] = useState('');
-  const [expected, setExpected] = useState('');
-  const [actual, setActual] = useState('');
+  const [showTypeModal, setShowTypeModal] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [appVersion, setAppVersion] = useState('v2.0.1-BETA-43');
+  const [repName, setRepName] = useState('');
+  const [employeeId, setEmployeeId] = useState('N/A');
+  const [branch, setBranch] = useState('N/A');
+  const [platform] = useState('android');
+  const errorScrollRef = useRef(null);
 
-  const meta = useMemo(() => {
-    return [
-      `App Version: ${APP_VERSION}`,
-      `Platform: ${Platform.OS}`,
-      `Rep Name: ${user?.repName || ''}`,
-      `Employee #: ${user?.employeeNum || ''}`,
-      `Branch / Dept / Team: ${user?.branchNum || ''}`,
-      `Issue Type: ${issueType}`,
-      `Time: ${new Date().toISOString()}`,
-    ].join('\n');
-  }, [issueType, user]);
+  const issueTypes = ['Bug', 'Feature Request', 'Performance Issue', 'UI/UX Feedback', 'Other'];
 
-  const addScreenshot = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') {
-      showThemedAlert('Permission needed', 'Please allow photo library access to attach screenshots.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-      allowsMultipleSelection: false,
-    });
-    if (!result.canceled && result.assets?.[0]) {
-      const asset = result.assets[0];
-      setAttachments((prev) => [...prev, { name: asset.fileName || 'screenshot.jpg', uri: asset.uri, type: 'image' }]);
+  React.useEffect(() => {
+    loadUserInfo();
+  }, []);
+
+  const loadUserInfo = async () => {
+    try {
+      // Pull name from auth session first
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const meta = session.user.user_metadata || {};
+        const authName = meta.full_name || meta.name || session.user.email || '';
+        if (authName) setRepName(authName);
+      }
+
+      // Override with locally stored values if present
+      const storedName   = await storageBridge.getItem('repName');
+      const storedId     = await storageBridge.getItem('employeeId');
+      const storedBranch = await storageBridge.getItem('branch');
+
+      if (storedName)   setRepName(storedName);
+      if (storedId)     setEmployeeId(storedId);
+      if (storedBranch) setBranch(storedBranch);
+    } catch (error) {
+      console.error('Error loading user info:', error);
     }
   };
 
-  const addVideo = async () => {
-    const result = await DocumentPicker.getDocumentAsync({ type: ['video/*'] });
-    if (!result.canceled && result.assets?.[0]) {
-      const asset = result.assets[0];
-      setAttachments((prev) => [...prev, { name: asset.name || 'screen-recording.mp4', uri: asset.uri, type: 'video' }]);
-    }
-  };
-
-  const removeAttachment = (idx) => setAttachments((prev) => prev.filter((_, i) => i !== idx));
-
-  const send = async () => {
-    if (!subject.trim() || !details.trim()) {
-      showThemedAlert('Missing details', 'Please enter a subject and describe the issue before sending.');
+  const handleSubmitTicket = async () => {
+    // Validation
+    if (!expectedIssue.trim()) {
+      showThemedAlert('Validation Error', 'Please describe what you expected');
       return;
     }
-
-    const body = [
-      `Subject: ${subject.trim()}`,
-      '',
-      'Issue Details:',
-      details.trim(),
-      '',
-      'Expected Result:',
-      expected.trim() || '(not provided)',
-      '',
-      'Actual Result:',
-      actual.trim() || '(not provided)',
-      '',
-      'App Metadata:',
-      meta,
-    ].join('\n');
-
-    const available = await MailComposer.isAvailableAsync();
-    if (!available) {
-      showThemedAlert('No mail app', 'Please configure a mail app on this device first.');
+    if (!actualIssue.trim()) {
+      showThemedAlert('Validation Error', 'Please describe what actually happened');
       return;
     }
+    setLoading(true);
 
     try {
-      await MailComposer.composeAsync({
-        recipients: [SUPPORT_EMAIL],
-        subject: `[LeadLens Support] ${subject.trim()}`,
-        body,
-        attachments: attachments.map((item) => item.uri),
-      });
-      showThemedAlert('Draft opened', 'Your support email draft was opened with the selected attachments.');
-    } catch (err) {
-      showThemedAlert('Could not open mail draft', err.message || 'Please try again.');
+      // Get current user session
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        showThemedAlert('Authentication Error', 'Unable to verify user session. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
+      const userId = session.user.id;
+      const timestamp = new Date().toISOString();
+
+      // Prepare ticket data
+      const ticketData = {
+        user_id:         userId,
+        rep_email:       session.user.email || '',
+        rep_name:        repName || session.user.email || 'Unknown',
+        issue_type:      issueType,
+        subject:         `[${issueType}] ${expectedIssue.substring(0, 80)}`,
+        details:         actualIssue,
+        expected:        expectedIssue,
+        actual:          actualIssue,
+        app_version:     appVersion,
+        platform:        platform,
+        employee_num:    employeeId || 'N/A',
+        branch_num:      branch || 'N/A',
+        attachments:     attachments.length ? attachments : null,
+        status:          'open',
+      };
+
+      // Insert ticket into Supabase
+      const { data, error } = await supabase
+        .from('support_tickets')
+        .insert([ticketData])
+        .select();
+
+      if (error) {
+        console.error('Ticket submission error:', error);
+        showThemedAlert('Submission Failed', `Error: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
+      // Reset form
+      setExpectedIssue('');
+      setActualIssue('');
+      setIssueType('Bug');
+      setAttachments([]);
+
+      showThemedAlert(
+        '✅ Ticket Submitted',
+        `Support ticket #${data[0]?.id || 'submitted'} has been created. Our team will review it shortly.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              navigation.goBack();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Unexpected error during submission:', error);
+      showThemedAlert('Submission Failed', error.message || 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
     }
   };
 
-  return (
-    <View style={s.root}>
-      <ScreenHeader title="Support & Feedback" onBack={() => navigation.goBack()} badge="BETA" />
-      <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
-        <Card accent>
-          <Text style={s.lead}>Use this page to report issues, send feedback, and attach screenshots or short screen recordings.</Text>
-          <Text style={s.sub}>Messages go to {SUPPORT_EMAIL} as a mail draft so you can review before sending.</Text>
-        </Card>
+  const renderIssueTypeModal = () => (
+    <Modal
+      visible={showTypeModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowTypeModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Select Issue Type</Text>
+          <FlatList
+            data={issueTypes}
+            keyExtractor={(item) => item}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.issueTypeItem,
+                  issueType === item && styles.issueTypeItemActive,
+                ]}
+                onPress={() => {
+                  setIssueType(item);
+                  setShowTypeModal(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.issueTypeText,
+                    issueType === item && styles.issueTypeTextActive,
+                  ]}
+                >
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+          <TouchableOpacity
+            style={styles.modalCloseButton}
+            onPress={() => setShowTypeModal(false)}
+          >
+            <Text style={styles.modalCloseText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
 
-        <SectionLabel>Issue Type</SectionLabel>
-        <View style={s.chips}>
-          {ISSUE_TYPES.map((type) => (
-            <TouchableOpacity key={type} style={[s.chip, issueType === type && s.chipOn]} onPress={() => setIssueType(type)}>
-              <Text style={[s.chipText, issueType === type && s.chipTextOn]}>{type}</Text>
-            </TouchableOpacity>
-          ))}
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" size={28} color={COLORS.accent} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Support & Feedback</Text>
+        <View style={styles.betaBadge}>
+          <Text style={styles.betaBadgeText}>BETA</Text>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.content}
+        ref={errorScrollRef}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.sectionLabel}>WHAT DID YOU EXPECT?</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Describe expected behavior..."
+          placeholderTextColor={COLORS.chrome}
+          multiline
+          numberOfLines={4}
+          value={expectedIssue}
+          onChangeText={setExpectedIssue}
+          editable={!loading}
+        />
+
+        <Text style={styles.sectionLabel}>WHAT ACTUALLY HAPPENED?</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Describe the issue..."
+          placeholderTextColor={COLORS.chrome}
+          multiline
+          numberOfLines={5}
+          value={actualIssue}
+          onChangeText={setActualIssue}
+          editable={!loading}
+        />
+
+        <Text style={styles.sectionLabel}>ISSUE TYPE</Text>
+        <TouchableOpacity
+          style={styles.issueTypeButton}
+          onPress={() => setShowTypeModal(true)}
+          disabled={loading}
+        >
+          <Text style={styles.issueTypeButtonText}>{issueType}</Text>
+          <Ionicons name="chevron-down" size={20} color={COLORS.accent} />
+        </TouchableOpacity>
+
+        <Text style={styles.sectionLabel}>ATTACHMENTS</Text>
+        <View style={styles.attachmentContainer}>
+          <Text style={styles.attachmentText}>
+            {attachments.length > 0
+              ? `${attachments.length} attachment${attachments.length !== 1 ? 's' : ''} selected`
+              : 'No attachments selected yet'}
+          </Text>
         </View>
 
-        <SectionLabel>Details</SectionLabel>
-        <Card>
-          <FieldInput label="Subject" value={subject} onChangeText={setSubject} placeholder="Short summary of the problem" />
-          <View style={{ marginTop: 12 }}>
-            <FieldInput label="What happened?" value={details} onChangeText={setDetails} multiline numberOfLines={6} style={s.multi} placeholder="Describe the issue in plain English." />
-          </View>
-          <View style={{ marginTop: 12 }}>
-            <FieldInput label="What did you expect?" value={expected} onChangeText={setExpected} multiline numberOfLines={3} style={s.smallMulti} />
-          </View>
-          <View style={{ marginTop: 12 }}>
-            <FieldInput label="What actually happened?" value={actual} onChangeText={setActual} multiline numberOfLines={3} style={s.smallMulti} />
-          </View>
-        </Card>
+        <Text style={styles.sectionLabel}>APP METADATA</Text>
+        <View style={styles.metadataBox}>
+          <Text style={styles.metadataText}>App Version: {appVersion}</Text>
+          <Text style={styles.metadataText}>Platform: {platform}</Text>
+          <Text style={styles.metadataText}>Rep Name: {repName || 'Not set'}</Text>
+          <Text style={styles.metadataText}>Employee #: {employeeId}</Text>
+          <Text style={styles.metadataText}>Branch / Dept / Team: {branch}</Text>
+          <Text style={styles.metadataText}>Issue Type: {issueType}</Text>
+          <Text style={styles.metadataText}>
+            Time: {new Date().toISOString()}
+          </Text>
+        </View>
 
-        <SectionLabel>Attachments</SectionLabel>
-        <Card>
-          <View style={s.attachRow}>
-            <PrimaryButton title="Add Screenshot" onPress={addScreenshot} style={s.attachBtn} />
-            <PrimaryButton title="Add Screen Recording" onPress={addVideo} style={[s.attachBtn, { backgroundColor: COLORS.accent2 }]} />
-          </View>
-          {attachments.length ? (
-            <View style={{ marginTop: 14 }}>
-              {attachments.map((item, idx) => (
-                <View key={`${item.uri}-${idx}`} style={s.attachmentItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.attachmentName}>{item.name}</Text>
-                    <Text style={s.attachmentType}>{item.type === 'video' ? 'Short screen recording' : 'Screenshot / image'}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => removeAttachment(idx)}><Text style={s.remove}>Remove</Text></TouchableOpacity>
-                </View>
-              ))}
-            </View>
+        <TouchableOpacity
+          style={[
+            styles.submitButton,
+            loading && styles.submitButtonDisabled,
+          ]}
+          onPress={handleSubmitTicket}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={COLORS.accent} />
           ) : (
-            <Text style={s.empty}>No attachments selected yet.</Text>
+            <Text style={styles.submitButtonText}>SUBMIT SUPPORT TICKET</Text>
           )}
-        </Card>
+        </TouchableOpacity>
 
-        <SectionLabel>App Metadata</SectionLabel>
-        <Card>
-          <Text style={s.meta}>{meta}</Text>
-        </Card>
-
-        <PrimaryButton title="Open Support Email Draft" onPress={send} style={{ marginTop: 18 }} />
+        <View style={styles.spacer} />
       </ScrollView>
-    </View>
+
+      {renderIssueTypeModal()}
+      <ThemedAlertHost />
+    </SafeAreaView>
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.bg },
-  scroll: { flex: 1, paddingHorizontal: 16 },
-  lead: { color: COLORS.text, fontSize: 14, lineHeight: 22, fontWeight: '700' },
-  sub: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginTop: 8 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 },
-  chip: {
-    borderWidth: 1, borderColor: COLORS.borderLit,
-    backgroundColor: COLORS.surface2, borderRadius: 18,
-    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 8,
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
   },
-  chipOn: { borderColor: 'rgba(123,63,190,0.5)', backgroundColor: 'rgba(123,63,190,0.12)' },
-  chipText: { color: COLORS.muted, fontWeight: '700', fontSize: 12 },
-  chipTextOn: { color: COLORS.purple },
-  multi: { minHeight: 130, textAlignVertical: 'top' },
-  smallMulti: { minHeight: 88, textAlignVertical: 'top' },
-  attachRow: { gap: 10 },
-  attachBtn: { marginTop: 0 },
-  attachmentItem: {
-    flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1, borderColor: COLORS.borderLit,
-    borderRadius: 12, backgroundColor: COLORS.surface2,
-    padding: 12, marginBottom: 8, gap: 12,
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
-  attachmentName: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
-  attachmentType: { color: COLORS.muted, fontSize: 11, marginTop: 3 },
-  remove: { color: COLORS.danger, fontWeight: '700', fontSize: 12 },
-  empty: { color: COLORS.muted, fontSize: 12, marginTop: 12 },
-  meta: { color: COLORS.muted, fontSize: 12, lineHeight: 18 },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.chrome,
+    flex: 1,
+    marginLeft: 12,
+  },
+  betaBadge: {
+    backgroundColor: COLORS.purple,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  betaBadgeText: {
+    color: COLORS.accent,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.chrome,
+    opacity: 0.6,
+    marginBottom: 8,
+    letterSpacing: 1,
+  },
+  input: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+    borderRadius: 12,
+    padding: 12,
+    color: COLORS.chrome,
+    fontSize: 14,
+    marginBottom: 20,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  issueTypeButton: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  issueTypeButtonText: {
+    color: COLORS.chrome,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    width: '80%',
+    maxHeight: '70%',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.accent,
+    marginBottom: 12,
+  },
+  issueTypeItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: COLORS.bg,
+  },
+  issueTypeItemActive: {
+    backgroundColor: COLORS.accent,
+  },
+  issueTypeText: {
+    color: COLORS.chrome,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  issueTypeTextActive: {
+    color: COLORS.bg,
+  },
+  modalCloseButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.border,
+    borderRadius: 8,
+  },
+  modalCloseText: {
+    color: COLORS.chrome,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  attachmentContainer: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 20,
+  },
+  attachmentText: {
+    color: COLORS.chrome,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  metadataBox: {
+    backgroundColor: COLORS.surface,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.purple,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  metadataText: {
+    color: COLORS.chrome,
+    fontSize: 12,
+    fontWeight: '400',
+    marginBottom: 6,
+  },
+  submitButton: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    color: COLORS.bg,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  spacer: {
+    height: 20,
+  },
 });

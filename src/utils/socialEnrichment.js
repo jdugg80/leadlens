@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabase';
+
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_COMMON_PAGES = 8;
 const MAX_SITEMAP_PAGES = 6;
@@ -377,6 +379,209 @@ async function getSitemapCandidateUrls(websiteUrl = '') {
   return Array.from(new Set(urls));
 }
 
+/**
+ * Searches for a missing Point of Contact by querying state tax/public records,
+ * followed by looking at team/about pages on the company website.
+ */
+export async function enrichMissingPOC(prospect = {}) {
+  const isMissing = !prospect.pocFirst || !prospect.pocLast || !prospect.title;
+  if (!isMissing) {
+    return { ok: true, found: false, reason: 'not_missing' };
+  }
+
+  let candidates = [];
+
+  const businessName = prospect.businessName || prospect.establishment_name || prospect.business_name || prospect.name || "";
+
+  // --- 1. State / Public Records Lookup ---
+  try {
+    const searchLat = prospect.latitude || prospect.lat || prospect.locationLat || 0;
+    const searchLng = prospect.longitude || prospect.lng || prospect.locationLng || 0;
+
+    if (searchLat && searchLng && businessName) {
+      const { data } = await supabase.rpc('get_lenssignal_nearby', {
+        p_latitude: searchLat,
+        p_longitude: searchLng,
+        p_radius_miles: 1
+      });
+
+      if (data && data.length > 0) {
+        // Find best match by prioritizing exact business name match, DBA match, or exact street match
+        const match = data.find(s =>
+          (s.establishment_name && businessName && s.establishment_name.toLowerCase().includes(businessName.toLowerCase())) ||
+          (s.dba_name && businessName && s.dba_name.toLowerCase().includes(businessName.toLowerCase())) ||
+          (s.address && prospect.streetName && s.address.toLowerCase().includes(prospect.streetName.toLowerCase()))
+        );
+
+        if (match && match.owner_name && match.owner_name.trim().length > 2) {
+          const nameParts = match.owner_name.trim().split(' ');
+          const first = nameParts[0] || '';
+          const last = nameParts.slice(1).join(' ') || '';
+
+          // Filter out obvious corporate entities holding the license (we want humans)
+          // Also explicitly ignore Property/Landlord records unless it's a real estate business
+          const isEntity = [
+            'llc', 'inc', 'corp', 'company', 'ltd', 'limited', 'holdings', 'group', 'the', 'trust', 'properties', 'management', 'enterprises'
+          ].some(w => last.toLowerCase().endsWith(w) || first.toLowerCase() === w || match.owner_name.toLowerCase().includes(` ${w}`));
+
+          const isPropertyOwner = (match.source_name || '').toLowerCase().includes('appraisal') ||
+                                  (match.source_name || '').toLowerCase().includes('cad ') ||
+                                  (match.source_name || '').toLowerCase().includes('property');
+
+          if (first && last && !isEntity && !isPropertyOwner) {
+            console.log('[SocialEnrichment] Candidate found in public records');
+            console.log('[SocialEnrichment] Confidence score calculated: High (100)');
+
+            // Format the source nicely based on what the DB returned
+            let formattedSource = 'Public Business Record';
+            const rawSource = (match.source_name || '').toLowerCase();
+            if (rawSource.includes('comptroller') || rawSource.includes('tax')) formattedSource = 'Texas Comptroller (Sales Tax Permit)';
+            else if (rawSource.includes('tabc') || rawSource.includes('liquor')) formattedSource = 'TABC Liquor License';
+            else if (rawSource.includes('health') || rawSource.includes('inspection')) formattedSource = 'Health Dept Inspection';
+            else if (rawSource.includes('sos') || rawSource.includes('secretary')) formattedSource = 'Secretary of State (Entity Reg)';
+            else if (rawSource.includes('dba') || rawSource.includes('county')) formattedSource = 'County DBA / Assumed Name';
+            else if (rawSource.includes('permit') || rawSource.includes('occupancy')) formattedSource = 'Certificate of Occupancy';
+            else if (match.source_name) formattedSource = match.source_name;
+
+            candidates.push({
+              first,
+              last,
+              title: 'Owner/Manager',
+              confidence: 'high',
+              confidenceScore: 100,
+              source: formattedSource,
+              phone: match.phone || null,
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[SocialEnrichment] Public record lookup error:', err);
+  }
+
+  if (candidates.some(c => c.confidence === 'high')) {
+    const best = candidates.find(c => c.confidence === 'high');
+    console.log(`[SocialEnrichment] Found POC via Public Records: ${best.first} ${best.last}`);
+    return { ok: true, found: true, poc: best, candidates };
+  }
+
+
+  // --- 2. Website Team / About Us Scraping ---
+  if (!prospect.website) {
+     return { ok: true, found: false, reason: 'no_website' };
+  }
+
+  try {
+    const origin = getOrigin(normalizeWebsiteUrl(prospect.website));
+    if (!origin) return { ok: false, reason: 'invalid_website' };
+
+    console.log(`[SocialEnrichment] Attempting Website POC extraction from: ${origin}`);
+    console.log(`[SocialEnrichment] Source checked: Website Team Pages`);
+
+    // Look specifically at pages likely to contain team info
+    const pageCandidates = [
+      `${origin}/about`,
+      `${origin}/about-us`,
+      `${origin}/team`,
+      `${origin}/our-team`,
+      `${origin}/contact`
+    ];
+
+    for (const url of pageCandidates) {
+      const html = await fetchText(url);
+      if (!html) continue;
+
+      const decoded = stripHtmlEntities(html);
+
+      // Look for common corporate titles near capitalized names
+      // (e.g. "John Doe, CEO" or "Manager: Jane Smith")
+      const titleRegex = /(?:CEO|Owner|President|Founder|Manager|Director|General Manager)\s*[:-]?\s*([A-Z][a-z]+)\s+([A-Z][a-z]+)|([A-Z][a-z]+)\s+([A-Z][a-z]+)[,\s]+(?:CEO|Owner|President|Founder|Manager|Director|General Manager)/g;
+
+      let match;
+      while ((match = titleRegex.exec(decoded))) {
+        let first = '', last = '';
+        if (match[1] && match[2]) {
+          first = match[1]; last = match[2];
+        } else if (match[3] && match[4]) {
+          first = match[3]; last = match[4];
+        }
+
+        if (first && last && first.toLowerCase() !== 'the' && last.toLowerCase() !== 'manager') {
+          // Determine the title based on what matched in the regex
+          const contextStr = match[0].toLowerCase();
+          let extractedTitle = 'Manager';
+          if (contextStr.includes('ceo')) extractedTitle = 'CEO';
+          else if (contextStr.includes('owner')) extractedTitle = 'Owner';
+          else if (contextStr.includes('president')) extractedTitle = 'President';
+          else if (contextStr.includes('founder')) extractedTitle = 'Founder';
+          else if (contextStr.includes('director')) extractedTitle = 'Director';
+
+          let score = 50; // Base score for finding a named entity near a title
+          if (extractedTitle === 'Owner' || extractedTitle === 'CEO') score += 20; // Medium confidence
+
+          let websiteMatch = {
+            first,
+            last,
+            title: extractedTitle,
+            confidence: score >= 70 ? 'medium' : 'low',
+            confidenceScore: score,
+            source: 'Website Team Page',
+            sourceUrl: url,
+          };
+
+          // Look for phone numbers in the text
+          if (!websiteMatch.phone) {
+              const phoneRegex = /(?:phone|tel|mobile|call)?\s*[:-]?\s*(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/gi;
+              let pMatch;
+              while ((pMatch = phoneRegex.exec(decoded))) {
+                  websiteMatch.phone = `(${pMatch[1]}) ${pMatch[2]}-${pMatch[3]}`;
+                  break; // take the first one found near the team info
+              }
+          }
+
+          // Look for emails in the text
+          if (!websiteMatch.email) {
+              const emailMatches = extractEmailsFromHtml(html, getHostname(url));
+              if (emailMatches && emailMatches.length > 0) {
+                  websiteMatch.email = emailMatches[0];
+              }
+          }
+
+          console.log('[SocialEnrichment] Candidate found on website');
+          console.log(`[SocialEnrichment] Confidence score calculated: ${websiteMatch.confidence} (${websiteMatch.confidenceScore})`);
+          candidates.push(websiteMatch);
+
+          if (websiteMatch.confidence === 'medium') break; // Good enough to suggest
+        }
+      }
+    }
+
+  } catch (error) {
+    console.warn('[SocialEnrichment] enrichMissingPOC failed:', error);
+  }
+
+  if (candidates.length > 0) {
+      // Sort candidates by score descending
+      candidates.sort((a, b) => b.confidenceScore - a.confidenceScore);
+      const best = candidates[0];
+
+      if (best.confidence === 'high') {
+           console.log('[SocialEnrichment] POC auto-filled');
+      } else if (best.confidence === 'medium') {
+           console.log('[SocialEnrichment] POC confirmation required');
+      } else {
+           console.log('[SocialEnrichment] No reliable POC found (only low confidence)');
+      }
+
+      return { ok: true, found: true, poc: best, candidates };
+  }
+
+  console.log('[SocialEnrichment] No reliable POC found');
+  return { ok: true, found: false, candidates };
+
+}
+
 export async function extractSocialLinksFromWebsite(websiteUrl = '', options = {}) {
   const startUrl = normalizeWebsiteUrl(websiteUrl);
   if (!startUrl) {
@@ -440,6 +645,7 @@ export async function extractSocialLinksFromWebsite(websiteUrl = '', options = {
     ...fields,
     discoveredEmails,
     inferredEmails,
+    emailCandidates: [...new Set([...discoveredEmails, ...inferredEmails])],
     // Best email candidate: prefer discovered, fall back to inferred
     bestEmail: discoveredEmails[0] || inferredEmails[0] || '',
   };

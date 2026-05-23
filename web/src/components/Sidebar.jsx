@@ -7,12 +7,9 @@ export default function Sidebar() {
   };
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: '📊' },
-    { name: 'Prospects', path: '/prospects', icon: '🏢' },
-    { name: 'Map View', path: '/map', icon: '📍' },
-    { name: 'Team Activity', path: '/team', icon: '👥' },
-    { name: 'Reports', path: '/reports', icon: '📈' },
-    { name: 'Settings', path: '/settings', icon: '⚙️' },
+    { name: 'Dashboard',   path: '/',           icon: '📊' },
+    { name: 'Prospects',   path: '/prospects',  icon: '🏢' },
+    { name: 'Beta Codes',  path: '/beta-codes', icon: '🔑' },
   ];
 
   return (
@@ -28,6 +25,7 @@ export default function Sidebar() {
           <NavLink
             key={item.name}
             to={item.path}
+            end={item.path === '/'}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
                 isActive

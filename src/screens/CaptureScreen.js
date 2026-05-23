@@ -52,9 +52,36 @@ const HEADER_ALIASES = {
 
 function splitStreetAddress(address = '') {
   const cleaned = String(address).trim();
+  // Match street number and the rest of the address
   const match = cleaned.match(/^(\d+)\s+(.*)$/);
-  if (!match) return { streetNumber: '', streetName: cleaned };
-  return { streetNumber: match[1], streetName: match[2] };
+  if (!match) return { streetNumber: '', streetName: cleaned, addressLine2: '' };
+
+  const streetNumber = match[1];
+  let remaining = match[2];
+
+  // Try to extract common address line 2 prefixes
+  const line2Regex = /\b(suite|ste\.?|unit|apt|apartment|#)\b\.?\s*([A-Za-z0-9-]+)\b/i;
+  const line2Match = remaining.match(line2Regex);
+
+  let addressLine2 = '';
+  let streetName = remaining;
+
+  if (line2Match) {
+    const label = line2Match[1].toLowerCase();
+    const value = line2Match[2];
+
+    // Normalize label
+    let normalizedLabel = 'Suite';
+    if (label.includes('apt') || label.includes('apartment')) normalizedLabel = 'Apt';
+    if (label.includes('unit')) normalizedLabel = 'Unit';
+    if (label === '#') normalizedLabel = '#';
+
+    addressLine2 = `${normalizedLabel} ${value}`;
+    // Remove the line 2 part from the street name
+    streetName = remaining.replace(line2Match[0], '').replace(/,\s*$/, '').replace(/\s+/g, ' ').trim();
+  }
+
+  return { streetNumber, streetName, addressLine2 };
 }
 
 function getMappedValue(row, aliases = []) {
@@ -64,8 +91,7 @@ function getMappedValue(row, aliases = []) {
   return '';
 }
 
-// Build a column index from the first row's headers — O(columns × total_aliases) once,
-// then every per-row field lookup is O(1) instead of O(columns × aliases).
+// Build a column index from the first row's headers
 function buildColumnIndex(firstRow) {
   const index = {};
   for (const header of Object.keys(firstRow)) {
@@ -87,12 +113,10 @@ function getIndexedValue(row, colIndex, field) {
 }
 
 function findPhoneInRow(row) {
-  // Broadened regex to catch more variations (dots, dashes, extensions, parentheses, etc)
   const phoneRegex = /(?:\+?1[-. ]?)?\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\b/g;
   const candidates = [];
 
   for (const [key, value] of Object.entries(row)) {
-    // Some spreadsheet libraries return numbers directly
     const strValue = String(value ?? '').trim();
     if (!strValue) continue;
 
@@ -136,7 +160,6 @@ function findPhoneInRow(row) {
     }
   }
 
-  // Unique by normalized number
   return Array.from(new Map(candidates.map(c => [c.normalized, c])).values());
 }
 
@@ -157,9 +180,9 @@ function findEmailInRow(row) {
     }
   }
 
-  // Unique by lowercase email
   return Array.from(new Map(candidates.map(c => [c.original, c])).values());
 }
+
 function mergeTwoSidedCardLeads(leads = []) {
   const merged = leads.reduce((acc, lead) => {
     const next = normalizeLead(lead);
@@ -205,6 +228,7 @@ function mergeTwoSidedCardLeads(leads = []) {
     ...inferred,
   };
 }
+
 export default function CaptureScreen({ navigation, route }) {
   useEffect(() => {
     BetaTracker.screen('CaptureScreen');
@@ -216,48 +240,60 @@ export default function CaptureScreen({ navigation, route }) {
 
   const openCamera = async (quality = 0.75) => {
     try {
+      console.log('[Capture] ===== OPENING CAMERA =====');
       console.log('[Capture] Checking camera permissions...');
-      const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
-      console.log('[Capture] Camera permission status:', status, 'canAskAgain:', canAskAgain);
+      
+      try {
+        const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
+        console.log('[Capture] Permission response received!');
+        console.log('[Capture] Camera permission status:', status, 'canAskAgain:', canAskAgain);
 
-      if (status !== 'granted') {
-        if (!canAskAgain) {
-          showThemedAlert(
-            'Permission Blocked',
-            'Camera access is permanently denied. Please enable it in your device settings to capture prospects.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Open Settings', onPress: () => Linking.openSettings() }
-            ]
-          );
-        } else {
-          showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
+        if (status !== 'granted') {
+          console.log('[Capture] Permission NOT granted');
+          if (!canAskAgain) {
+            console.log('[Capture] Showing permanent block alert');
+            showThemedAlert(
+              'Permission Blocked',
+              'Camera access is permanently denied. Please enable it in your device settings to capture prospects.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() }
+              ]
+            );
+          } else {
+            console.log('[Capture] Showing permission required alert');
+            showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
+          }
+          return null;
         }
-        return null;
-      }
 
-      console.log('[Capture] Launching camera...');
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality,
-        allowsEditing: false,
-        base64: false,
-      });
-      console.log('[Capture] Camera result canceled:', result.canceled);
-      return result.canceled ? null : result.assets[0];
+        console.log('[Capture] Permission granted! Launching camera...');
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality,
+          allowsEditing: false,
+          base64: false,
+        });
+        console.log('[Capture] Camera result canceled:', result.canceled);
+        return result.canceled ? null : result.assets[0];
+      } catch (permErr) {
+        console.error('[Capture] Permission check error:', permErr);
+        console.error('[Capture] Error message:', permErr.message);
+        throw permErr;
+      }
     } catch (err) {
-    BetaTracker.crash('CaptureScreen', err);
+      console.error('[Capture] FATAL openCamera error:', err);
+      console.error('[Capture] Error stack:', err.stack);
+      BetaTracker.crash('CaptureScreen', err);
       console.error('[Capture] openCamera error:', err);
-      showThemedAlert('Camera Error', 'Could not open the system camera.');
+      showThemedAlert('Camera Error', 'Could not open the system camera. Error: ' + err.message);
       return null;
     }
   };
 
-  // Copy captured image to permanent app storage so it survives cache clears
   const persistImage = async (uri) => {
     try {
       if (!uri) return uri;
-      // Auto-resize and compress before saving
       const manipulated = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 1200 } }],
@@ -271,200 +307,97 @@ export default function CaptureScreen({ navigation, route }) {
       );
       await FileSystem.copyAsync({ from: manipulated.uri, to: dest });
       return dest;
-    } catch {
+    } catch (err) {
+      console.error('[Capture] persistImage error:', err);
       return uri;
     }
   };
 
-  const readAsset = async (asset) => {
-    const b64 = await FileSystem.readAsStringAsync(asset.uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const mime = SAFE_MIMES.includes((asset.mimeType || '').toLowerCase()) ? asset.mimeType : 'image/jpeg';
-    return { b64, mime };
+  const readAsset = async (uri, mimeType) => {
+    try {
+      const b64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return { b64, mime: mimeType || 'image/jpeg' };
+    } catch (err) {
+      console.error('[Capture] readAsset error:', err);
+      return { b64: '', mime: 'image/jpeg' };
+    }
   };
 
-  const processAssets = async (assets, coords = null, sourceType = 'image') => {
+  const processAssets = async (assets, coords, captureMethod) => {
+    console.log('[Capture] processAssets called with', assets?.length || 0, 'assets');
+    if (!assets?.length) {
+      showThemedAlert('No photos', 'Please capture at least one photo.');
+      return;
+    }
+
     setProcessing(true);
+    setProcessingMsg('Reading photos...');
     try {
-      const queueRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
-      let queue = [];
-      try {
-        queue = queueRaw ? JSON.parse(queueRaw) : [];
-        if (!Array.isArray(queue)) queue = [];
-      } catch (e) {
-    BetaTracker.crash('CaptureScreen', e);
-        console.warn('[CaptureScreen] Failed to parse leads queue:', e);
-        queue = [];
-      }
+      const leads = [];
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        setProcessingMsg(`Processing photo ${i + 1} of ${assets.length}...`);
+        await new Promise((r) => setTimeout(r, 0));
 
-      const historyRaw = await AsyncStorage.getItem(STOREFRONT_SCAN_HISTORY_KEY);
-      const history = historyRaw ? JSON.parse(historyRaw) : [];
-      const collected = [];
-      const reverseGeo = sourceType === 'storefront' && coords ? await reverseGeocodeCoords(coords) : null;
+        const permanentUri = await persistImage(asset.uri);
+        const { b64, mime } = await readAsset(permanentUri, asset.mimeType);
 
-      for (let i = 0; i < assets.length; i += 1) {
-        setProcessingMsg(assets.length > 1 ? `Reading image ${i + 1} of ${assets.length}...` : 'AI is reading the image...');
+        try {
+          const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime);
+          const extractedLeads = (debugExtraction.leads?.length
+            ? debugExtraction.leads
+            : expandCandidatesFromOcrSummary(debugExtraction.ocrSummary, 'storefront')) || [];
 
-        const currentAsset = assets[i];
+          if (extractedLeads.length) {
+            setProcessingMsg(`Found ${extractedLeads.length} prospect${extractedLeads.length !== 1 ? 's' : ''} in photo ${i + 1}`);
+            for (let lead of extractedLeads) {
+              lead = normalizeLead(lead);
+              lead.captureMethod = captureMethod;
+              lead.imageUri = permanentUri;
 
-        // Background-safe: Persist the image first
-        const permanentImageUri = await persistImage(currentAsset.uri);
-
-        // Enqueue extraction task (as a backup if foreground fails)
-        await enqueueExtractLeadsFromImage(permanentImageUri, 'image/jpeg');
-        processQueue().catch(() => {});
-
-        recordUserActivityEvent('prospect_capture_started', {
-          source_type: sourceType,
-          is_multi: assets.length > 1
-        }).catch(() => {});
-
-        const { b64, mime } = await readAsset({ ...currentAsset, uri: permanentImageUri });
-        const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime);
-        const extractedLeads = (debugExtraction.leads?.length ? debugExtraction.leads : expandCandidatesFromOcrSummary(debugExtraction.ocrSummary, sourceType)) || [];
-
-        for (const rawLead of extractedLeads) {
-          let permanentUri = permanentImageUri;
-          if (rawLead.boundingBox) {
-            try {
-              const cropResult = await cropImageToLeadLockTarget(permanentImageUri, rawLead.boundingBox, {
-                paddingRatio: 0.1,
-                maxWidth: 1600,
-                compress: 0.85
-              });
-              if (cropResult?.uri) {
-                permanentUri = await persistImage(cropResult.uri);
+              if (coords) {
+                lead.latitude = coords.latitude;
+                lead.longitude = coords.longitude;
               }
-            } catch (err) {
-    BetaTracker.crash('CaptureScreen', err);
-              console.log('Auto-crop failed, using full image:', err);
+
+              const duplicateResult = findDuplicateInLeads(lead, leads);
+              if (duplicateResult) {
+                const duplicateIdx = duplicateResult.index;
+                console.log('[Capture] Duplicate detected, merging into lead at index', duplicateIdx);
+                leads[duplicateIdx] = {
+                  ...leads[duplicateIdx],
+                  ...lead,
+                  notes: [leads[duplicateIdx].notes, lead.notes].filter(Boolean).join(' | '),
+                };
+              } else {
+                leads.push(lead);
+              }
             }
           }
-
-          let normalized = annotateLeadForReview({ ...EMPTY_LEAD, ...rawLead, captureMethod: sourceType, imageUri: permanentUri, propertyType: 'Commercial', ocrSummary: debugExtraction.ocrSummary || '' }, sourceType);
-          normalized = mergeSocialFieldsIntoLead(
-            normalized,
-            extractSocialLinksFromText([debugExtraction.ocrSummary, normalized.notes, normalized.website].filter(Boolean).join(' '))
-          );
-          normalized.locationSource = sourceType === 'storefront' ? 'ocr-only' : normalized.locationSource;
-
-          if (sourceType === 'storefront' && coords) {
-            const nearbyMatch = normalized.businessName ? await geocodeBusinessNearby(normalized.businessName, coords) : null;
-            if (nearbyMatch) {
-              normalized = annotateLeadForReview({
-                ...normalized,
-                streetNumber: nearbyMatch.streetNumber || normalized.streetNumber,
-                streetName: nearbyMatch.streetName || normalized.streetName,
-                addressLine2: normalized.addressLine2,
-                city: nearbyMatch.city || normalized.city || reverseGeo?.city || '',
-                state: nearbyMatch.state || reverseGeo?.state || normalized.state,
-                zip: nearbyMatch.zip || reverseGeo?.zip || normalized.zip,
-                locationSource: 'nearby-business-match',
-                locationConfidence: nearbyMatch._matchConfidence || 'medium',
-                matchedDisplayName: nearbyMatch._geoDisplayName || '',
-                notes: [normalized.notes, `Storefront geo match: ${nearbyMatch._geoDisplayName || nearbyMatch._geoSource || 'OpenStreetMap'}`].filter(Boolean).join(' | '),
-              });
-            } else if (reverseGeo) {
-              normalized = annotateLeadForReview({
-                ...normalized,
-                city: normalized.city || reverseGeo.city,
-                state: reverseGeo.state || normalized.state,
-                zip: normalized.zip || reverseGeo.zip,
-                locationSource: 'reverse-geocode',
-                locationConfidence: reverseGeo._matchConfidence || 'medium',
-                matchedDisplayName: reverseGeo._geoDisplayName || '',
-                notes: [normalized.notes, 'Storefront location inferred from device GPS'].filter(Boolean).join(' | '),
-              });
-            }
-          }
-
-          const missing = ['phone', 'email'].some((key) => !normalized[key]);
-          if (missing && normalized.businessName) {
-            normalized = annotateLeadForReview(await enrichLead(normalized), sourceType);
-          }
-
-          if (sourceType === 'storefront' && coords) {
-            normalized.captureLat = coords.latitude;
-            normalized.captureLng = coords.longitude;
-            normalized.ocrSummary = debugExtraction.ocrSummary || '';
-            normalized.state = reverseGeo?.state || normalized.state;
-            normalized.storefrontCapturedAt = new Date().toISOString();
-            normalized = annotateLeadForReview(normalized, sourceType);
-            if (!normalized.streetNumber && !normalized.streetName) {
-              normalized.locationNeedsReview = true;
-              normalized.locationConfidence = normalized.locationConfidence || 'low';
-              normalized.notes = [normalized.notes, 'Storefront address needs review'].filter(Boolean).join(' | ');
-            }
-          }
-
-          const inferred = inferVertical(normalized);
-          normalized.vertical = inferred.vertical;
-          normalized.propertyType = 'Commercial';
-          normalized.reviewed = false;
-          const duplicate = findDuplicateInLeads(normalized, [...queue, ...collected]);
-          if (duplicate) {
-            normalized.duplicateWarning = buildDuplicateBadge(duplicate);
-            normalized.reviewLabels = Array.from(new Set([...(normalized.reviewLabels || []), 'Possible duplicate']));
-          }
-          collected.push(normalized);
-        }
-
-        if (sourceType === 'storefront') {
-          history.unshift({
-            id: `scan_${Date.now()}_${i}`,
-            imageUri: assets[i].uri,
-            capturedAt: new Date().toISOString(),
-            captureLat: coords?.latitude || null,
-            captureLng: coords?.longitude || null,
-            reverseGeo,
-            ocrSummary: debugExtraction.ocrSummary || '',
-            resultCount: extractedLeads.length,
-            sourceType,
-            matchedAddress: [collected[collected.length - 1]?.streetNumber, collected[collected.length - 1]?.streetName].filter(Boolean).join(' '),
-            state: collected[collected.length - 1]?.state || reverseGeo?.state || '',
-            locationConfidence: collected[collected.length - 1]?.locationConfidence || 'low',
-          });
+        } catch (extractErr) {
+          console.warn('[Capture] Extraction error for asset', i, ':', extractErr);
         }
       }
 
-      if (sourceType === 'storefront') {
-        await AsyncStorage.setItem(STOREFRONT_SCAN_HISTORY_KEY, JSON.stringify(history.slice(0, STOREFRONT_SCAN_LIMIT || 25)));
+      if (!leads.length) {
+        showThemedAlert('No prospects found', 'Could not extract any prospect data from the photos.');
+        return;
       }
 
-     if (!collected.length) {
-  throw new Error('No prospects were detected in that image.');
-}
+      setProcessingMsg(`${leads.length} prospects ready`);
+      await new Promise((r) => setTimeout(r, 120));
 
-if (sourceType === 'business-card-2-sided') {
-  const mergedLead = mergeTwoSidedCardLeads(collected);
-  navigation.navigate('Review', {
-    user,
-    lead: mergedLead,
-    editIdx: null,
-  });
-  return;
-}
-
-if (collected.length === 1) {
-  navigation.navigate('Review', { user, lead: collected[0], editIdx: null });
-  return;
-}
-
-navigation.navigate('BatchReview', {
-  user,
-  leads: collected,
-  sourceLabel:
-    assets.length > 1
-      ? 'Multi-image capture'
-      : sourceType === 'storefront'
-      ? 'Storefront scan'
-      : 'Single image scan',
-});
+      navigation.navigate('BatchReview', {
+        user,
+        leads,
+        sourceLabel: captureMethod === 'image' ? 'Photo import' : 'Business card scan',
+      });
     } catch (err) {
-    BetaTracker.crash('CaptureScreen', err);
+      BetaTracker.crash('CaptureScreen', err);
       playErrorSound().catch(() => {});
-      showThemedAlert('Extraction issue', err.message || 'Could not read image.');
+      showThemedAlert('Extraction error', err.message || 'Could not read image.');
     } finally {
       setProcessing(false);
     }
@@ -474,7 +407,6 @@ navigation.navigate('BatchReview', {
     setProcessingMsg('Getting your location and heading...');
     setProcessing(true);
     try {
-      // Capture GPS and compass heading simultaneously
       const [coords, heading] = await Promise.all([
         getCurrentCoords(),
         getCameraHeading(),
@@ -487,7 +419,7 @@ navigation.navigate('BatchReview', {
       setProcessing(true);
       setProcessingMsg('AI is reading the image...');
       const permanentUri = await persistImage(asset.uri);
-      const { b64, mime } = await readAsset(asset);
+      const { b64, mime } = await readAsset(permanentUri, asset.mimeType);
       const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime);
       const extractedLeads = (debugExtraction.leads?.length
         ? debugExtraction.leads
@@ -495,7 +427,7 @@ navigation.navigate('BatchReview', {
 
       setProcessing(false);
 
-      navigation.navigate('IntelliVisionReview', {
+      navigation.navigate('LeadLockReview', {
         user,
         lead: extractedLeads[0] || { ...EMPTY_LEAD },
         allLeads: extractedLeads.length > 1 ? extractedLeads : null,
@@ -504,7 +436,7 @@ navigation.navigate('BatchReview', {
         imageUri: permanentUri,
       });
     } catch (err) {
-    BetaTracker.crash('CaptureScreen', err);
+      BetaTracker.crash('CaptureScreen', err);
       playErrorSound().catch(() => {});
       showThemedAlert('LeadLock error', err.message || 'Could not start LeadLock™.');
     } finally {
@@ -552,32 +484,32 @@ navigation.navigate('BatchReview', {
   };
 
   const handleCardCapture = async () => {
-  showThemedAlert('Business Card', 'Choose how you want to scan the card.', [
-    {
-      text: 'Single-Sided',
-      onPress: async () => {
-        const assets = await captureMultiplePhotos(0.65, 'card');
-        if (!assets.length) return;
-        await processAssets(assets, null, 'image');
+    showThemedAlert('Business Card', 'Choose how you want to scan the card.', [
+      {
+        text: 'Single-Sided',
+        onPress: async () => {
+          const assets = await captureMultiplePhotos(0.65, 'card');
+          if (!assets.length) return;
+          await processAssets(assets, null, 'image');
+        },
       },
-    },
-    {
-      text: 'Front & Back',
-      onPress: async () => {
-        showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card');
-        const front = await openCamera(0.65);
-        if (!front) return;
+      {
+        text: 'Front & Back',
+        onPress: async () => {
+          showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card');
+          const front = await openCamera(0.65);
+          if (!front) return;
 
-        showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card');
-        const back = await openCamera(0.65);
-        if (!back) return;
+          showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card');
+          const back = await openCamera(0.65);
+          if (!back) return;
 
-        await processAssets([front, back], null, 'business-card-2-sided');
+          await processAssets([front, back], null, 'business-card-2-sided');
+        },
       },
-    },
-    { text: 'Cancel', style: 'cancel' },
-  ]);
-};
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
 
   const openGallery = async () => {
     try {
@@ -606,15 +538,17 @@ navigation.navigate('BatchReview', {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.85,
         allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
         base64: false,
       });
 
       console.log('[Capture] Gallery result canceled:', result.canceled);
-      if (!result.canceled) {
-        await processAssets([result.assets[0]], null, 'image');
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await processAssets(result.assets, null, 'image');
       }
     } catch (err) {
-    BetaTracker.crash('CaptureScreen', err);
+      BetaTracker.crash('CaptureScreen', err);
       console.error('[Capture] openGallery error:', err);
       showThemedAlert('Gallery Error', 'Could not open the photo library.');
     }
@@ -630,7 +564,7 @@ navigation.navigate('BatchReview', {
 
       setProcessing(true);
       setProcessingMsg('Reading file…');
-      await new Promise((r) => setTimeout(r, 0)); // yield to UI before heavy work
+      await new Promise((r) => setTimeout(r, 0));
 
       const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
         encoding: FileSystem.EncodingType.Base64,
@@ -639,20 +573,32 @@ navigation.navigate('BatchReview', {
       setProcessingMsg('Parsing spreadsheet…');
       await new Promise((r) => setTimeout(r, 0));
 
-      const wb = read(b64, { type: 'base64', cellDates: true, cellNF: false, cellHTML: false });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = utils.sheet_to_json(ws, { defval: '' });
+      let wb, ws, rows;
+      try {
+        wb = read(b64, { type: 'base64', cellDates: true, cellNF: false, cellHTML: false });
+        if (!wb || !wb.SheetNames || !wb.SheetNames.length) {
+          showThemedAlert('Invalid file', 'The file does not appear to be a valid spreadsheet.');
+          return;
+        }
+        ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) {
+          showThemedAlert('Empty spreadsheet', 'The spreadsheet has no data to import.');
+          return;
+        }
+        rows = utils.sheet_to_json(ws, { defval: '' });
+      } catch (parseErr) {
+        console.error('[Capture] Parse error:', parseErr);
+        showThemedAlert('Parse error', 'Could not read the spreadsheet file. Ensure it is a valid Excel file.');
+        return;
+      }
 
       if (!rows.length) {
         showThemedAlert('No prospects found', 'The spreadsheet did not contain recognizable prospect rows.');
         return;
       }
 
-      // Build column index once from the first row — all subsequent lookups are O(1)
       const colIndex = buildColumnIndex(rows[0]);
 
-      // Process rows in chunks of 100 — yields to UI between each chunk
-      // so progress messages render and the app stays responsive
       const CHUNK = 100;
       const leads = [];
       for (let i = 0; i < rows.length; i += CHUNK) {
@@ -662,63 +608,51 @@ navigation.navigate('BatchReview', {
 
         const chunk = rows.slice(i, end);
         for (const row of chunk) {
-          // Find all possible phone numbers and emails in the row regardless of header
           const phoneCandidates = findPhoneInRow(row);
           const emailCandidates = findEmailInRow(row);
 
-          // Prefer separate street columns; fall back to splitting a combined address
-          const rawStreetNum  = getIndexedValue(row, colIndex, 'streetNumber');
-          const rawStreetName = getIndexedValue(row, colIndex, 'streetName');
-          const rawStreetFull = getIndexedValue(row, colIndex, 'streetAddress');
-          const split = (rawStreetNum || rawStreetName)
-            ? { streetNumber: rawStreetNum, streetName: rawStreetName }
-            : splitStreetAddress(rawStreetFull);
+          const phone = phoneCandidates[0]?.normalized || '';
+          const email = emailCandidates[0]?.original || '';
 
-          const base = normalizeLead({
+          const streetAddress = getIndexedValue(row, colIndex, 'streetAddress');
+          const { streetNumber, streetName, addressLine2 } = streetAddress
+            ? splitStreetAddress(streetAddress)
+            : {
+                streetNumber: getIndexedValue(row, colIndex, 'streetNumber'),
+                streetName: getIndexedValue(row, colIndex, 'streetName'),
+                addressLine2: getIndexedValue(row, colIndex, 'addressLine2'),
+              };
+
+          const lead = {
             ...EMPTY_LEAD,
-            businessName:  getIndexedValue(row, colIndex, 'businessName'),
-            pocFirst:      getIndexedValue(row, colIndex, 'pocFirst'),
-            pocLast:       getIndexedValue(row, colIndex, 'pocLast'),
-            phone:         getIndexedValue(row, colIndex, 'phone') || (phoneCandidates.length > 0 ? phoneCandidates[0].original : ''),
-            email:         getIndexedValue(row, colIndex, 'email') || (emailCandidates.length > 0 ? emailCandidates[0].original : ''),
-            website:       getIndexedValue(row, colIndex, 'website'),
-            streetNumber:  split.streetNumber,
-            streetName:    split.streetName,
-            addressLine2:  getIndexedValue(row, colIndex, 'addressLine2'),
-            city:          getIndexedValue(row, colIndex, 'city'),
-            state:         getIndexedValue(row, colIndex, 'state'),
-            zip:           getIndexedValue(row, colIndex, 'zip'),
-            status:        getIndexedValue(row, colIndex, 'status'),
-            propertyType:  getIndexedValue(row, colIndex, 'propertyType'),
-            employeeNum:   getIndexedValue(row, colIndex, 'employeeNum'),
-            branchNum:     getIndexedValue(row, colIndex, 'branchNum'),
-            captureMethod: 'excel-import',
-          });
+            businessName: getIndexedValue(row, colIndex, 'businessName'),
+            pocFirst: getIndexedValue(row, colIndex, 'pocFirst'),
+            pocLast: getIndexedValue(row, colIndex, 'pocLast'),
+            phone,
+            email,
+            website: getIndexedValue(row, colIndex, 'website'),
+            streetNumber,
+            streetName,
+            addressLine2,
+            city: getIndexedValue(row, colIndex, 'city'),
+            state: getIndexedValue(row, colIndex, 'state'),
+            zip: getIndexedValue(row, colIndex, 'zip'),
+            propertyType: getIndexedValue(row, colIndex, 'propertyType') || 'Commercial',
+            captureMethod: 'spreadsheet-import',
+            reviewed: false,
+          };
 
-          if (phoneCandidates.length > 1) {
-            base.phoneCandidates = phoneCandidates.map(c => c.original);
-            base.reviewWarnings = [...(base.reviewWarnings || []), `Multiple phone numbers found in import`].filter((v, i, a) => a.indexOf(v) === i);
-          }
-
-          if (emailCandidates.length > 1) {
-            base.emailCandidates = emailCandidates.map(c => c.original);
-            base.reviewWarnings = [...(base.reviewWarnings || []), `Multiple email addresses found in import`].filter((v, i, a) => a.indexOf(v) === i);
-          }
-
-          const inferred = inferVertical(base);
-          if (base.businessName || base.phone || base.email) {
-            leads.push({ ...base, ...inferred, reviewed: false });
-          }
+          leads.push(lead);
         }
       }
 
       if (!leads.length) {
-        showThemedAlert('No prospects found', 'The spreadsheet did not contain recognizable prospect rows.');
+        showThemedAlert('No valid prospects', 'Could not extract any valid prospect rows from the spreadsheet.');
         return;
       }
 
       setProcessingMsg(`${leads.length} prospects ready`);
-      await new Promise((r) => setTimeout(r, 120)); // brief pause so user sees final count
+      await new Promise((r) => setTimeout(r, 120));
 
       navigation.navigate('BatchReview', {
         user,
@@ -726,9 +660,11 @@ navigation.navigate('BatchReview', {
         sourceLabel: 'Excel import',
       });
     } catch (err) {
-    BetaTracker.crash('CaptureScreen', err);
+      BetaTracker.crash('CaptureScreen', err);
       playErrorSound().catch(() => {});
-      showThemedAlert('Import failed', err.message || 'Could not read the spreadsheet.');
+      const errorMsg = err?.message || 'Could not read the spreadsheet.';
+      showThemedAlert('Import failed', errorMsg);
+      console.error('[Capture] handleExcelImport error:', err);
     } finally {
       setProcessing(false);
     }
@@ -741,7 +677,7 @@ navigation.navigate('BatchReview', {
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 36 }}>
         <SectionLabel>Fast Capture</SectionLabel>
         <Card>
-          <TouchableOpacity style={[s.actionBtn, s.intellivisionBtn]} onPress={() => navigation.navigate('IntelliVisionCamera', { user })}>
+          <TouchableOpacity style={[s.actionBtn, s.intellivisionBtn]} onPress={() => navigation.navigate('LeadLockCamera', { user })}>
             <View style={s.intellivisionHeader}>
               <Text style={s.intellivisionIcon}>⚡</Text>
               <View>
@@ -768,8 +704,8 @@ navigation.navigate('BatchReview', {
         <SectionLabel>Imports</SectionLabel>
         <Card>
           <TouchableOpacity style={s.actionBtn} onPress={handleExcelImport}>
-            <Text style={s.actionTitle}>Import Spreadsheet</Text>
-            <Text style={s.actionSub}>Review imported rows in Batch Review before saving</Text>
+            <Text style={s.actionTitle}>📊 Import Spreadsheet</Text>
+            <Text style={s.actionSub}>Excel or CSV - Review in Batch Review before saving</Text>
           </TouchableOpacity>
         </Card>
       </ScrollView>

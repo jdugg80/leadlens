@@ -324,7 +324,7 @@ export function inferVertical(lead = {}) {
 }
 
 export function getLeadTimestamp(lead = {}) {
-  const dateValue = lead.createdAt || lead.savedAt || lead.capturedAt || lead.created_at_client || lead.createdAt;
+  const dateValue = lead.collectedAt || lead.createdAt || lead.savedAt || lead.capturedAt || lead.created_at_client;
   const parsed = new Date(dateValue || '');
   return Number.isFinite(parsed.getTime()) ? parsed.getTime() : Date.now();
 }
@@ -340,3 +340,86 @@ export function sortLeadsNewestFirst(leads = []) {
     .map(ensureLeadCreatedAt)
     .sort((a, b) => getLeadTimestamp(b) - getLeadTimestamp(a));
 }
+
+export function hasUsableAddress(prospect) {
+  return Boolean(
+    prospect.fullAddress ||
+    prospect.formattedAddress ||
+    (
+      (prospect.street || prospect.streetName || prospect.address) &&
+      prospect.city &&
+      prospect.state
+    )
+  );
+}
+
+export function hasUsablePhone(prospect) {
+  return Boolean(prospect.phone && String(prospect.phone).trim().length >= 7);
+}
+
+export function hasUsableEmail(prospect) {
+  return Boolean(
+    prospect.email &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(prospect.email).trim())
+  );
+}
+
+export function calculateLeadViability(prospect) {
+  const missing = [];
+
+  const hasAddress = hasUsableAddress(prospect);
+  const hasPhone = hasUsablePhone(prospect);
+  const hasEmail = hasUsableEmail(prospect);
+
+  if (!hasAddress) missing.push("Address");
+  if (!hasPhone) missing.push("Phone");
+  if (!hasEmail) missing.push("Email");
+
+  const score =
+    (hasAddress ? 1 : 0) +
+    (hasPhone ? 1 : 0) +
+    (hasEmail ? 1 : 0);
+
+  let viabilityLabel = "Incomplete";
+  let shadeKey = "red";
+
+  if (score === 3) {
+    viabilityLabel = "Viable";
+    shadeKey = "green";
+  } else if (score === 2) {
+    viabilityLabel = "Needs One Field";
+    shadeKey = "yellow";
+  } else if (score === 1) {
+    viabilityLabel = "Weak Lead";
+    shadeKey = "orange";
+  }
+
+  return {
+    viabilityScore: score,
+    viabilityLabel,
+    missingViabilityFields: missing,
+    shadeKey
+  };
+}
+
+export function sortQueueProspects(prospects) {
+  return [...prospects].sort((a, b) => {
+    const aGroup = a.queueSortGroup ?? (a.reviewedAt ? 1 : 0);
+    const bGroup = b.queueSortGroup ?? (b.reviewedAt ? 1 : 0);
+
+    if (aGroup !== bGroup) {
+      return aGroup - bGroup;
+    }
+
+    if (aGroup === 0) {
+      const aCollected = new Date(a.collectedAt || a.createdAt || 0).getTime();
+      const bCollected = new Date(b.collectedAt || b.createdAt || 0).getTime();
+      return bCollected - aCollected;
+    }
+
+    const aReviewed = new Date(a.reviewedAt || a.lastEditedAt || a.updatedAt || 0).getTime();
+    const bReviewed = new Date(b.reviewedAt || b.lastEditedAt || b.updatedAt || 0).getTime();
+    return aReviewed - bReviewed;
+  });
+}
+

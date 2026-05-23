@@ -218,24 +218,46 @@ async function runOcrVariant(variant, activeProfile = null) {
   let extractionError = null;
 
   try {
-    raw = await extractRawOcrFromImage(base64, 'image/jpeg', {
-      source: variant.source,
-      priority: variant.priority,
-      guidance: variant.guidance,
-      activeProfile, // Pass industry focus
-    });
-  } catch (err) {
-    rawError = err?.message || String(err);
-  }
-
-  try {
+    // Only perform the debug extraction network call to save memory and bandwidth.
+    // It calls the exact same Supabase edge function and returns the same schema.
     leadExtraction = await extractLeadsWithDebugFromImage(base64, 'image/jpeg', {
       source: variant.source,
       priority: variant.priority,
       activeProfile, // Pass industry focus
     });
+
+    if (leadExtraction && leadExtraction.leads && leadExtraction.leads[0]) {
+      const result = leadExtraction.leads[0];
+      // Map the structured results back into the raw OCR format
+      raw = {
+        visibleTextLines: leadExtraction.ocrSummary ? leadExtraction.ocrSummary.split('\n') : [],
+        businessNameCandidates: [result.businessName].filter(Boolean),
+        addressCandidates: [`${result.streetNumber || ''} ${result.streetName || ''}`.trim()].filter(Boolean),
+        suiteCandidates: [result.addressLine2].filter(Boolean),
+        phoneCandidates: [result.phone].filter(Boolean),
+        emailCandidates: [result.email].filter(Boolean),
+        websiteCandidates: [result.website].filter(Boolean),
+        imageQuality: 'clear',
+        confidence: (result.confidence || 0) > 70 ? 'high' : 'medium',
+        notes: leadExtraction.ocrSummary || '',
+      };
+    } else {
+      raw = {
+        visibleTextLines: leadExtraction?.ocrSummary ? leadExtraction.ocrSummary.split('\n') : [],
+        businessNameCandidates: [],
+        addressCandidates: [],
+        suiteCandidates: [],
+        phoneCandidates: [],
+        emailCandidates: [],
+        websiteCandidates: [],
+        imageQuality: 'clear',
+        confidence: 'medium',
+        notes: leadExtraction?.ocrSummary || '',
+      };
+    }
   } catch (err) {
     extractionError = err?.message || String(err);
+    rawError = err?.message || String(err);
   }
 
   const rawLead = leadFromRawOcr(raw || {}, variant.source);
@@ -325,8 +347,15 @@ function selectBestVariant(results = []) {
 
 import { LeadLockSupabaseService } from '../services/leadLockSupabaseService';
 
-export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationContext = {}, activeProfile = null }) {
-  const debug = { imageUri, targetBox, variantsAttempted: [], errors: [] };
+export async function runLeadLockOcrPipeline({
+  imageUri,
+  targetBox,
+  locationContext = {},
+  activeProfile = null,
+  tags = [],
+  targetWindow = null
+}) {
+  const debug = { imageUri, targetBox, targetWindow, tagsCount: tags.length, variantsAttempted: [], errors: [] };
   const variants = [];
 
   if (!imageUri) {
@@ -345,81 +374,108 @@ export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationCont
   }
 
   // --- NEW: PHASE 1 SUPABASE INTEGRATION ---
-  // We fire-and-forget the upload/record creation to not block the local pipeline.
-  // We'll return the captureId for the UI to use if it wants to wait for server-side matches.
   let captureId = null;
   const supabaseCapturePromise = LeadLockSupabaseService.createCapture({
     imageUri,
-    rawOcrText: '', // Will be updated after first OCR success
+    rawOcrText: '',
     location: locationContext.location,
     heading: locationContext.heading,
     zoomLevel: locationContext.zoomLevel,
-    captureType: targetBox ? 'storefront_target' : 'full_frame',
-    deviceConfidence: 0
+    captureType: tags.length > 0 ? 'tagged_capture' : (targetWindow ? 'window_capture' : 'full_frame'),
+    deviceConfidence: 0,
+    metadata: { tags, targetWindow }
   }).then(id => {
-    console.log('[LeadLockPipeline] Supabase capture record initiated with ID:', id);
     captureId = id;
     return id;
   }).catch(err => {
     console.error('[LeadLockPipeline] Supabase capture creation failed:', err);
     return null;
   });
-  // ----------------------------------------
 
+  // 1. Tag-Specific Crops (Highest Priority)
+  for (const tag of tags) {
+    try {
+      const tagCrop = await cropImageToRegion(imageUri, {
+        x: (targetWindow?.normalizedLeft || 0) + (tag.normalizedX * (targetWindow?.normalizedWidth || 1)) - 0.05,
+        y: (targetWindow?.normalizedTop || 0) + (tag.normalizedY * (targetWindow?.normalizedHeight || 1)) - 0.04,
+        width: 0.1,
+        height: 0.08
+      }, { compress: 0.95 });
+
+      if (tagCrop?.uri) {
+        variants.push({
+          ...tagCrop,
+          source: `tag-${tag.tagType}`,
+          priority: 150,
+          tagType: tag.tagType,
+          guidance: `FOCUSED TAG: This is a ${tag.tagType}. Extract only the value for this specific field.`
+        });
+      }
+    } catch (err) {
+      debug.errors.push({ source: `tag-${tag.tagType}`, message: err.message });
+    }
+  }
+
+  // 2. Targeting Window Crop (High Priority)
+  if (targetWindow) {
+    try {
+      const windowCrop = await cropImageToRegion(imageUri, {
+        x: targetWindow.normalizedLeft,
+        y: targetWindow.normalizedTop,
+        width: targetWindow.normalizedWidth,
+        height: targetWindow.normalizedHeight
+      }, { compress: 0.82 });
+
+      if (windowCrop?.uri) {
+        variants.push({
+          ...windowCrop,
+          source: 'target-window-3-4',
+          priority: 120,
+          usedTargetBox: true,
+          guidance: 'PRIMARY SCAN AREA: This 3:4 window contains the main subject. Prioritize all text found here.',
+        });
+      }
+    } catch (err) {
+      debug.errors.push({ source: 'target-window-3-4', message: err.message });
+    }
+  }
+
+  // 3. Original Target Box Fallback
   if (targetBox) {
     try {
       const targetEnhanced = await cropImageToLeadLockTarget(imageUri, targetBox, {
         paddingRatio: 0.12,
-        minWidth: 1700,
-        maxWidth: 2400,
-        compress: 0.94,
+        minWidth: 1000,
+        maxWidth: 1200,
+        compress: 0.82,
       });
       if (targetEnhanced?.uri) {
         variants.push({
           ...targetEnhanced,
-          source: 'target-box-enhanced',
+          source: 'target-box-legacy',
           priority: 100,
           usedTargetBox: true,
-          guidance: 'User tapped this target. Prioritize large sign text, suite numbers, door labels, and business card text inside this crop.',
+          guidance: 'LEGACY TARGET: Context around a specific point.',
         });
       }
     } catch (err) {
-      debug.errors.push({ source: 'target-box-enhanced', message: err?.message || String(err) });
-    }
-
-    try {
-      const targetWide = await cropImageToLeadLockTarget(imageUri, targetBox, {
-        paddingRatio: 0.28,
-        minWidth: 1600,
-        maxWidth: 2200,
-        compress: 0.9,
-      });
-      if (targetWide?.uri) {
-        variants.push({
-          ...targetWide,
-          source: 'target-box-wide-context',
-          priority: 85,
-          usedTargetBox: true,
-          guidance: 'Wider crop around the tapped target. Use surrounding address, suite, and storefront context.',
-        });
-      }
-    } catch (err) {
-      debug.errors.push({ source: 'target-box-wide-context', message: err?.message || String(err) });
+      debug.errors.push({ source: 'target-box-legacy', message: err?.message || String(err) });
     }
   }
 
+  // 4. Full Image Fallback
   try {
     const fullOptimized = await createLeadLockFullImageVariant(imageUri, {
-      maxWidth: 1900,
-      compress: 0.86,
+      maxWidth: 1200,
+      compress: 0.80,
     });
     if (fullOptimized?.uri) {
       variants.push({
         ...fullOptimized,
         source: 'full-image-optimized',
-        priority: targetBox ? 60 : 95,
+        priority: 50,
         usedTargetBox: false,
-        guidance: 'Full image fallback. Prioritize storefront names, business cards, suite numbers, phone numbers, emails, websites, and addresses.',
+        guidance: 'BROAD CONTEXT: Use this for general discovery if primary areas fail.',
       });
     }
   } catch (err) {
@@ -427,8 +483,11 @@ export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationCont
   }
 
   const results = [];
-  for (const variant of variants.slice(0, 3)) {
-    debug.variantsAttempted.push({ source: variant.source, crop: variant.crop || null, output: variant.output || null });
+  // Sort variants by priority and limit to top 5 to avoid heavy processing
+  const prioritizedVariants = variants.sort((a, b) => b.priority - a.priority).slice(0, 5);
+
+  for (const variant of prioritizedVariants) {
+    debug.variantsAttempted.push({ source: variant.source, priority: variant.priority });
     try {
       const result = await runOcrVariant(variant, activeProfile);
       if (result) results.push(result);
@@ -439,6 +498,30 @@ export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationCont
 
   const best = selectBestVariant(results);
   const mergedLead = mergeNonEmpty(...results.map((item) => item.lead).reverse());
+
+  // Apply Tag Specific results directly to mergedLead
+  results.forEach(res => {
+    if (res.source.startsWith('tag-')) {
+      const tagType = res.source.replace('tag-', '');
+      const text = res.lead.businessName || res.visibleTextLines[0] || '';
+
+      if (tagType === 'phone') mergedLead.phone = normalizePhone(text);
+      if (tagType === 'email') mergedLead.email = text.toLowerCase();
+      if (tagType === 'business_name' || tagType === 'business_sign') mergedLead.businessName = text;
+      if (tagType === 'contact_name') mergedLead.pocName = text;
+      if (tagType === 'suite_or_door_number') mergedLead.addressLine2 = text;
+      if (tagType === 'address') {
+        const parts = splitAddress(text);
+        if (parts.streetName) {
+            mergedLead.streetNumber = parts.streetNumber;
+            mergedLead.streetName = parts.streetName;
+            mergedLead.city = parts.city || mergedLead.city;
+            mergedLead.zip = parts.zip || mergedLead.zip;
+        }
+      }
+    }
+  });
+
   const allTextLines = uniqueStrings(results.flatMap((item) => item.visibleTextLines || []));
   const allBusinessNames = uniqueStrings(results.flatMap((item) => item.candidates?.businessNameCandidates || []));
   const allAddresses = uniqueStrings(results.flatMap((item) => item.candidates?.addressCandidates || []));
@@ -446,7 +529,6 @@ export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationCont
 
   // Prefer the best variant's business name over broad full-image guesses.
   if (best?.lead?.businessName) mergedLead.businessName = best.lead.businessName;
-  if (!mergedLead.addressLine2 && allSuites[0]) mergedLead.addressLine2 = allSuites[0];
 
   const bestText = uniqueStrings([
     best?.ocrSummary || '',
@@ -465,15 +547,14 @@ export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationCont
     },
     visibleTextLines: allTextLines,
     source: best?.source || 'none',
-    usedTargetBox: !!targetBox,
+    usedTargetBox: !!targetWindow || !!targetBox,
   });
 
   const warnings = [];
-  if (!targetBox) warnings.push('No target box was selected, so OCR used the full image first.');
+  if (!targetWindow && !targetBox) warnings.push('No targeting window was used.');
   if (!mergedLead.businessName) warnings.push('No strong business name was detected.');
-  if (confidence.level === 'low' || confidence.level === 'failed') warnings.push('OCR confidence is weak. Review the suggested match manually.');
 
-  // --- NEW: UPDATE SUPABASE WITH OCR RESULTS ---
+  // --- UPDATE SUPABASE WITH OCR RESULTS ---
   if (captureId) {
     import('../lib/supabase').then(({ supabase }) => {
       supabase.from('leadlock_captures').update({
@@ -484,55 +565,24 @@ export async function runLeadLockOcrPipeline({ imageUri, targetBox, locationCont
         detected_phone: mergedLead.phone,
         detected_email: mergedLead.email,
         detected_address: [mergedLead.streetNumber, mergedLead.streetName, mergedLead.city, mergedLead.state, mergedLead.zip].filter(Boolean).join(' '),
-      }).eq('id', captureId).then(() => {
-        // Phase 3: Sync Regions
-        if (best?.leadExtraction?.leads?.length > 1) {
-          const regions = best.leadExtraction.leads.filter(l => l.boundingBox).map(l => ({
-            boundingBox: l.boundingBox,
-            businessName: l.businessName,
-            ocrText: l.ocrSummary,
-            confidence: l.confidenceScore || 0
-          }));
-          if (regions.length) {
-            LeadLockSupabaseService.addDetectedRegions(captureId, regions);
-          }
-        }
-      }).catch(err => console.warn('[LeadLockPipeline] Supabase update failed:', err));
+      }).eq('id', captureId).catch(err => console.warn('[LeadLockPipeline] Supabase update failed:', err));
     });
   }
-  // --------------------------------------------
 
   return {
-    captureId, // Return for Phase 2 processing
+    captureId,
     mergedLead,
     bestText,
     ocrSummary: bestText,
     ocrSource: best?.source || 'none',
     ocrConfidence: confidence,
-    usedTargetBox: !!targetBox && String(best?.source || '').includes('target'),
+    usedTargetBox: !!targetWindow || !!targetBox,
     businessNameCandidates: allBusinessNames,
     addressCandidates: allAddresses,
     suiteCandidates: allSuites,
+    taggedResults: results.filter(r => r.source.startsWith('tag-')),
     warnings,
-    variants: results.map((item) => ({
-      source: item.source,
-      confidence: item.confidence,
-      crop: item.crop,
-      output: item.output,
-      errors: item.errors,
-      elapsedMs: item.elapsedMs,
-    })),
-    debug: {
-      ...debug,
-      bestSource: best?.source || null,
-      bestConfidence: best?.confidence || null,
-      rawResults: results.map((item) => ({
-        source: item.source,
-        confidence: item.confidence,
-        visibleTextLines: item.visibleTextLines,
-        candidates: item.candidates,
-        errors: item.errors,
-      })),
-    },
+    debug,
   };
 }
+

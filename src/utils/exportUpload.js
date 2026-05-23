@@ -9,13 +9,18 @@ function getFileName(fileUri) {
   return fileUri.split('/').pop() || `LeadLens_Export_${Date.now()}.xlsx`;
 }
 
-export async function uploadExportAndGetLink(fileUri) {
+export async function uploadExportAndGetLink(fileUri, leadCount = 0) {
   const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
   const settings = raw ? JSON.parse(raw) : null;
   const supabase = createSupabaseClient(settings);
 
   if (!supabase) {
     throw new Error('Supabase is not configured in Settings.');
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    throw new Error('Authenticated user session required for upload.');
   }
 
   const base64 = await FileSystem.readAsStringAsync(fileUri, {
@@ -34,7 +39,21 @@ export async function uploadExportAndGetLink(fileUri) {
     });
 
   if (upload.error) {
+    console.error('[uploadExportAndGetLink] Storage error:', upload.error.message);
     throw new Error(upload.error.message || 'Upload failed.');
+  }
+
+  // Record the export in the database
+  const { error: dbError } = await supabase.from('exports').insert({
+    user_id: user.id,
+    file_name: fileName,
+    file_path: path,
+    format: 'xlsx',
+    lead_count: leadCount,
+  });
+
+  if (dbError) {
+    console.warn('[uploadExportAndGetLink] Failed to record export in DB:', dbError.message);
   }
 
   const { data } = supabase.storage.from(EXPORT_BUCKET).getPublicUrl(path);

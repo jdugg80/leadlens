@@ -63,7 +63,16 @@ export function ThemedAlertHost() {
     setConfig((prev) => ({ ...prev, visible: false }));
     if (typeof onPress === 'function') {
       setTimeout(() => {
-        try { onPress(); } catch {}
+        try {
+          const result = onPress();
+          // Handle async onPress — catch rejected Promises so they don't
+          // silently swallow errors and stop execution mid-function
+          if (result && typeof result.catch === 'function') {
+            result.catch(err => console.warn('[ThemedAlert] onPress error:', err?.message));
+          }
+        } catch (err) {
+          console.warn('[ThemedAlert] onPress error:', err?.message);
+        }
       }, 70);
     }
   };

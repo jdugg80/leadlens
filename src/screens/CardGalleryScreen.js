@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, LEADS_STORAGE_KEY } from '../constants';
 import { ScreenHeader } from '../components/UI';
@@ -147,7 +148,6 @@ export default function CardGalleryScreen({ navigation, route }) {
   const handleViewLead = () => {
     if (!selectedCard?.lead) return;
     setSelectedCard(null);
-    const idx = cards.findIndex(c => c.id === selectedCard.id);
     navigation.navigate('Review', { user, lead: selectedCard.lead, editIdx: null });
   };
 
@@ -288,6 +288,9 @@ export default function CardGalleryScreen({ navigation, route }) {
                   )}
                   <TouchableOpacity style={[s.modalBtn, s.modalBtnDanger]} onPress={handleDeleteCard}>
                     <Text style={[s.modalBtnText, { color: COLORS.danger }]}>Delete Image</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.modalBtn} onPress={() => Sharing.shareAsync(selectedCard.imageUri)}>
+                    <Text style={s.modalBtnText}>Share...</Text>
                   </TouchableOpacity>
                 </View>
               </View>

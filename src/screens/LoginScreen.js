@@ -2,15 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   ScrollView, StyleSheet, KeyboardAvoidingView,
-  Platform, Image, Animated, Dimensions,
+  Platform, Image, Animated, Dimensions, Pressable,
 } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
-  AUTH_PROFILE_KEY, COLORS, LEGAL_ACCEPTANCE_KEY,
+  AUTH_PROFILE_KEY, COLORS, LEADS_STORAGE_KEY, LEGAL_ACCEPTANCE_KEY,
   PRIVACY_POLICY_VERSION, ROLES, SUPABASE_SETTINGS_KEY,
   TERMS_VERSION, USER_STORAGE_KEY, DISABLED_USERS_KEY,
 } from '../constants';
 import { PrimaryButton } from '../components/UI';
+import { AntDesign } from '@expo/vector-icons';
 import {
   sendPasswordReset, signInWithEmailPassword,
   signInWithOAuthProvider, signUpWithEmailPassword,
@@ -23,6 +24,17 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { registerPushToken } from '../utils/pushNotifications';
 
 import BetaTracker from '../../utils/betaTracker';
+import Constants from 'expo-constants';
+
+import { syncProspectsFromSupabase, syncUserSettingsFromSupabase, syncAllDataToSupabase } from '../utils/backendSync';
+
+async function ensureAuthenticatedClient(client, maxAttempts = 3) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const { data: { session } } = await client.auth.getSession();
+    if (session) return; // Session loaded, ready to use
+    if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 100));
+  }
+}
 
 const { width: SW } = Dimensions.get('window');
 
@@ -67,7 +79,7 @@ const ROLE_OPTIONS = [
 export default function LoginScreen({ navigation }) {
   const [step, setStep] = useState('role');
   const [selectedRole, setSelectedRole] = useState(null);
-  const [authMode, setAuthMode] = useState('local');
+  const [authMode, setAuthMode] = useState('secure'); // BETA: forced to secure
   const [user, setUser] = useState({
     repName: '', firstName: '', lastName: '', repEmail: '', employeeNum: '', branchNum: '', territory: '', role: '', authProvider: 'local',
   });
@@ -77,6 +89,10 @@ export default function LoginScreen({ navigation }) {
   const [authBusy, setAuthBusy] = useState(false);
   const [disabledUsers, setDisabledUsers] = useState({});
   const [lastError, setLastError] = useState(null);
+
+  // Press feedback states
+  const [googlePressed, setGooglePressed] = useState(false);
+  const [microsoftPressed, setMicrosoftPressed] = useState(false);
 
   const [rememberMe, setRememberMe] = useState(false);
   const [hasBiometrics, setHasBiometrics] = useState(false);
@@ -88,6 +104,28 @@ export default function LoginScreen({ navigation }) {
   // Entrance animation
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
+
+  // OAuth Press scaling animations
+  const googleScale = useRef(new Animated.Value(1)).current;
+  const microsoftScale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = (scaleAnim) => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.93,
+      useNativeDriver: true,
+      speed: 40,
+      bounciness: 4,
+    }).start();
+  };
+
+  const handlePressOut = (scaleAnim) => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 4,
+      tension: 40,
+    }).start();
+  };
 
   useEffect(() => {
     let alive = true;
@@ -182,8 +220,48 @@ export default function LoginScreen({ navigation }) {
         setUser(prev => ({ ...prev, ...saved }));
         if (saved.role) setSelectedRole(saved.role);
 
-        if (remember === 'true' && saved.employeeNum && saved.role && saved.firstName && saved.lastName) {
-          proceedWithUser(saved, legal);
+        const profileComplete = !!(saved.employeeNum && saved.role && saved.firstName && saved.lastName);
+
+        if (profileComplete) {
+          // Check for an active Supabase session — OAuth sessions auto-refresh,
+          // so if one exists we can skip straight to Dashboard without asking
+          // the user to click through their profile again.
+          const supabase = createSupabaseClient(parsedSupa || {});
+          let hasActiveSession = false;
+
+          if (supabase) {
+            try {
+              const { data: { user: authUser } } = await supabase.auth.getUser();
+              if (authUser) {
+                hasActiveSession = true;
+
+                // Beta access check — always verify regardless of remember flag
+                const userEmail = authUser.email || saved.repEmail;
+                const { data: tester } = await supabase
+                  .from('beta_testers')
+                  .select('is_active')
+                  .eq('email', userEmail.toLowerCase().trim())
+                  .single();
+
+                if (!tester?.is_active) {
+                  console.log('[LoginScreen] Beta check failed on resume');
+                  await supabase.auth.signOut();
+                  showThemedAlert('Beta Access Required', 'Your beta access is not active.');
+                  return;
+                }
+              }
+            } catch (err) {
+              console.warn('[LoginScreen] Session check failed:', err?.message);
+            }
+          }
+
+          if (hasActiveSession || remember === 'true') {
+            // Active session or explicit remember — go straight to Dashboard
+            proceedWithUser(saved, legal);
+          } else {
+            // No active session, no remember — show role/profile to re-authenticate
+            setStep(saved.role ? 'profile' : 'role');
+          }
         } else if (saved.role) {
           setStep('profile');
         }
@@ -232,17 +310,92 @@ export default function LoginScreen({ navigation }) {
   const afterSecureAuth = async (profile) => {
     const email = profile?.email || user.repEmail || authEmail;
     if (!assertEnabled(email)) return;
+
+    // Beta Access Check
+    try {
+      const supabase = createSupabaseClient(supabaseSettings);
+      if (supabase) {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+          // Check beta_testers table for the user's email
+          const { data: tester, error: testerError } = await supabase
+            .from('beta_testers')
+            .select('is_active')
+            .eq('email', email.toLowerCase().trim())
+            .single();
+
+          if (testerError || !tester?.is_active) {
+            console.log('[LoginScreen] Beta access denied for:', email);
+            await supabase.auth.signOut();
+            showThemedAlert('Beta Access Required', 'Your beta access is not active. Please contact support.');
+            return;
+          }
+
+          // Also update profile beta_status for consistency if needed
+          await supabase.from('profiles').update({ beta_status: 'active' }).eq('id', authUser.id);
+        }
+      }
+    } catch (err) {
+      console.warn('[LoginScreen] Beta check failed:', err.message);
+    }
+
     const nextUser = {
       ...user,
       repEmail: email,
       authProvider: profile?.provider || user.authProvider || 'supabase',
     };
-    setUser(nextUser);
+
+    // Auto-fill from local storage if exists
+    const rawSaved = await AsyncStorage.getItem(USER_STORAGE_KEY);
+    const saved = safeParseJson(rawSaved, null);
+    if (saved && saved.firstName && saved.role) {
+      setUser({ ...nextUser, ...saved });
+      setSelectedRole(saved.role);
+    } else {
+      setUser(nextUser);
+    }
+
     if (email) setAuthEmail(email);
+
+    // Re-init BetaTracker with confirmed email so session_start gets the right email.
+    // Without this, session_start fires from App.js before login with NULL email.
+    try {
+      await BetaTracker.init(email);
+    } catch (_) {}
+
+    // Multi-tenancy fix: If user changed, clear local leads before pulling
+    const lastAuth = await AsyncStorage.getItem(AUTH_PROFILE_KEY);
+    const lastEmail = lastAuth ? JSON.parse(lastAuth).email : null;
+    if (lastEmail && lastEmail.toLowerCase() !== email.toLowerCase()) {
+      console.log('[Login] User changed, clearing local leads bucket');
+      await AsyncStorage.removeItem(LEADS_STORAGE_KEY);
+    }
+
     if (profile?.email) await AsyncStorage.setItem(AUTH_PROFILE_KEY, JSON.stringify({ email: profile.email, provider: profile.provider }));
+
+    // Pull the user's specific data from Supabase
+    try {
+      await syncProspectsFromSupabase(supabaseSettings);
+      try {
+  await syncProspectsFromSupabase(supabaseSettings);
+  await syncUserSettingsFromSupabase(supabaseSettings);  // ← ADD THIS LINE
+} catch (err) {
+  console.warn('[Login] Pull sync failed:', err.message);
+}
+    } catch (err) {
+      console.warn('[Login] Pull sync failed:', err.message);
+    }
+
     setAuthMode('local');
-    setStep('role');
-    showThemedAlert('Signed in', 'Now finish your LeadLens profile.');
+
+    // If we have all profile info, we can go straight to the Enter button
+    if (saved?.firstName && saved?.lastName && saved?.role) {
+       setStep('profile');
+    } else {
+       setStep('role');
+    }
+
+    showThemedAlert('Signed in', 'Your profile has been restored.');
   };
 
   const runEmailSignIn = async (kind = 'signin') => {
@@ -254,15 +407,32 @@ export default function LoginScreen({ navigation }) {
     }
     setAuthBusy(true);
     try {
+      console.log(`[Login] Attempting ${kind} for:`, authEmail);
       const result = kind === 'signup'
         ? await signUpWithEmailPassword(supabaseSettings, authEmail, authPassword)
         : await signInWithEmailPassword(supabaseSettings, authEmail, authPassword);
+
       if (!result.ok) {
+        console.error(`[Login] ${kind} failed! Full response:`, JSON.stringify(result, null, 2));
         setLastError(result.reason);
-        showThemedAlert(kind === 'signup' ? 'Sign-up failed' : 'Sign-in failed', result.reason || 'Unknown issue');
+
+        // Specific help for common Supabase issues
+        let userMsg = result.reason || 'Unknown issue';
+        if (userMsg.includes('Database error saving new user')) {
+          userMsg = 'The server encountered an error creating your profile. This usually means a database trigger is failing. Please contact the administrator.';
+        } else if (userMsg.includes('Email not confirmed')) {
+          userMsg = 'Please check your inbox to confirm your email before signing in.';
+        }
+
+        showThemedAlert(kind === 'signup' ? 'Sign-up failed' : 'Sign-in failed', userMsg);
         return;
       }
+
+      console.log(`[Login] ${kind} success for UID:`, result.user?.id);
       await afterSecureAuth({ email: result.user?.email || authEmail, provider: 'email' });
+    } catch (err) {
+      console.error(`[Login] ${kind} exception:`, err);
+      showThemedAlert('System Error', err.message);
     } finally { setAuthBusy(false); }
   };
 
@@ -271,13 +441,17 @@ export default function LoginScreen({ navigation }) {
     if (!ensureSupabase()) return;
     setAuthBusy(true);
     try {
+      console.log(`[Login] Attempting OAuth:`, provider);
       const result = await signInWithOAuthProvider(supabaseSettings, provider);
+
       if (!result.ok) {
+        console.error(`[Login] OAuth failed for ${provider}:`, JSON.stringify(result, null, 2));
         setLastError(result.reason);
         showThemedAlert('Sign-in failed', result.reason || 'Please try again or contact support.');
         return;
       }
 
+      console.log(`[Login] OAuth success for:`, result.user?.email);
       const rawSavedUser = await AsyncStorage.getItem(USER_STORAGE_KEY);
       const savedUser = normalizeSavedProfile(safeParseJson(rawSavedUser, null));
       const routeToDashboard = savedUser?.employeeNum && savedUser?.role && savedUser?.firstName && savedUser?.lastName;
@@ -291,6 +465,9 @@ export default function LoginScreen({ navigation }) {
       }
 
       await afterSecureAuth({ email: result.user?.email || authEmail || user.repEmail, provider });
+    } catch (err) {
+      console.error(`[Login] OAuth exception:`, err);
+      showThemedAlert('System Error', err.message);
     } finally {
       setAuthBusy(false);
     }
@@ -317,10 +494,18 @@ export default function LoginScreen({ navigation }) {
     setStep('profile');
   };
 
-  const canLogin = user.firstName && user.lastName && user.role;
+  // Force secure auth for Beta
+  const isAuthed = !!authEmail;
+  const canLogin = isAuthed && user.firstName && user.lastName && user.role;
 
   const handleLogin = async () => {
     setLastError(null);
+
+    if (!isAuthed) {
+      showThemedAlert('Secure Login Required', 'Please sign in with Google, Microsoft, or Email first to enable cloud syncing.');
+      setStep('role');
+      return;
+    }
     const firstName = String(user.firstName || '').trim();
     const lastName = String(user.lastName || '').trim();
     if (!firstName || !lastName) {
@@ -339,8 +524,13 @@ export default function LoginScreen({ navigation }) {
 
     try {
       if (payload.repEmail) {
-        await BetaTracker.register(payload.repEmail).catch(err => {
-          console.warn('[LoginScreen] BetaTracker registration failed:', err?.message || String(err));
+        BetaTracker.setEmail(payload.repEmail);
+        await BetaTracker.track('login', {
+          screen: 'Login',
+          feature: 'auth',
+          status: payload.authProvider || 'unknown',
+        }).catch(err => {
+          console.warn('[LoginScreen] BetaTracker login track failed:', err?.message || String(err));
         });
       }
 
@@ -361,10 +551,59 @@ export default function LoginScreen({ navigation }) {
       try {
         const supabaseClient = createSupabaseClient(supabaseSettings);
         if (supabaseClient) {
+          await ensureAuthenticatedClient(supabaseClient);
           const { data: { user: authUser } } = await supabaseClient.auth.getUser();
-          if (authUser?.id) registerPushToken(authUser.id).catch(() => {});
+          if (authUser?.id) {
+            // Capture token so we can report it to Scarlett for manual push support
+            const pushToken = await registerPushToken(authUser.id).catch(() => null);
+
+            // Report current build + push token to Scarlett beta_testers table
+            // This powers the "current build" column in the admin portal
+            if (payload.repEmail) {
+              const SCARLETT_URL = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
+              const SCARLETT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsbnRneWhmeHhiY3d3Y3hhb3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyODE5NjQsImV4cCI6MjA5Mzg1Nzk2NH0.sN8lupQFAGGsPr_UuEQGqm9JYMASP8D0wyPfCxIMaAw';
+              const buildNum = parseInt(Constants.nativeBuildVersion || '0', 10);
+              fetch(
+                `${SCARLETT_URL}/rest/v1/beta_testers?email=eq.${encodeURIComponent(payload.repEmail.toLowerCase().trim())}`,
+                {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type':  'application/json',
+                    'apikey':         SCARLETT_KEY,
+                    'Authorization': `Bearer ${SCARLETT_KEY}`,
+                    'Prefer':        'return=minimal',
+                  },
+                  body: JSON.stringify({
+                    current_build: buildNum || null,
+                    last_seen_at:  new Date().toISOString(),
+                    push_token:    pushToken || null,
+                  }),
+                }
+              ).catch(err => console.warn('[LoginScreen] Scarlett build report failed:', err?.message));
+            }
+
+            // Update profile and onboarding tracking
+            await Promise.all([
+              supabaseClient.from('profiles').upsert({
+                id: authUser.id,
+                email: payload.repEmail,
+                rep_name: payload.repName,
+                role: payload.role,
+                branch_num: payload.branchNum,
+                employee_num: payload.employeeNum,
+                updated_at: new Date().toISOString()
+              }),
+              supabaseClient.from('onboarding_profiles').upsert({
+                user_id: authUser.id,
+                data: payload,
+                completed_at: new Date().toISOString()
+              })
+            ]).catch(err => console.warn('[LoginScreen] Supabase profile sync failed:', err.message));
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[LoginScreen] Post-login sync failed:', err.message);
+      }
 
       navigation.replace(accepted ? 'Dashboard' : 'Consent', { user: payload });
     } catch (err) {
@@ -375,15 +614,23 @@ export default function LoginScreen({ navigation }) {
   };
 
   // ── DEBUG PANEL ─────────────────────────────────────────────────
+  const resetAppConfig = async () => {
+    await AsyncStorage.removeItem(SUPABASE_SETTINGS_KEY);
+    showThemedAlert('Config Reset', 'Custom Supabase settings cleared. Restart the app to use .env values.');
+  };
+
   const renderDebugPanel = () => {
     if (!__DEV__) return null;
+    const projectRef = supabaseSettings.supabaseUrl?.split('//')?.[1]?.split('.')?.[0] || 'Unknown';
     return (
       <View style={s.debugPanel}>
         <Text style={s.debugTitle}>🛠 DEBUG PANEL</Text>
-        <Text style={s.debugText}>Redirect: {getAuthRedirectUrl()}</Text>
-        <Text style={s.debugText}>Supabase URL: {supabaseSettings.supabaseUrl ? '••••• (Configured)' : '❌ Missing'}</Text>
-        <Text style={s.debugText}>Anon Key: {supabaseSettings.supabaseAnonKey ? '••••• (Configured)' : '❌ Missing'}</Text>
+        <Text style={s.debugText}>Project ID: {projectRef}</Text>
+        <Text style={s.debugText}>Session: {authEmail || 'No Active Session'}</Text>
         <Text style={s.debugText}>Last Error: {lastError || 'None'}</Text>
+        <TouchableOpacity onPress={resetAppConfig} style={{ marginTop: 8, padding: 4, backgroundColor: 'rgba(255,0,0,0.2)', borderRadius: 4 }}>
+          <Text style={[s.debugText, { color: '#ff4444', textAlign: 'center' }]}>RESET SUPABASE CONFIG</Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -405,19 +652,11 @@ export default function LoginScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Auth mode toggle */}
-          <View style={s.modeRow}>
-            {['local', 'secure'].map(mode => (
-              <TouchableOpacity
-                key={mode}
-                style={[s.modeChip, authMode === mode && s.modeChipOn]}
-                onPress={() => setAuthMode(mode)}
-              >
-                <Text style={[s.modeChipText, authMode === mode && s.modeChipTextOn]}>
-                  {mode === 'local' ? '⚡ Quick Login' : '🔒 Secure Login'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* BETA: Secure Login only — Quick Login disabled */}
+          <View style={[s.modeRow, { justifyContent: 'center' }]}>
+            <View style={[s.modeChip, s.modeChipOn, { flex: 0, paddingHorizontal: 32 }]}>
+              <Text style={[s.modeChipText, s.modeChipTextOn]}>🔒 Secure Login</Text>
+            </View>
           </View>
 
           {/* Secure auth panel */}
@@ -425,25 +664,57 @@ export default function LoginScreen({ navigation }) {
             <View style={s.authPanel}>
               <View style={s.authPanelCornerTL} /><View style={s.authPanelCornerBR} />
               <Text style={s.authTitle}>Secure Sign-In</Text>
-              <Text style={s.authSub}>Supabase Auth with Google, Microsoft, or email/password.</Text>
-              <Field label="Email" placeholder="you@company.com" keyboardType="email-address" autoCapitalize="none" value={authEmail} onChangeText={setAuthEmail} />
-              <Field label="Password" placeholder="Password" secureTextEntry value={authPassword} onChangeText={setAuthPassword} style={{ marginTop: 10 }} />
-              <PrimaryButton title={authBusy ? 'Working...' : 'Sign In with Email'} onPress={() => runEmailSignIn('signin')} disabled={authBusy} style={{ marginTop: 12 }} />
-              <View style={s.authLinks}>
-                <TouchableOpacity onPress={() => runEmailSignIn('signup')}>
-                  <Text style={s.authLinkText}>Create account</Text>
-                </TouchableOpacity>
-                <Text style={s.authLinkSep}>·</Text>
-                <TouchableOpacity onPress={handleForgotPassword}>
-                  <Text style={s.authLinkText}>Forgot password?</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={s.authSub}>Supabase authenticated sign-in with Google or Microsoft.</Text>
               <View style={s.providerRow}>
-                {['google', 'azure'].map(p => (
-                  <TouchableOpacity key={p} style={s.providerBtn} onPress={() => runProviderSignIn(p)} disabled={authBusy}>
-                    <Text style={s.providerText}>Continue with {p === 'google' ? 'Google' : 'Microsoft'}</Text>
-                  </TouchableOpacity>
-                ))}
+                {/* Google Button */}
+                <Pressable
+                  onPressIn={() => setGooglePressed(true)}
+                  onPressOut={() => setGooglePressed(false)}
+                  onPress={() => runProviderSignIn('google')}
+                  disabled={authBusy}
+                  style={[
+                    s.providerIconBtn,
+                    googlePressed && {
+                      transform: [{ scale: 0.90 }],
+                      opacity: 0.82,
+                      backgroundColor: COLORS.borderLit,
+                      borderColor: COLORS.accent,
+                    }
+                  ]}
+                >
+                  <Image
+                    source={{ uri: 'https://www.google.com/images/branding/googleg/1x/googleg_standard_color_128dp.png' }}
+                    style={{ width: 32, height: 32 }}
+                    resizeMode="contain"
+                  />
+                  <Text style={s.providerBtnLabel}>Google</Text>
+                </Pressable>
+
+                {/* Microsoft Button */}
+                <Pressable
+                  onPressIn={() => setMicrosoftPressed(true)}
+                  onPressOut={() => setMicrosoftPressed(false)}
+                  onPress={() => runProviderSignIn('azure')}
+                  disabled={authBusy}
+                  style={[
+                    s.providerIconBtn,
+                    microsoftPressed && {
+                      transform: [{ scale: 0.90 }],
+                      opacity: 0.82,
+                      backgroundColor: COLORS.borderLit,
+                      borderColor: COLORS.accent2,
+                    }
+                  ]}
+                >
+                  {/* Official Microsoft 4-Square Colored Logo */}
+                  <View style={{ width: 30, height: 30, flexDirection: 'row', flexWrap: 'wrap', gap: 2, alignContent: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 14, height: 14, backgroundColor: '#F25022' }} />
+                    <View style={{ width: 14, height: 14, backgroundColor: '#7FBA00' }} />
+                    <View style={{ width: 14, height: 14, backgroundColor: '#00A4EF' }} />
+                    <View style={{ width: 14, height: 14, backgroundColor: '#FFB900' }} />
+                  </View>
+                  <Text style={[s.providerBtnLabel, { marginTop: 14 }]}>Microsoft</Text>
+                </Pressable>
               </View>
             </View>
           )}
@@ -598,11 +869,16 @@ export default function LoginScreen({ navigation }) {
           </View>
 
           <PrimaryButton
-            title="Enter LeadLens  ›"
+            title={isAuthed ? "Enter LeadLens  ›" : "🔒 Sign In Required"}
             onPress={handleLogin}
-            disabled={!canLogin}
-            style={{ marginTop: 8 }}
+            disabled={false}
+            style={[{ marginTop: 8 }, !isAuthed && { opacity: 0.6 }]}
           />
+          {!isAuthed && (
+            <Text style={{ color: COLORS.accent2, fontSize: 11, textAlign: 'center', marginTop: 10, fontWeight: '700' }}>
+              You must sign in securely to use LeadLens Beta.
+            </Text>
+          )}
         </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -678,12 +954,34 @@ const s = StyleSheet.create({
   authLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 10 },
   authLinkText: { color: COLORS.accent, fontWeight: '700', fontSize: 12 },
   authLinkSep: { color: COLORS.muted },
-  providerRow: { marginTop: 12, gap: 10 },
-  providerBtn: {
-    borderWidth: 1, borderColor: COLORS.borderLit, borderRadius: 12,
-    paddingVertical: 12, alignItems: 'center', backgroundColor: COLORS.surface2,
+  providerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 12,
   },
-  providerText: { color: COLORS.textDim, fontWeight: '700', fontSize: 13 },
+  providerIconBtn: {
+    flex: 1,
+    flexDirection: 'column',
+    borderWidth: 1,
+    borderColor: COLORS.borderLit,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: COLORS.surface2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  providerBtnLabel: {
+    color: COLORS.textDim,
+    fontWeight: '800',
+    fontSize: 12,
+    marginTop: 8,
+  },
 
   // Section label
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14, marginTop: 4 },

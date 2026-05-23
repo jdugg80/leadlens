@@ -14,6 +14,7 @@ export type NormalizedComptrollerBusiness = {
   permitStatus?: string;
   latitude?: number;
   longitude?: number;
+  phone?: string;
   badge?: string;
   priority?: "low" | "medium" | "high";
   rawPayload: unknown;
@@ -65,6 +66,7 @@ export function normalizeComptrollerRecord(
     permitStatus: raw.STATUS,
     latitude: raw.LATITUDE ? Number(raw.LATITUDE) : undefined,
     longitude: raw.LONGITUDE ? Number(raw.LONGITUDE) : undefined,
+    phone: raw.PHONE_NUMBER || raw.PHONE || raw.CONTACT_PHONE || undefined,
     badge,
     priority,
     rawPayload: raw,

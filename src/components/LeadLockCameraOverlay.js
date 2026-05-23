@@ -1,16 +1,12 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Animated } from 'react-native';
 import { COLORS } from '../constants';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-
-// 3:4 aspect ratio for the targeting window
 const ASPECT_RATIO = 3 / 4;
-const WINDOW_WIDTH = SCREEN_W * 0.85;
-const WINDOW_HEIGHT = WINDOW_WIDTH / ASPECT_RATIO;
 
 export const TAG_TYPES = [
   { id: 'business_name', label: 'Name', icon: '🏢' },
+  { id: 'business_sign', label: 'Sign', icon: '🪧' },
   { id: 'phone', label: 'Phone', icon: '📞' },
   { id: 'email', label: 'Email', icon: '✉️' },
   { id: 'address', label: 'Address', icon: '📍' },
@@ -26,21 +22,48 @@ export default function LeadLockCameraOverlay({
   onAddTag,
   onRemoveTag,
   activeTagType,
-  onTagTypeChange
+  onTagTypeChange,
+  onWindowLayout,
 }) {
   const [layout, setLayout] = useState(null);
+  const toastAnim = useRef(new Animated.Value(0)).current;
+  const [toastVisible, setToastVisible] = useState(false);
 
   const windowBox = useMemo(() => {
     if (!layout) return null;
     const w = Math.min(layout.width * 0.85, layout.height * 0.6);
     const h = w / ASPECT_RATIO;
-    return {
+    const box = {
       width: w,
       height: h,
       left: (layout.width - w) / 2,
       top: (layout.height - h) / 2,
+      previewWidth: layout.width,
+      previewHeight: layout.height,
     };
-  }, [layout]);
+
+    // Notify parent
+    setTimeout(() => {
+      onWindowLayout?.({
+        ...box,
+        normalizedLeft: box.left / layout.width,
+        normalizedTop: box.top / layout.height,
+        normalizedWidth: box.width / layout.width,
+        normalizedHeight: box.height / layout.height,
+      });
+    }, 0);
+
+    return box;
+  }, [layout, onWindowLayout]);
+
+  const showToast = () => {
+    setToastVisible(true);
+    Animated.sequence([
+      Animated.timing(toastAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(1500),
+      Animated.timing(toastAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start(() => setToastVisible(false));
+  };
 
   const handlePress = (evt) => {
     if (!layout || !windowBox) return;
@@ -63,29 +86,31 @@ export default function LeadLockCameraOverlay({
         y: tagY,
         normalizedX: tagX / windowBox.width,
         normalizedY: tagY / windowBox.height,
-        width: 100, // Default size
-        height: 60,
+        width: 110,
+        height: 70,
+        normalizedTo: 'targetWindow',
         createdAt: new Date().toISOString(),
       });
     } else {
-      // TODO: Show "Place target inside scan window" message
+      showToast();
     }
   };
 
   return (
     <View
       style={styles.container}
-      onLayout={(e) => setLayout(evt.nativeEvent.layout)}
+      onLayout={(e) => setLayout(e.nativeEvent.layout)}
       onStartShouldSetResponder={() => true}
       onResponderRelease={handlePress}
+      pointerEvents="box-none"
     >
-      {windowBox && (
+      {layout && windowBox && (
         <>
-          {/* Dimmmed background outside window */}
-          <View style={[styles.dim, { top: 0, left: 0, right: 0, height: windowBox.top }]} />
-          <View style={[styles.dim, { bottom: 0, left: 0, right: 0, height: layout.height - (windowBox.top + windowBox.height) }]} />
-          <View style={[styles.dim, { top: windowBox.top, left: 0, width: windowBox.left, height: windowBox.height }]} />
-          <View style={[styles.dim, { top: windowBox.top, right: 0, width: layout.width - (windowBox.left + windowBox.width), height: windowBox.height }]} />
+          {/* Dimmed background outside window */}
+          <View pointerEvents="none" style={[styles.dim, { top: 0, left: 0, right: 0, height: windowBox.top }]} />
+          <View pointerEvents="none" style={[styles.dim, { bottom: 0, left: 0, right: 0, height: layout.height - (windowBox.top + windowBox.height) }]} />
+          <View pointerEvents="none" style={[styles.dim, { top: windowBox.top, left: 0, width: windowBox.left, height: windowBox.height }]} />
+          <View pointerEvents="none" style={[styles.dim, { top: windowBox.top, right: 0, width: layout.width - (windowBox.left + windowBox.width), height: windowBox.height }]} />
 
           {/* Targeting Window */}
           <View style={[styles.window, windowBox]} pointerEvents="none">
@@ -133,8 +158,21 @@ export default function LeadLockCameraOverlay({
         </>
       )}
 
-      {/* Tag Type Selector at bottom of overlay, above capture button area */}
-      <View style={styles.selectorWrap}>
+      {/* Toast */}
+      {toastVisible && (
+        <Animated.View style={[styles.toast, { opacity: toastAnim }]}>
+          <Text style={styles.toastText}>Place target inside scan window</Text>
+        </Animated.View>
+      )}
+
+      {/* Tag Type Selector */}
+      <View
+        style={[
+          styles.selectorWrap,
+          windowBox ? { top: windowBox.top - 85 } : { top: 110 }
+        ]}
+        pointerEvents="box-none"
+      >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.selectorContent}>
           {TAG_TYPES.map((type) => (
             <TouchableOpacity
@@ -160,19 +198,19 @@ const styles = StyleSheet.create({
   },
   dim: {
     position: 'absolute',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   window: {
     position: 'absolute',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: 'rgba(255,255,255,0.4)',
     backgroundColor: 'transparent',
   },
   windowLabel: {
     position: 'absolute',
     bottom: -24,
     alignSelf: 'center',
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
@@ -191,7 +229,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    opacity: 0.2,
+    opacity: 0.15,
   },
   hLine: { width: 40, height: 1, backgroundColor: '#fff' },
   vLine: { width: 1, height: 40, backgroundColor: '#fff' },
@@ -199,17 +237,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     borderWidth: 2,
     borderColor: COLORS.accent,
-    backgroundColor: 'rgba(0,201,255,0.2)',
+    backgroundColor: 'rgba(0,201,255,0.25)',
     borderRadius: 8,
     padding: 4,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: COLORS.accent,
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 5,
   },
   tagContent: {
     alignItems: 'center',
   },
-  tagIcon: { fontSize: 16 },
-  tagLabel: { color: '#fff', fontSize: 9, fontWeight: '800', marginTop: 2 },
+  tagIcon: { fontSize: 18 },
+  tagLabel: { color: '#fff', fontSize: 9, fontWeight: '800', marginTop: 2, textTransform: 'uppercase' },
   tagClose: {
     position: 'absolute',
     top: -10,
@@ -226,10 +268,10 @@ const styles = StyleSheet.create({
   tagCloseText: { color: '#fff', fontSize: 12, fontWeight: '900' },
   selectorWrap: {
     position: 'absolute',
-    bottom: 140, // Above capture button
     left: 0,
     right: 0,
     height: 70,
+    zIndex: 20,
   },
   selectorContent: {
     paddingHorizontal: 20,
@@ -253,4 +295,14 @@ const styles = StyleSheet.create({
   typeIcon: { fontSize: 18 },
   typeLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '700', marginTop: 4 },
   typeLabelActive: { color: COLORS.accent },
+  toast: {
+    position: 'absolute',
+    top: 150,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,59,92,0.8)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  toastText: { color: '#fff', fontSize: 12, fontWeight: '800' },
 });

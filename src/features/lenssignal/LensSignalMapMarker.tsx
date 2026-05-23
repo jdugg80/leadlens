@@ -36,8 +36,14 @@ export const LensSignalMapMarker = ({ signal, onPress, activeProfile }: Props) =
       }}
       title={signal.establishment_name || signal.business_name || 'Signal'}
       description={layer + (signal.pest_details ? ' · ' + signal.pest_details : '')}
-      onPress={() => onPress(signal)}
-      tracksViewChanges={true}
+      onPress={() => {
+        try {
+          onPress(signal);
+        } catch (e) {
+          console.warn('[LensSignalMapMarker] onPress failed:', e);
+        }
+      }}
+      tracksViewChanges={false}
     >
       <View style={styles.wrapper}>
         {/* Pulse ring for priority/pest signals */}

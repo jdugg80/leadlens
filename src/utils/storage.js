@@ -53,6 +53,20 @@ export const storageBridge = {
     } catch { _fallback = true; _storage = null; }
     return AsyncStorage.getAllKeys();
   },
+
+  // Multi-tenancy helper: returns a key prefixed with user ID
+  getUserKey: async (baseKey) => {
+    try {
+      const authProfile = await AsyncStorage.getItem('@leadlens_auth_profile');
+      if (authProfile) {
+        const { email } = JSON.parse(authProfile);
+        if (email) return `${baseKey}_${email.toLowerCase().trim()}`;
+      }
+    } catch (err) {
+      console.warn('[Storage] getUserKey failed:', err.message);
+    }
+    return baseKey;
+  },
 };
 
 export default storageBridge;

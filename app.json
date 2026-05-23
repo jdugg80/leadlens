@@ -2,7 +2,7 @@
   "expo": {
     "name": "LeadLens",
     "slug": "leadlens",
-    "version": "1.14.1-beta",
+    "version": "2.0.2",
     "orientation": "portrait",
     "icon": "./assets/leadlens/LeadLens_app_icon_v3.png",
     "userInterfaceStyle": "dark",
@@ -13,7 +13,7 @@
       "backgroundColor": "#000000"
     },
     "android": {
-      "versionCode": 11401,
+      "versionCode": 46,
       "adaptiveIcon": {
         "foregroundImage": "./assets/leadlens/LeadLens_adaptive_icon.png",
         "backgroundColor": "#000000"
@@ -46,7 +46,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "LeadLens uses your location to verify where leads are captured and improve GeoTarget Assist accuracy."
+          "locationWhenInUsePermission": "LeadLens uses your location to verify where leads are captured and improve GeoTarget Assist accuracy.",
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
       [
@@ -71,7 +72,8 @@
     "extra": {
       "eas": {
         "projectId": "a479ffad-128e-455c-8148-7504f53b83e4"
-      }
+      },
+      "betaBuild": 47
     }
   }
 }

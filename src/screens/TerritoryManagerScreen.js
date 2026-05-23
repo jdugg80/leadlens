@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { read, utils } from 'xlsx';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, LEADS_STORAGE_KEY, SUPABASE_SETTINGS_KEY } from '../constants';
@@ -25,54 +26,6 @@ import {
 import { TARGET_LENS_PROFILES_KEY, TARGET_LENS_SEARCH_MODE_KEY } from '../constants';
 import { showThemedAlert } from '../components/ThemedAlert';
 import BetaTracker from '../../utils/betaTracker';
-
-const handleSync = async () => {
-  setSyncing(true);
-  try {
-    const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
-    const settings = raw ? JSON.parse(raw) : null;
-    const supabase = createSupabaseClient(settings);
-
-    // Run all three operations in parallel
-    const [syncRes, myZipsRes, sharedRes] = await Promise.all([
-      syncTerritoryToSupabase(supabase, user, myZips),
-      fetchMyTerritoryFromSupabase(supabase, user),   // FIX: pull my ZIPs back down
-      fetchSharedTerritories(supabase, user),
-    ]);
-
-    // Merge Supabase ZIPs with local — Supabase wins, but keep any local-only
-    // entries that haven't been pushed yet (e.g. added while offline)
-    if (myZipsRes.ok && myZipsRes.data.length) {
-      const remoteZipSet = new Set(myZipsRes.data.map(z => z.zip));
-      const localOnly = myZips.filter(z => !remoteZipSet.has(z.zip));
-      const merged = [...myZipsRes.data, ...localOnly];
-      await saveMyZips(merged);
-      await refreshData(merged);
-    }
-
-    // Save and display shared territories
-    if (sharedRes.ok) {
-      await saveSharedTerritories(sharedRes.data);
-      setSharedTerritories(sharedRes.data);
-    }
-
-    if (!syncRes.ok) {
-      showThemedAlert('Sync issue', syncRes.reason || 'Could not sync territory to Supabase.');
-    } else {
-      const myCount   = myZipsRes.data?.length ?? myZips.length;
-      const teamCount = sharedRes.data?.length ?? 0;
-      showThemedAlert(
-        'Synced ✓',
-        `${myCount} ZIP${myCount !== 1 ? 's' : ''} loaded.${teamCount ? ` ${teamCount} other rep territory(s) found.` : ''}`,
-      );
-    }
-  } catch (err) {
-    BetaTracker.crash('TerritoryManagerScreen', err);
-    showThemedAlert('Sync failed', err.message || 'Unknown error');
-  } finally {
-    setSyncing(false);
-  }
-};
 
 const TABS = ['Heat Map', 'My ZIPs', 'Leads', 'Team'];
 
@@ -204,6 +157,19 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     setMyZips(zips);
     setZipActivity(buildZipActivity(zips, rawLeads));
     setMatchedLeads(matchLeadsToTerritory(rawLeads, zips));
+
+    // Auto-sync territory to Supabase
+    try {
+      const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+      const settings = raw ? JSON.parse(raw) : null;
+      const supabase = createSupabaseClient(settings);
+      if (supabase) {
+        await syncTerritoryToSupabase(supabase, user, zips);
+        console.log('[Territory] Auto-sync successful');
+      }
+    } catch (err) {
+      console.warn('[Territory] Auto-sync failed:', err.message);
+    }
   };
 
   // ─── Add ZIP manually ───────────────────────────────────────────────────────
@@ -315,12 +281,31 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       setLoading(true);
       setStatusText('Reading ZIPs from image...');
 
-      const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
+      // Resize and compress the imported image before converting to base64
+      let processedUri = result.assets[0].uri;
+      try {
+        const manipulated = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        processedUri = manipulated.uri;
+      } catch (manipErr) {
+        console.warn('[TerritoryManager] Image manipulation failed:', manipErr);
+      }
+
+      const b64 = await FileSystem.readAsStringAsync(processedUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
       // Use Claude to extract ZIP codes from the image
-      const extractedLeads = await extractLeadsFromImage(b64, 'image/jpeg');
+      let extractedLeads = [];
+      try {
+        extractedLeads = await extractLeadsFromImage(b64, 'image/jpeg');
+      } catch (err) {
+        showThemedAlert('Extraction Error', 'Extraction failed. Please try again.');
+        throw err;
+      }
       const rawZips = [];
 
       // Pull ZIPs from extracted lead data
@@ -552,7 +537,6 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         </Text>
       </Card>
       {matchedProspects.map((lead, idx) => {
-        const colors = getHeatColor(getHeatLevel(1));
         return (
           <TouchableOpacity
             key={lead.id || idx}
@@ -567,7 +551,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
                 {lead.zip ? ` · ZIP ${lead.zip}` : ''}
               </Text>
             </View>
-            <Text style={[s.leadZipBadge, { color: colors.text, borderColor: colors.border }]}>{lead.zip}</Text>
+            <Text style={[s.leadZipBadge, { color: COLORS.accent, borderColor: COLORS.accent }]}>{lead.zip}</Text>
           </TouchableOpacity>
         );
       })}
@@ -578,33 +562,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     <View>
       <Card style={{ marginBottom: 12 }}>
         <Text style={s.leadsIntro}>
-          Other reps' territories are shown here after syncing with Supabase. Their ZIPs appear in gray for reference.
+          Team territory sharing is not enabled for private beta.
         </Text>
-        <SecondaryButton
-          title={syncing ? 'Syncing...' : 'Refresh Team Territories'}
-          onPress={handleSync}
-          disabled={syncing}
-          style={{ marginTop: 12 }}
-        />
       </Card>
-
-      {sharedTerritories.length === 0 ? (
-        <Text style={s.empty}>No team territories loaded yet.{'\n'}Sync to pull other reps' ZIP assignments.</Text>
-      ) : (
-        sharedTerritories.map((rep, idx) => (
-          <Card key={idx} style={s.repCard}>
-            <Text style={s.repName}>{rep.repName || 'Unknown Rep'}</Text>
-            <Text style={s.repMeta}>EMP {rep.employeeNum} · Branch {rep.branchNum}</Text>
-            <View style={s.repZipGrid}>
-              {(rep.zips || []).map(zip => (
-                <View key={zip} style={s.repZipChip}>
-                  <Text style={s.repZipText}>{zip}</Text>
-                </View>
-              ))}
-            </View>
-          </Card>
-        ))
-      )}
     </View>
   );
 

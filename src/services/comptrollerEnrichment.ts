@@ -55,6 +55,11 @@ export async function enrichProspectWithComptroller(businessName: string): Promi
     // 3. Save to enrichment cache table
     if (allMatches.length > 0) {
       await saveComptrollerMatchesToDb(allMatches);
+
+      // 4. Transform high-priority (Opening Signals) to LensSignal for real-time alerting
+      if (bestMatch && bestMatch.priority === 'high') {
+         await promoteComptrollerToLensSignal(bestMatch);
+      }
     }
 
     return {
@@ -85,6 +90,7 @@ async function saveComptrollerMatchesToDb(matches: NormalizedComptrollerBusiness
     permit_status: m.permitStatus,
     latitude: m.latitude,
     longitude: m.longitude,
+    phone: m.phone,
     badge: m.badge,
     priority: m.priority,
     raw_payload: m.rawPayload,
@@ -97,5 +103,38 @@ async function saveComptrollerMatchesToDb(matches: NormalizedComptrollerBusiness
 
   if (error) {
     console.warn('[ComptrollerEnrichment] DB Save Failed:', error.message);
+  }
+}
+
+/**
+ * Promotes a high-priority Comptroller record to the lens_signals table.
+ * This triggers real-time push alerts via database triggers.
+ */
+async function promoteComptrollerToLensSignal(match: NormalizedComptrollerBusiness) {
+  const signal = {
+    business_name: match.businessName,
+    address: match.street,
+    city: match.city,
+    state: match.state,
+    zip: match.zip,
+    latitude: match.latitude,
+    longitude: match.longitude,
+    opening_type: 'New Sales Tax Permit',
+    is_new_opening: true,
+    alert_level: 'Priority Review',
+    source_name: 'Texas Comptroller',
+    source_record_url: `https://mycpa.cpa.state.tx.us/webptr/`,
+    raw_record: match.rawPayload
+  };
+
+  const { error } = await supabase
+    .from('lens_signals')
+    .upsert(signal, {
+      onConflict: 'business_name, zip',
+      ignoreDuplicates: false
+    });
+
+  if (error) {
+    console.warn('[ComptrollerEnrichment] Promotion to LensSignal failed:', error.message);
   }
 }

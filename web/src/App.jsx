@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
+import Prospects from './pages/Prospects';
+import BetaCodes from './pages/BetaCodes';
 import Sidebar from './components/Sidebar';
 import { supabase } from './lib/supabase';
 
@@ -35,17 +37,13 @@ function App() {
   return (
     <div className="flex min-h-screen bg-[#080A0F] text-[#E8EAF2]">
       {session && <Sidebar />}
-      <main className="flex-1">
+      <main className="flex-1 overflow-hidden">
         <Routes>
-          <Route
-            path="/"
-            element={session ? <Dashboard /> : <Navigate to="/login" />}
-          />
-          <Route
-            path="/login"
-            element={!session ? <Login /> : <Navigate to="/" />}
-          />
-          {/* Add more routes here as needed */}
+          <Route path="/"           element={session ? <Dashboard />  : <Navigate to="/login" />} />
+          <Route path="/login"      element={!session ? <Login />      : <Navigate to="/" />} />
+          <Route path="/prospects"  element={session ? <Prospects />   : <Navigate to="/login" />} />
+          <Route path="/beta-codes" element={session ? <BetaCodes />   : <Navigate to="/login" />} />
+          <Route path="*"           element={<Navigate to="/" />} />
         </Routes>
       </main>
     </div>

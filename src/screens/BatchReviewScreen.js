@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, memo, useRef, useMemo } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Switch, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Switch, StyleSheet, ActivityIndicator, ScrollView, PanResponder, Animated } from 'react-native';
 import Constants from 'expo-constants';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { COLORS, LEADS_STORAGE_KEY, GOOGLE_PLACES_API_KEY } from '../constants';
 import { searchGooglePlacesByText } from '../utils/nearbySearch';
 import { getCurrentCoords } from '../utils/geoEnrich';
 import { ScreenHeader, FieldInput, PrimaryButton, Card, SectionLabel, SecondaryButton } from '../components/UI';
-import { applyRequiredPlaceholders, findDuplicateInLeads, inferVertical, normalizeLead } from '../utils/leadHelpers';
+import { applyRequiredPlaceholders, findDuplicateInLeads, inferVertical, normalizeLead, calculateLeadViability } from '../utils/leadHelpers';
 import { showThemedAlert } from '../components/ThemedAlert';
 import { playSoundEffect } from '../utils/soundManager';
 import { recordUserActivityEvent } from '../utils/userLearning';
@@ -33,8 +33,47 @@ function buildTaggedLead(lead, user) {
   });
 }
 
-const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onToggle, onRemove }) {
+const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onRemove }) {
   const [phoneLoading, setPhoneLoading] = useState(false);
+  const [swipeOffset] = useState(new Animated.Value(0));
+  const panResponder = useRef(null);
+
+  // Setup pan responder for swipe gesture
+  useEffect(() => {
+    panResponder.current = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, { dx }) => Math.abs(dx) > 10,
+      onPanResponderMove: (_, { dx }) => {
+        // Only allow swiping left (negative dx)
+        if (dx < 0) {
+          swipeOffset.setValue(Math.max(dx, -80)); // Max swipe of 80px
+        }
+      },
+      onPanResponderRelease: (_, { dx }) => {
+        // If swiped more than 60px left, delete
+        if (dx < -60) {
+          handleDelete();
+        } else {
+          // Snap back to original position
+          Animated.spring(swipeOffset, {
+            toValue: 0,
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+    });
+  }, [swipeOffset]);
+
+  const handleDelete = () => {
+    // Animate slide out to left
+    Animated.timing(swipeOffset, {
+      toValue: -400,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      onRemove(idx);
+    });
+  };
 
   const findPhone = async () => {
     if (!lead.businessName) {
@@ -71,114 +110,131 @@ const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onToggle, onRemov
     }
   };
 
+  const deleteButtonOpacity = swipeOffset.interpolate({
+    inputRange: [-80, 0],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
   return (
-    <Card style={!lead.keep ? s.dimmedCard : null}>
-      <View style={s.cardHeader}>
-        <Text style={s.cardTitle}>Lead {idx + 1}</Text>
-        <View style={s.cardHeaderRight}>
-          <TouchableOpacity onPress={() => onToggle(idx)}>
-            <Text style={[s.keepToggle, !lead.keep && s.keepToggleOff]}>
-              {lead.keep ? 'KEEP' : 'SKIP'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => onRemove(idx)}>
-            <Text style={s.removeText}>Remove</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+    <View style={s.cardContainer}>
+      {/* Delete action appears on swipe left */}
+      <Animated.View style={[s.deleteAction, { opacity: deleteButtonOpacity }]}>
+        <TouchableOpacity style={s.deleteActionBtn} onPress={handleDelete}>
+          <Text style={s.deleteActionText}>Delete</Text>
+        </TouchableOpacity>
+      </Animated.View>
 
-      {!!lead.duplicateWarning && (
-        <View style={s.warningBox}>
-          <Text style={s.warningText}>{lead.duplicateWarning}</Text>
-          <TouchableOpacity onPress={() => onUpdate(idx, 'ignoreDuplicate', !lead.ignoreDuplicate)}>
-            <Text style={s.keepAnyway}>{lead.ignoreDuplicate ? 'Duplicate allowed' : 'Keep anyway'}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Card (swipeable) */}
+      <Animated.View
+        style={[
+          s.swipeableCard,
+          {
+            transform: [{ translateX: swipeOffset }],
+          },
+        ]}
+        {...panResponder.current?.panHandlers}
+      >
+        <Card>
+          <View style={s.cardHeader}>
+            <Text style={s.cardTitle}>Lead {idx + 1}</Text>
+            <Text style={s.swipeHint}>← swipe to delete</Text>
+          </View>
 
-      {((lead.reviewLabels || []).length > 0 || lead.locationSource || lead.locationNeedsReview) && (
-        <View style={s.warningBox}>
-          {(lead.reviewLabels || []).length > 0 && (
-            <Text style={s.warningText}>Labels: {(lead.reviewLabels || []).join(' • ')}</Text>
+          {!!lead.duplicateWarning && (
+            <View style={s.warningBox}>
+              <Text style={s.warningText}>{lead.duplicateWarning}</Text>
+              <TouchableOpacity onPress={() => onUpdate(idx, 'ignoreDuplicate', !lead.ignoreDuplicate)}>
+                <Text style={s.keepAnyway}>{lead.ignoreDuplicate ? 'Duplicate allowed' : 'Keep anyway'}</Text>
+              </TouchableOpacity>
+            </View>
           )}
-          <Text style={s.warningText}>
-            Location: {lead.locationSource || 'capture'} · Confidence: {lead.locationConfidence || lead.confidence || 'low'}
-          </Text>
-          {!!lead.locationNeedsReview && <Text style={s.keepAnyway}>Address needs review before save</Text>}
-          {(lead.reviewWarnings || []).map((warning, wIdx) => (
-            <Text key={wIdx} style={s.keepAnyway}>{warning}</Text>
-          ))}
-        </View>
-      )}
 
-      <FieldInput label="Business Name" value={lead.businessName} onChangeText={(v) => onUpdate(idx, 'businessName', v)} />
-      <View style={s.row}>
-        <FieldInput label="First Name" value={lead.pocFirst} onChangeText={(v) => onUpdate(idx, 'pocFirst', v)} />
-        <View style={{ width: 10 }} />
-        <FieldInput label="Last Name" value={lead.pocLast} onChangeText={(v) => onUpdate(idx, 'pocLast', v)} />
-      </View>
-      <View style={s.row}>
-        <View style={{ flex: 1 }}>
-          <FieldInput label="Phone" value={lead.phone} onChangeText={(v) => onUpdate(idx, 'phone', v)} />
-          {lead.phoneCandidates && lead.phoneCandidates.length > 1 && (
-            <View style={s.candidateRow}>
-              {lead.phoneCandidates.map((p, pIdx) => (
-                <TouchableOpacity
-                  key={pIdx}
-                  style={[s.candidateChip, lead.phone === p && s.candidateChipActive]}
-                  onPress={() => onUpdate(idx, 'phone', p)}
-                >
-                  <Text style={[s.candidateChipText, lead.phone === p && s.candidateChipActiveText]}>
-                    {p}
-                  </Text>
-                </TouchableOpacity>
+          {((lead.reviewLabels || []).length > 0 || lead.locationSource || lead.locationNeedsReview) && (
+            <View style={s.warningBox}>
+              {(lead.reviewLabels || []).length > 0 && (
+                <Text style={s.warningText}>Labels: {(lead.reviewLabels || []).join(' • ')}</Text>
+              )}
+              <Text style={s.warningText}>
+                Location: {lead.locationSource || 'capture'} · Confidence: {lead.locationConfidence || lead.confidence || 'low'}
+              </Text>
+              {!!lead.locationNeedsReview && <Text style={s.keepAnyway}>Address needs review before save</Text>}
+              {(lead.reviewWarnings || []).map((warning, wIdx) => (
+                <Text key={wIdx} style={s.keepAnyway}>{warning}</Text>
               ))}
             </View>
           )}
-          {!lead.phone && (
-            <TouchableOpacity style={s.findPhoneBtn} onPress={findPhone} disabled={phoneLoading}>
-              {phoneLoading
-                ? <ActivityIndicator size="small" color={COLORS.accent} />
-                : <Text style={s.findPhoneText}>🔍 Find #</Text>}
-            </TouchableOpacity>
-          )}
-        </View>
-        <View style={{ width: 10 }} />
-        <View style={{ flex: 1 }}>
-          <FieldInput label="Email" value={lead.email} onChangeText={(v) => onUpdate(idx, 'email', v)} />
-          {lead.emailCandidates && lead.emailCandidates.length > 1 && (
-            <View style={s.candidateRow}>
-              {lead.emailCandidates.map((e, eIdx) => (
-                <TouchableOpacity
-                  key={eIdx}
-                  style={[s.candidateChip, lead.email === e && s.candidateChipActive]}
-                  onPress={() => onUpdate(idx, 'email', e)}
-                >
-                  <Text style={[s.candidateChipText, lead.email === e && s.candidateChipActiveText]} numberOfLines={1}>
-                    {e}
-                  </Text>
+
+          <FieldInput label="Business Name" value={lead.businessName} onChangeText={(v) => onUpdate(idx, 'businessName', v)} />
+          <View style={s.row}>
+            <FieldInput label="First Name" value={lead.pocFirst} onChangeText={(v) => onUpdate(idx, 'pocFirst', v)} />
+            <View style={{ width: 10 }} />
+            <FieldInput label="Last Name" value={lead.pocLast} onChangeText={(v) => onUpdate(idx, 'pocLast', v)} />
+          </View>
+          <View style={s.row}>
+            <View style={{ flex: 1 }}>
+              <FieldInput label="Phone" value={lead.phone} onChangeText={(v) => onUpdate(idx, 'phone', v)} />
+              {lead.phoneCandidates && lead.phoneCandidates.length > 1 && (
+                <View style={s.candidateRow}>
+                  {lead.phoneCandidates.map((p, pIdx) => (
+                    <TouchableOpacity
+                      key={pIdx}
+                      style={[s.candidateChip, lead.phone === p && s.candidateChipActive]}
+                      onPress={() => onUpdate(idx, 'phone', p)}
+                    >
+                      <Text style={[s.candidateChipText, lead.phone === p && s.candidateChipActiveText]}>
+                        {p}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {!lead.phone && (
+                <TouchableOpacity style={s.findPhoneBtn} onPress={findPhone} disabled={phoneLoading}>
+                  {phoneLoading
+                    ? <ActivityIndicator size="small" color={COLORS.accent} />
+                    : <Text style={s.findPhoneText}>🔍 Find #</Text>}
                 </TouchableOpacity>
-              ))}
+              )}
             </View>
-          )}
-        </View>
-      </View>
-      <View style={s.row}>
-        <FieldInput label="Street #" value={lead.streetNumber} onChangeText={(v) => onUpdate(idx, 'streetNumber', v)} />
-        <View style={{ width: 10 }} />
-        <FieldInput label="Street Name" value={lead.streetName} onChangeText={(v) => onUpdate(idx, 'streetName', v)} />
-      </View>
-      <View style={{ marginTop: 10 }}>
-        <FieldInput label="Address Line 2" value={lead.addressLine2} onChangeText={(v) => onUpdate(idx, 'addressLine2', v)} />
-      </View>
-      <View style={s.row}>
-        <FieldInput label="City" value={lead.city} onChangeText={(v) => onUpdate(idx, 'city', v)} />
-        <View style={{ width: 10 }} />
-        <FieldInput label="State" value={lead.state} onChangeText={(v) => onUpdate(idx, 'state', v)} />
-        <View style={{ width: 10 }} />
-        <FieldInput label="ZIP" value={lead.zip} onChangeText={(v) => onUpdate(idx, 'zip', v)} />
-      </View>
-    </Card>
+            <View style={{ width: 10 }} />
+            <View style={{ flex: 1 }}>
+              <FieldInput label="Email" value={lead.email} onChangeText={(v) => onUpdate(idx, 'email', v)} />
+              {lead.emailCandidates && lead.emailCandidates.length > 1 && (
+                <View style={s.candidateRow}>
+                  {lead.emailCandidates.map((e, eIdx) => (
+                    <TouchableOpacity
+                      key={eIdx}
+                      style={[s.candidateChip, lead.email === e && s.candidateChipActive]}
+                      onPress={() => onUpdate(idx, 'email', e)}
+                    >
+                      <Text style={[s.candidateChipText, lead.email === e && s.candidateChipActiveText]} numberOfLines={1}>
+                        {e}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+          <View style={s.row}>
+            <FieldInput label="Street #" value={lead.streetNumber} onChangeText={(v) => onUpdate(idx, 'streetNumber', v)} />
+            <View style={{ width: 10 }} />
+            <FieldInput label="Street Name" value={lead.streetName} onChangeText={(v) => onUpdate(idx, 'streetName', v)} />
+          </View>
+          <View style={{ marginTop: 10 }}>
+            <FieldInput label="Address Line 2" value={lead.addressLine2} onChangeText={(v) => onUpdate(idx, 'addressLine2', v)} />
+          </View>
+          <View style={s.row}>
+            <FieldInput label="City" value={lead.city} onChangeText={(v) => onUpdate(idx, 'city', v)} />
+            <View style={{ width: 10 }} />
+            <FieldInput label="State" value={lead.state} onChangeText={(v) => onUpdate(idx, 'state', v)} />
+            <View style={{ width: 10 }} />
+            <FieldInput label="ZIP" value={lead.zip} onChangeText={(v) => onUpdate(idx, 'zip', v)} />
+          </View>
+        </Card>
+      </Animated.View>
+    </View>
   );
 });
 
@@ -192,9 +248,12 @@ export default function BatchReviewScreen({ navigation, route }) {
   const listRef = useRef(null);
   const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [stateFilter, setStateFilter] = useState('ALL');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [leads, setLeads] = useState(() =>
     initialLeads.map((lead) => ({
       ...lead,
+      id: lead.id || `lead_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       keep: lead.keep !== undefined ? lead.keep : true,
       reviewed: lead.reviewed !== undefined ? lead.reviewed : false,
       ignoreDuplicate: lead.ignoreDuplicate !== undefined ? lead.ignoreDuplicate : false,
@@ -213,10 +272,8 @@ export default function BatchReviewScreen({ navigation, route }) {
 
   const scrollToBottom = () => {
     if (filteredLeads.length === 0) return;
-    // Tiny delay allows layout to settle before scrolling
-    setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    // Scroll to a very large offset to ensure we hit the bottom regardless of list length
+    listRef.current?.scrollToOffset({ offset: 99999, animated: true });
   };
 
   const updateLead = useCallback((idx, key, value) => {
@@ -230,6 +287,52 @@ export default function BatchReviewScreen({ navigation, route }) {
   const removeLead = useCallback((idx) => {
     setLeads((prev) => prev.filter((_, i) => i !== idx));
   }, []);
+
+  const toggleSelection = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleLongPress = (id) => {
+    setSelectionMode(true);
+    toggleSelection(id);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  const selectAll = () => {
+    const allIds = new Set(filteredLeads.map(l => l.id));
+    setSelectedIds(allIds);
+  };
+
+  const deleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    showThemedAlert(
+      `Delete ${selectedIds.size} Prospects?`,
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setLeads(prev => prev.filter(l => !selectedIds.has(l.id)));
+            clearSelection();
+          },
+        },
+      ]
+    );
+  };
 
   const toggleKeep = useCallback((idx) => {
     setLeads((prev) => {
@@ -253,13 +356,18 @@ export default function BatchReviewScreen({ navigation, route }) {
       if (duplicate && !lead.ignoreDuplicate) {
         duplicates.push({ lead: tagged, duplicate });
       } else {
-        nextQueue.push({
+        const batchLead = {
           ...tagged,
+          queueStatus: 'new',
+          queueSortGroup: 0,
+          collectedAt: now,
           duplicateWarning: duplicate
             ? `${duplicate.confidence === 'high' ? 'Likely duplicate' : 'Possible duplicate'}: ${duplicate.reason}`
             : '',
-        });
-        saved.push(tagged);
+        };
+        const finalLead = { ...batchLead, ...calculateLeadViability(batchLead) };
+        nextQueue.push(finalLead);
+        saved.push(finalLead);
       }
     }
 
@@ -301,10 +409,24 @@ export default function BatchReviewScreen({ navigation, route }) {
   };
 
   const renderItem = useCallback(
-    ({ item, index }) => (
-      <LeadCard lead={item} idx={index} onUpdate={updateLead} onToggle={toggleKeep} onRemove={removeLead} />
-    ),
-    [updateLead, toggleKeep, removeLead],
+    ({ item, index }) => {
+      const isSelected = selectedIds.has(item.id);
+      return (
+        <TouchableOpacity
+          onPress={() => selectionMode && toggleSelection(item.id)}
+          onLongPress={() => handleLongPress(item.id)}
+          activeOpacity={selectionMode ? 0.7 : 1}
+        >
+          <LeadCard lead={item} idx={index} onUpdate={updateLead} onRemove={removeLead} />
+          {selectionMode && (
+            <View style={[s.selectionOverlay, isSelected && s.selectionOverlayActive]}>
+              <Text style={s.selectionCheck}>{isSelected ? '✓' : ''}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      );
+    },
+    [updateLead, removeLead, selectionMode, selectedIds]
   );
 
   const keyExtractor = useCallback((item, idx) => item.id || String(idx), []);
@@ -370,7 +492,16 @@ export default function BatchReviewScreen({ navigation, route }) {
               onPress={saveAll}
               style={allowDuplicates ? { backgroundColor: '#7B3FBE' } : null}
             />
-            <SecondaryButton title="Back to Scan" onPress={() => navigation.goBack()} style={{ marginTop: 10 }} />
+            {selectionMode ? (
+              <>
+                <SecondaryButton title={`Delete ${selectedIds.size} Selected`} onPress={deleteSelected} style={{ marginTop: 10, backgroundColor: COLORS.danger }} />
+                <TouchableOpacity onPress={selectAll} style={{ marginTop: 10, alignItems: 'center' }}>
+                  <Text style={s.backToTopText}>SELECT ALL</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <SecondaryButton title="Back to Scan" onPress={() => navigation.goBack()} style={{ marginTop: 10 }} />
+            )}
             <TouchableOpacity
               onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
               style={{ marginTop: 20, alignItems: 'center' }}
@@ -504,5 +635,56 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  cardContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  swipeableCard: {
+    zIndex: 1,
+  },
+  deleteAction: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    backgroundColor: COLORS.danger,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
+  },
+  deleteActionBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  deleteActionText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  swipeHint: {
+    color: COLORS.muted,
+    fontSize: 10,
+    fontStyle: 'italic',
+  },
+  selectionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  selectionOverlayActive: {
+    borderColor: COLORS.accent,
+    backgroundColor: 'rgba(0, 201, 255, 0.2)',
+  },
+  selectionCheck: {
+    color: COLORS.accent,
+    fontSize: 48,
+    fontWeight: 'bold',
   },
 });

@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, TouchableOpacity } from 'react-native';
+import { useState, useRef } from 'react';
+import { View, Text, StyleSheet, PanResponder, TouchableOpacity } from 'react-native';
 
 const TARGET_SIZES = {
   small: { width: 120, height: 90, label: 'Small' },
   medium: { width: 180, height: 130, label: 'Medium' },
   large: { width: 260, height: 180, label: 'Large' },
+  custom: { width: 0, height: 0, label: 'Custom \u25EF' },
 };
 
 function clamp(value, min, max) {
@@ -19,22 +20,64 @@ export default function LeadLockTargetOverlay({
   onClearTarget,
 }) {
   const [layout, setLayout] = useState(null);
-  const size = TARGET_SIZES[targetSize] || TARGET_SIZES.medium;
+  const startPoint = useRef(null);
 
-  const handlePress = (event) => {
-    if (!layout?.width || !layout?.height) return;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetResponder: () => true,
+      onMoveShouldSetResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        if (!layout) return;
+        const { locationX, locationY } = evt.nativeEvent;
+        startPoint.current = { x: locationX, y: locationY };
 
-    const { locationX, locationY } = event.nativeEvent;
+        // If in fixed mode, just place the box immediately
+        if (targetSize !== 'custom') {
+          handleFixedPress(locationX, locationY);
+        }
+      },
+      onPanResponderMove: (evt) => {
+        if (targetSize === 'custom' && layout && startPoint.current) {
+          const { locationX, locationY } = evt.nativeEvent;
+          handleFreeDraw(locationX, locationY);
+        }
+      },
+      onPanResponderRelease: () => {
+        startPoint.current = null;
+      },
+    })
+  ).current;
+
+  const handleFixedPress = (locationX, locationY) => {
+    const size = TARGET_SIZES[targetSize] || TARGET_SIZES.medium;
     const width = Math.min(size.width, layout.width - 24);
     const height = Math.min(size.height, layout.height - 200);
     const x = clamp(locationX - width / 2, 12, layout.width - width - 12);
     const y = clamp(locationY - height / 2, 110, layout.height - height - 160);
+    updateBox(x, y, width, height, false);
+  };
 
+  const handleFreeDraw = (currentX, currentY) => {
+    const start = startPoint.current;
+    const radius = Math.sqrt(
+      Math.pow(currentX - start.x, 2) + Math.pow(currentY - start.y, 2)
+    );
+
+    const width = radius * 2;
+    const height = radius * 2;
+    const x = start.x - radius;
+    const y = start.y - radius;
+
+    updateBox(x, y, width, height, true);
+  };
+
+  const updateBox = (x, y, width, height, isCircle) => {
     const box = {
       x,
       y,
       width,
       height,
+      isCircle,
       previewWidth: layout.width,
       previewHeight: layout.height,
       normalizedX: x / layout.width,
@@ -55,7 +98,7 @@ export default function LeadLockTargetOverlay({
       style={StyleSheet.absoluteFill}
       onLayout={(event) => setLayout(event.nativeEvent.layout)}
     >
-      <Pressable style={StyleSheet.absoluteFill} onPress={handlePress}>
+      <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers}>
         {!!targetBox && (
           <View
             pointerEvents="none"
@@ -66,17 +109,25 @@ export default function LeadLockTargetOverlay({
                 top: targetBox.y,
                 width: targetBox.width,
                 height: targetBox.height,
+                borderRadius: targetBox.isCircle ? targetBox.width / 2 : 14,
               },
             ]}
           >
-            <Text style={s.targetLabel}>TARGET LOCKED</Text>
-            <View style={s.cornerTL} />
-            <View style={s.cornerTR} />
-            <View style={s.cornerBL} />
-            <View style={s.cornerBR} />
+            <Text style={s.targetLabel}>{targetBox.isCircle ? 'CIRCLE LOCK' : 'TARGET LOCKED'}</Text>
+            {!targetBox.isCircle && (
+              <>
+                <View style={s.cornerTL} />
+                <View style={s.cornerTR} />
+                <View style={s.cornerBL} />
+                <View style={s.cornerBR} />
+              </>
+            )}
+            {targetBox.isCircle && (
+              <View style={s.centerDot} />
+            )}
           </View>
         )}
-      </Pressable>
+      </View>
 
       <View pointerEvents="box-none" style={s.controlsWrap}>
         <View style={s.sizeRow}>
@@ -95,7 +146,11 @@ export default function LeadLockTargetOverlay({
             </TouchableOpacity>
           )}
         </View>
-        <Text style={s.helperText}>Tap storefront, sign, suite #, or card to lock target</Text>
+        <Text style={s.helperText}>
+          {targetSize === 'custom'
+            ? 'Drag finger to draw a circle around target'
+            : 'Tap storefront, sign, or card to lock target'}
+        </Text>
       </View>
     </View>
   );
@@ -106,12 +161,20 @@ const s = StyleSheet.create({
     position: 'absolute',
     borderWidth: 2,
     borderColor: '#00E5A0',
-    borderRadius: 14,
     backgroundColor: 'rgba(0,229,160,0.09)',
     shadowColor: '#00E5A0',
     shadowOpacity: 0.8,
     shadowRadius: 10,
     elevation: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+    opacity: 0.5,
   },
   targetLabel: {
     position: 'absolute',
@@ -134,7 +197,7 @@ const s = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 158,
+    top: 100, // MOVED TO TOP to avoid zoom window overlap
     alignItems: 'center',
   },
   sizeRow: {

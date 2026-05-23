@@ -6,11 +6,14 @@ import {
   StyleSheet,
   ScrollView,
   Linking,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { LensSignalRecord } from './lenssignalTypes';
 import { COLORS } from '../../constants';
 import { getAlertColor, getPestIconType, getPestEmoji, getSignalMarkerColor } from './lenssignalScoring';
+import { buildEnrichmentBundle } from '../../utils/enrichmentNormalizer';
+import { formatPestSignal } from '../../utils/pestUtils';
 
 interface Props {
   signal: LensSignalRecord;
@@ -20,9 +23,47 @@ interface Props {
 
 export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) => {
   const alertColor = getAlertColor(signal.alert_level);
-  const layer = signal.signal_layer || signal.signal_type || '';
-  const isCompliance = layer === 'Compliance Signal';
-  const isOpening = layer === 'Opening Signal';
+  const layer = signal.signal_layer || signal.signal_type || (signal as any).opening_type || 'Standard Discovery';
+
+  // Dynamic compatibility checks for both lenssignal_records and lens_signals schemas
+  const isOpening = layer === 'Opening Signal' || !!(signal as any).opening_type || !!(signal as any).is_new_opening;
+  const isCompliance = layer === 'Compliance Signal' || !!(signal as any).compliance_findings || !!(signal as any).compliance_source || !!signal.pest_details || !!signal.pest_indicator;
+  
+  // ── SIGNAL TYPE DISPLAY WITH PEST ICONS (#PEST-01)
+  let signalTypeDisplay = '';
+  if (isCompliance) {
+    // Use pest-specific icon for compliance signals
+    const pestDetails = (signal as any).pest_details || (signal as any).compliance_findings || '';
+    const pestSignal = formatPestSignal(pestDetails, signal.compliance_level || (signal as any).compliance_level);
+    signalTypeDisplay = pestSignal.display;
+  } else if (isOpening) {
+    signalTypeDisplay = `🎉 New Opening`;
+  } else {
+    signalTypeDisplay = `📍 Lead Discovery`;
+  }
+
+  const enrichmentBundle = buildEnrichmentBundle(
+    signal,
+    (signal as any).business,
+    (signal as any).prospect,
+    (signal as any).placeDetails,
+    (signal as any).googlePlace,
+    (signal as any).publicRecord,
+    (signal as any).comptrollerRecord,
+    (signal as any).texasComptroller,
+    (signal as any).enrichment
+  );
+
+  const displayPhone =
+    enrichmentBundle.primaryPhone ||
+    (signal as any).phone ||
+    (signal as any).business?.phone ||
+    (signal as any).prospect?.phone ||
+    "";
+
+  const phoneSource = enrichmentBundle.phoneCandidates?.find(p => p.phone === displayPhone)?.source || "";
+
+  const displayContacts = enrichmentBundle.contacts || [];
 
   return (
     <View style={styles.card}>
@@ -30,7 +71,7 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
         <View style={styles.titleArea}>
           <Text style={styles.brandLabel}>LensSignal</Text>
           <Text style={[styles.layerLabel, { color: alertColor }]}>
-            {layer}: {signal.alert_level || 'Active'}
+            {signalTypeDisplay} • {signal.alert_level || 'Active'}
           </Text>
           <Text style={styles.name}>{signal.establishment_name || signal.business_name}</Text>
         </View>
@@ -40,6 +81,66 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
       </View>
 
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+        {/* Phone Section */}
+        <View style={styles.section}>
+          {!!(signal as any).loading ? (
+            <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={COLORS.accent} />
+              <Text style={{ color: COLORS.accent, fontSize: 12, marginTop: 6 }}>Checking public/open records...</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase' }}>Phone:</Text>
+              {displayPhone ? (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ color: COLORS.accent, fontSize: 15, fontWeight: '700' }}>📞 {displayPhone}</Text>
+                  {!!phoneSource && <Text style={{ color: COLORS.muted, fontSize: 10, marginTop: 2 }}>Source: {phoneSource}</Text>}
+                </View>
+              ) : (
+                <Text style={{ color: COLORS.muted, fontSize: 13, fontStyle: 'italic', marginBottom: 12 }}>No phone found yet</Text>
+              )}
+
+              <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase' }}>Possible POCs:</Text>
+              {displayContacts.length > 0 ? (
+                <>
+                  {displayContacts.slice(0, 2).map((c, i) => (
+                    <View key={i} style={{ marginBottom: 8, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+                      <Text style={{ color: COLORS.text, fontSize: 14, fontWeight: '600' }}>
+                        👤 {c.name} {c.title ? `— ${c.title}` : ''}
+                      </Text>
+                      {!!c.email && (
+                        <Text style={{ color: COLORS.accent, fontSize: 12, marginTop: 4 }}>✉️ {c.email}</Text>
+                      )}
+                      {!!c.phone && (
+                        <Text style={{ color: COLORS.textDim, fontSize: 12, marginTop: 2 }}>📞 {c.phone}</Text>
+                      )}
+                      {!!c.source && (
+                        <Text style={{ color: COLORS.muted, fontSize: 11, marginTop: 4 }}>Source: {c.source}</Text>
+                      )}
+                    </View>
+                  ))}
+                  {displayContacts.length > 2 && (
+                    <Text style={{ color: COLORS.accent, fontSize: 11, fontWeight: '600', marginTop: 2, marginBottom: 10 }}>+{displayContacts.length - 2} more possible contacts</Text>
+                  )}
+                </>
+              ) : (
+                <Text style={{ color: COLORS.muted, fontSize: 13, fontStyle: 'italic', marginBottom: 10 }}>No possible POC found yet.</Text>
+              )}
+
+              {/* Email Candidates Section */}
+              {enrichmentBundle.emailCandidates?.length > 0 && (
+                <View style={{ marginTop: 4, marginBottom: 12 }}>
+                  <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 6, textTransform: 'uppercase' }}>Email Candidates:</Text>
+                  {enrichmentBundle.emailCandidates.slice(0, 3).map((email, i) => (
+                    <Text key={i} style={{ color: COLORS.accent, fontSize: 13, marginBottom: 3 }}>✉️ {email}</Text>
+                  ))}
+                </View>
+              )}
+
+            </>
+          )}
+        </View>
+
         {isCompliance && (
           <View style={styles.section}>
             <View style={styles.infoRow}>
@@ -62,7 +163,7 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Indicators:</Text>
                 <Text style={[styles.infoValue, { flex: 1, textAlign: 'right', fontSize: 11 }]}>
-                  {signal.pest_details.replace('Indicators: ', '')}
+                  {String(signal.pest_details).replace('Indicators: ', '')}
                 </Text>
               </View>
             )}
@@ -85,6 +186,13 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
             </View>
           </View>
         )}
+
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Data Source:</Text>
+          <Text style={styles.infoValue}>
+            {signal.source_name || (signal as any).source || 'Public Record / Registry'}
+          </Text>
+        </View>
 
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Distance:</Text>

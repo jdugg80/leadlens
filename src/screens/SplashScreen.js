@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Constants from 'expo-constants';
 import {
   Animated,
   Dimensions,
@@ -510,7 +511,7 @@ export default function SplashScreen({ navigation }) {
             <Text style={styles.skipArrow}>›</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.version}>v{APP_VERSION}</Text>
+        <Text style={styles.version}>{`v${APP_VERSION}-BETA.${Constants.expoConfig?.extra?.betaBuild || '1'}`}</Text>
       </Animated.View>
     </Animated.View>
   );

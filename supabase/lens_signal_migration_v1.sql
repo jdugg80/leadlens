@@ -152,7 +152,10 @@ returns table (
   opening_status text,
   source_name text,
   source_record_url text,
-  distance_miles numeric
+  distance_miles numeric,
+  owner_name text,
+  phone text,
+  raw_record jsonb
 )
 language plpgsql
 as $$
@@ -180,7 +183,10 @@ begin
     r.opening_status,
     r.source_name,
     r.source_record_url,
-    (st_distance(r.location, search_point) / meters_per_mile)::numeric as distance_miles
+    (st_distance(r.location, search_point) / meters_per_mile)::numeric as distance_miles,
+    coalesce(r.raw_record->>'owner_name', r.raw_record->>'owner', r.raw_record->>'contact_name') as owner_name,
+    coalesce(r.raw_record->>'phone', r.raw_record->>'phone_number', r.raw_record->>'contact_phone') as phone,
+    r.raw_record
   from lenssignal_records r
   where
     st_dwithin(r.location, search_point, p_radius_miles * meters_per_mile)
