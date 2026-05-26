@@ -238,33 +238,39 @@ export default function CaptureScreen({ navigation, route }) {
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
 
-  const openCamera = async (quality = 0.75) => {
+  const openCamera = async (quality = 0.75, skipPermissionRequest = false) => {
     try {
       console.log('[Capture] ===== OPENING CAMERA =====');
       console.log('[Capture] Checking camera permissions...');
       
       try {
-        const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
-        console.log('[Capture] Permission response received!');
-        console.log('[Capture] Camera permission status:', status, 'canAskAgain:', canAskAgain);
+        let status = 'granted';
+        if (!skipPermissionRequest) {
+          const permResult = await ImagePicker.requestCameraPermissionsAsync();
+          status = permResult.status;
+          console.log('[Capture] Permission response received!');
+          console.log('[Capture] Camera permission status:', status, 'canAskAgain:', permResult.canAskAgain);
 
-        if (status !== 'granted') {
-          console.log('[Capture] Permission NOT granted');
-          if (!canAskAgain) {
-            console.log('[Capture] Showing permanent block alert');
-            showThemedAlert(
-              'Permission Blocked',
-              'Camera access is permanently denied. Please enable it in your device settings to capture prospects.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Open Settings', onPress: () => Linking.openSettings() }
-              ]
-            );
-          } else {
-            console.log('[Capture] Showing permission required alert');
-            showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
+          if (status !== 'granted') {
+            console.log('[Capture] Permission NOT granted');
+            if (!permResult.canAskAgain) {
+              console.log('[Capture] Showing permanent block alert');
+              showThemedAlert(
+                'Permission Blocked',
+                'Camera access is permanently denied. Please enable it in your device settings to capture prospects.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                ]
+              );
+            } else {
+              console.log('[Capture] Showing permission required alert');
+              showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
+            }
+            return null;
           }
-          return null;
+        } else {
+          console.log('[Capture] Skipping permission request (already requested)');
         }
 
         console.log('[Capture] Permission granted! Launching camera...');
@@ -510,13 +516,41 @@ export default function CaptureScreen({ navigation, route }) {
         text: 'Front & Back',
         onPress: async () => {
           console.log('[Capture] Front & Back option selected');
+          console.log('[Capture] Requesting camera permissions upfront...');
+          
+          try {
+            const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
+            console.log('[Capture] Camera permission status:', status);
+            
+            if (status !== 'granted') {
+              if (!canAskAgain) {
+                showThemedAlert(
+                  'Permission Blocked',
+                  'Camera access is permanently denied. Please enable it in your device settings.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                  ]
+                );
+              } else {
+                showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
+              }
+              return;
+            }
+          } catch (permErr) {
+            console.error('[Capture] Permission error:', permErr);
+            return;
+          }
+          
           await new Promise((resolve) => {
             showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card', [
               { text: 'Ready', onPress: resolve }
             ]);
           });
+          // Give the modal time to fully close
+          await new Promise(r => setTimeout(r, 500));
           console.log('[Capture] Opening camera for front side');
-          const front = await openCamera(0.65);
+          const front = await openCamera(0.65, true);
           if (!front) {
             console.log('[Capture] Front photo not taken, returning early');
             return;
@@ -528,8 +562,10 @@ export default function CaptureScreen({ navigation, route }) {
               { text: 'Ready', onPress: resolve }
             ]);
           });
+          // Give the modal time to fully close
+          await new Promise(r => setTimeout(r, 500));
           console.log('[Capture] Opening camera for back side');
-          const back = await openCamera(0.65);
+          const back = await openCamera(0.65, true);
           if (!back) {
             console.log('[Capture] Back photo not taken, returning early');
             return;
