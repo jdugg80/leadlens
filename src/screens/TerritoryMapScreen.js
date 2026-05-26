@@ -12,12 +12,16 @@ import {
   ActivityIndicator,
   Modal,
   Animated,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Polygon, Marker, Circle } from 'react-native-maps';
 import { ScreenHeader } from '../components/UI';
 import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
+import { makeSafePolygons } from '../utils/mapSafety';
+import { storageBridge as AsyncStorage } from '../utils/storage';
+import { LEADS_STORAGE_KEY } from '../constants';
 
 
 const COLORS = {
@@ -94,6 +98,9 @@ export default function TerritoryMapScreen() {
   const [lensSignalModalVisible, setLensSignalModalVisible] = useState(false);
   const [searchingLensSignal, setSearchingLensSignal] = useState(false);
   const [pulseAnim] = useState(new Animated.Value(0));
+  const [prospects, setProspects] = useState([]);
+  const [selectedProspect, setSelectedProspect] = useState(null);
+  const [prospectModalVisible, setProspectModalVisible] = useState(false);
   useEffect(() => {
   Animated.loop(
     Animated.sequence([
@@ -146,6 +153,22 @@ const filterByAlertLevel = (results) => {
 };
   useEffect(() => {
     loadTerritories();
+  }, []);
+
+  useEffect(() => {
+    const loadProspects = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+        const all = raw ? JSON.parse(raw) : [];
+        // Only show prospects that have GPS coordinates captured
+        const mapped = all.filter(p => p.latitude && p.longitude);
+        setProspects(mapped);
+        console.log(`[TerritoryMap] Loaded ${mapped.length} mapped prospects`);
+      } catch (e) {
+        console.error('[TerritoryMap] prospects load error:', e);
+      }
+    };
+    loadProspects();
   }, []);
 
   const loadTerritories = async () => {
@@ -487,6 +510,54 @@ useEffect(() => {
 })}
    {/* Polygons disabled - debugging needed */}
 {/* {zipMarkers.map((marker) => { ... })} */}
+
+          {/* ZIP Boundary Polygons */}
+          {zipMarkers.map((marker) => {
+            if (marker.isFallback) {
+              // Fallback: render a circle at the zip centroid
+              return (
+                <Circle
+                  key={`zip-fallback-${marker.zip}`}
+                  center={{ latitude: marker.latitude, longitude: marker.longitude }}
+                  radius={3000}
+                  strokeColor={`${COLORS.accent}80`}
+                  fillColor={`${COLORS.accent}15`}
+                  strokeWidth={1}
+                />
+              );
+            }
+            // Full polygon boundary
+            const coords = makeSafePolygons(marker.polygons || marker.coordinates || []);
+            if (!coords || coords.length < 3) return null;
+            return (
+              <Polygon
+                key={`zip-poly-${marker.zip}`}
+                coordinates={coords}
+                strokeColor={`${COLORS.accent}90`}
+                fillColor={`${COLORS.accent}18`}
+                strokeWidth={1.5}
+              />
+            );
+          })}
+
+          {/* Prospect Contact Card Markers */}
+          {prospects.map((prospect, idx) => (
+            <Marker
+              key={`prospect-${prospect.id || idx}`}
+              coordinate={{
+                latitude: parseFloat(prospect.latitude),
+                longitude: parseFloat(prospect.longitude),
+              }}
+              onPress={() => {
+                setSelectedProspect(prospect);
+                setProspectModalVisible(true);
+              }}
+            >
+              <View style={styles.prospectMarker}>
+                <Text style={styles.prospectMarkerIcon}>📇</Text>
+              </View>
+            </Marker>
+          ))}
   
         </MapView>
 
@@ -545,24 +616,6 @@ useEffect(() => {
       )}
 {/* Search Results Modal */}
 
-{!loading && zipMarkers.map((marker) => {
-  if (!marker.isFallback) return null;
-  
-  return (
-    <View
-      key={`fallback-${marker.zip}`}
-      style={{
-        position: 'absolute',
-        width: 30,
-        height: 30,
-        borderRadius: 15,
-        backgroundColor: `${COLORS.accent}40`,
-        borderColor: COLORS.accent,
-        borderWidth: 1,
-      }}
-    />
-  );
-})}
 {/* FAB Buttons */}
       <View style={styles.fabContainer}>
         <TouchableOpacity style={styles.fab} onPress={handleLocationPress}>
@@ -696,7 +749,10 @@ useEffect(() => {
             </TouchableOpacity>
           </View>
         </View>
-        {/* LensSignal Contact Card Modal */}
+        {/* LensSignal Contact Card Modal — nested inside filter modal intentionally removed; see below */}
+      </Modal>
+
+      {/* LensSignal / Search Result Contact Card Modal */}
 <Modal visible={lensSignalModalVisible} transparent animationType="slide" onRequestClose={() => setLensSignalModalVisible(false)}>
   <View style={styles.modalOverlay}>
     <View style={[styles.modalContent, { maxHeight: '70%' }]}>
@@ -710,19 +766,14 @@ useEffect(() => {
           </View>
 
           <ScrollView style={styles.modalScroll}>
-            {/* Signal Type Badge - LensSignals Only */}
             {selectedLensSignal.signal_type && (
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
                 <Text style={{ fontSize: 20, marginRight: 8 }}>
                   {SIGNAL_TYPE_ICONS[selectedLensSignal.signal_type] || SIGNAL_TYPE_ICONS['default']}
                 </Text>
-                <Text style={[styles.label, { margin: 0 }]}>
-                  {selectedLensSignal.signal_type}
-                </Text>
+                <Text style={[styles.label, { margin: 0 }]}>{selectedLensSignal.signal_type}</Text>
               </View>
             )}
-
-            {/* Address */}
             {(selectedLensSignal.address || selectedLensSignal.formatted_address) && (
               <View style={{ marginBottom: 12 }}>
                 <Text style={styles.label}>📍 Address:</Text>
@@ -731,28 +782,18 @@ useEffect(() => {
                 </Text>
               </View>
             )}
-
-            {/* Phone */}
             {selectedLensSignal.phone && (
               <View style={{ marginBottom: 12 }}>
                 <Text style={styles.label}>☎️ Phone:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
-                  {selectedLensSignal.phone}
-                </Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedLensSignal.phone}</Text>
               </View>
             )}
-
-            {/* Email */}
             {selectedLensSignal.email && (
               <View style={{ marginBottom: 12 }}>
                 <Text style={styles.label}>✉️ Email:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
-                  {selectedLensSignal.email}
-                </Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedLensSignal.email}</Text>
               </View>
             )}
-
-            {/* Health Rating */}
             {selectedLensSignal.compliance_score && (
               <View style={{ marginBottom: 16 }}>
                 <Text style={styles.label}>🏥 Health Rating:</Text>
@@ -763,23 +804,170 @@ useEffect(() => {
             )}
           </ScrollView>
 
-          {/* Action Buttons */}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}>
-            <TouchableOpacity style={[styles.fab, { flex: 1, width: 'auto' }]}>
-              <Ionicons name="add" size={20} color={COLORS.bg} />
-              <Text style={{ color: COLORS.bg, fontSize: 12, marginTop: 4 }}>Queue</Text>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => {
+                setLensSignalModalVisible(false);
+                // Navigate to ManualEntry with pre-filled data
+                navigation.navigate('ManualEntry', {
+                  prefill: {
+                    businessName: selectedLensSignal.establishment_name || selectedLensSignal.name || '',
+                    phone: selectedLensSignal.phone || '',
+                    email: selectedLensSignal.email || '',
+                    streetAddress: selectedLensSignal.address || selectedLensSignal.formatted_address || '',
+                  }
+                });
+              }}
+            >
+              <Ionicons name="add" size={18} color={COLORS.bg} />
+              <Text style={styles.actionBtnText}>Queue</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.fab, { flex: 1, width: 'auto' }]}>
-              <Ionicons name="document" size={20} color={COLORS.bg} />
-              <Text style={{ color: COLORS.bg, fontSize: 12, marginTop: 4 }}>Details</Text>
+            {selectedLensSignal.phone ? (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => Linking.openURL(`tel:${selectedLensSignal.phone}`)}
+              >
+                <Ionicons name="call" size={18} color={COLORS.bg} />
+                <Text style={styles.actionBtnText}>Call</Text>
+              </TouchableOpacity>
+            ) : null}
+            {selectedLensSignal.email ? (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => Linking.openURL(`mailto:${selectedLensSignal.email}`)}
+              >
+                <Ionicons name="mail" size={18} color={COLORS.bg} />
+                <Text style={styles.actionBtnText}>Email</Text>
+              </TouchableOpacity>
+            ) : null}
+            {(selectedLensSignal.geometry?.location || selectedLensSignal.latitude) ? (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => {
+                  const lat = selectedLensSignal.geometry?.location?.lat || selectedLensSignal.latitude;
+                  const lng = selectedLensSignal.geometry?.location?.lng || selectedLensSignal.longitude;
+                  Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+                }}
+              >
+                <Ionicons name="navigate" size={18} color={COLORS.bg} />
+                <Text style={styles.actionBtnText}>Navigate</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </>
+      ) : null}
+    </View>
+  </View>
+</Modal>
+
+      {/* Prospect Contact Card Modal */}
+<Modal visible={prospectModalVisible} transparent animationType="slide" onRequestClose={() => setProspectModalVisible(false)}>
+  <View style={styles.modalOverlay}>
+    <View style={[styles.modalContent, { maxHeight: '75%' }]}>
+      {selectedProspect ? (
+        <>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle} numberOfLines={1}>
+              {selectedProspect.businessName || 'Prospect'}
+            </Text>
+            <TouchableOpacity onPress={() => setProspectModalVisible(false)}>
+              <Ionicons name="close" size={24} color={COLORS.chrome} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.fab, { flex: 1, width: 'auto' }]}>
-              <Ionicons name="call" size={20} color={COLORS.bg} />
-              <Text style={{ color: COLORS.bg, fontSize: 12, marginTop: 4 }}>Call</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.fab, { flex: 1, width: 'auto' }]}>
-              <Ionicons name="mail" size={20} color={COLORS.bg} />
-              <Text style={{ color: COLORS.bg, fontSize: 12, marginTop: 4 }}>Email</Text>
+          </View>
+
+          <ScrollView style={styles.modalScroll}>
+            {/* Contact name */}
+            {(selectedProspect.pocFirst || selectedProspect.pocLast) && (
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>👤 Contact:</Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
+                  {[selectedProspect.pocFirst, selectedProspect.pocLast].filter(Boolean).join(' ')}
+                </Text>
+              </View>
+            )}
+            {/* Address */}
+            {(selectedProspect.streetNumber || selectedProspect.streetName || selectedProspect.city) && (
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>📍 Address:</Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
+                  {[
+                    [selectedProspect.streetNumber, selectedProspect.streetName].filter(Boolean).join(' '),
+                    selectedProspect.addressLine2,
+                    [selectedProspect.city, selectedProspect.state, selectedProspect.zip].filter(Boolean).join(', '),
+                  ].filter(Boolean).join('\n')}
+                </Text>
+              </View>
+            )}
+            {/* Phone */}
+            {selectedProspect.phone ? (
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>☎️ Phone:</Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.phone}</Text>
+              </View>
+            ) : null}
+            {/* Email */}
+            {selectedProspect.email ? (
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>✉️ Email:</Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.email}</Text>
+              </View>
+            ) : null}
+            {/* Vertical / property type */}
+            {selectedProspect.propertyType ? (
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>🏢 Type:</Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.propertyType}</Text>
+              </View>
+            ) : null}
+            {/* Capture method */}
+            {selectedProspect.captureMethod ? (
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.label}>📸 Captured via:</Text>
+                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.captureMethod}</Text>
+              </View>
+            ) : null}
+          </ScrollView>
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}>
+            {selectedProspect.phone ? (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => Linking.openURL(`tel:${selectedProspect.phone}`)}
+              >
+                <Ionicons name="call" size={18} color={COLORS.bg} />
+                <Text style={styles.actionBtnText}>Call</Text>
+              </TouchableOpacity>
+            ) : null}
+            {selectedProspect.email ? (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => Linking.openURL(`mailto:${selectedProspect.email}`)}
+              >
+                <Ionicons name="mail" size={18} color={COLORS.bg} />
+                <Text style={styles.actionBtnText}>Email</Text>
+              </TouchableOpacity>
+            ) : null}
+            {selectedProspect.latitude && selectedProspect.longitude ? (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => {
+                  Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${selectedProspect.latitude},${selectedProspect.longitude}`);
+                }}
+              >
+                <Ionicons name="navigate" size={18} color={COLORS.bg} />
+                <Text style={styles.actionBtnText}>Navigate</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: COLORS.purple }]}
+              onPress={() => {
+                setProspectModalVisible(false);
+                navigation.navigate('Review', { lead: selectedProspect });
+              }}
+            >
+              <Ionicons name="document-text" size={18} color="#fff" />
+              <Text style={[styles.actionBtnText, { color: '#fff' }]}>View Details</Text>
             </TouchableOpacity>
           </View>
         </>
@@ -787,7 +975,6 @@ useEffect(() => {
     </View>
   </View>
 </Modal>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -1140,5 +1327,32 @@ gpsCenter: {
   height: 12,
   borderRadius: 6,
   backgroundColor: COLORS.accent,
+},
+prospectMarker: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  backgroundColor: COLORS.surface,
+  borderWidth: 2,
+  borderColor: COLORS.purple,
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+prospectMarkerIcon: {
+  fontSize: 20,
+},
+actionBtn: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 6,
+  backgroundColor: COLORS.accent,
+  paddingHorizontal: 14,
+  paddingVertical: 10,
+  borderRadius: 10,
+},
+actionBtnText: {
+  color: COLORS.bg,
+  fontSize: 13,
+  fontWeight: '700',
 },
 });

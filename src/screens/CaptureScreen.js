@@ -450,7 +450,7 @@ export default function CaptureScreen({ navigation, route }) {
     }
   };
 
-  const captureMultiplePhotos = async (quality = 0.75, label = 'photo') => {
+  const captureMultiplePhotos = async (quality = 0.75, label = 'photo', skipPermission = false) => {
     const assets = [];
     let keepGoing = true;
     while (keepGoing) {
@@ -467,9 +467,11 @@ export default function CaptureScreen({ navigation, route }) {
           );
         });
         if (!keepGoing) break;
+        // Wait for alert to fully dismiss before re-opening camera
+        await new Promise(r => setTimeout(r, 500));
       }
       console.log(`[Capture] Opening camera for ${label} #${stepNum}...`);
-      const asset = await openCamera(quality);
+      const asset = await openCamera(quality, skipPermission);
       if (!asset) {
         console.log(`[Capture] Camera returned null for ${label} #${stepNum}`);
         break;
@@ -497,12 +499,42 @@ export default function CaptureScreen({ navigation, route }) {
 
   const handleCardCapture = async () => {
     console.log('[Capture] handleCardCapture triggered');
+
+    // Request camera permissions BEFORE showing the alert modal.
+    // On Android, calling requestCameraPermissionsAsync() while a modal is
+    // still dismissing causes the permission dialog to hang silently.
+    console.log('[Capture] Requesting camera permissions upfront...');
+    try {
+      const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
+      console.log('[Capture] Camera permission status:', status);
+      if (status !== 'granted') {
+        if (!canAskAgain) {
+          showThemedAlert(
+            'Permission Blocked',
+            'Camera access is permanently denied. Please enable it in your device settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+        } else {
+          showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
+        }
+        return;
+      }
+    } catch (permErr) {
+      console.error('[Capture] Permission error in handleCardCapture:', permErr);
+      return;
+    }
+
     showThemedAlert('Business Card', 'Choose how you want to scan the card.', [
       {
         text: 'Single-Sided',
         onPress: async () => {
           console.log('[Capture] Single-Sided option selected');
-          const assets = await captureMultiplePhotos(0.65, 'card');
+          // Wait for the alert modal to fully dismiss before opening camera
+          await new Promise(r => setTimeout(r, 500));
+          const assets = await captureMultiplePhotos(0.65, 'card', true);
           console.log('[Capture] Single-sided assets:', assets?.length || 0);
           if (!assets.length) {
             console.log('[Capture] No assets returned, returning early');
@@ -516,31 +548,7 @@ export default function CaptureScreen({ navigation, route }) {
         text: 'Front & Back',
         onPress: async () => {
           console.log('[Capture] Front & Back option selected');
-          console.log('[Capture] Requesting camera permissions upfront...');
-          
-          try {
-            const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
-            console.log('[Capture] Camera permission status:', status);
-            
-            if (status !== 'granted') {
-              if (!canAskAgain) {
-                showThemedAlert(
-                  'Permission Blocked',
-                  'Camera access is permanently denied. Please enable it in your device settings.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Open Settings', onPress: () => Linking.openSettings() }
-                  ]
-                );
-              } else {
-                showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
-              }
-              return;
-            }
-          } catch (permErr) {
-            console.error('[Capture] Permission error:', permErr);
-            return;
-          }
+          // Permission already granted above — no need to re-request
           
           await new Promise((resolve) => {
             showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card', [
