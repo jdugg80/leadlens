@@ -6,7 +6,9 @@
 
 import { enrichProspectProfile } from './dataEnrichmentOrchestrator';
 import { extractLocationFromBusinessCard } from './addressGeocoder';
-import { extractProspectAI } from '../services/extractProspectAI';
+
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
 
 /**
  * Analyze photo for multiple businesses/storefronts
@@ -58,29 +60,104 @@ export async function detectMultipleBusinessesInPhoto(base64Image, context = {})
 }
 
 /**
- * Use Claude Vision to detect businesses in photo
+ * Use Claude Vision directly to detect all businesses in photo
  * @private
  */
 async function detectBusinessesWithVision(base64Image, context) {
   try {
-    const result = await extractProspectAI({
-      imageBase64: base64Image,
-      mimeType: 'image/jpeg',
-      mode: 'multi-business',
-      context: context ? JSON.stringify(context) : ''
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('EXPO_PUBLIC_ANTHROPIC_API_KEY is not set');
+    }
+
+    const systemPrompt = `You are a business intelligence system analyzing photos of commercial areas for pest control sales prospecting.
+
+Your job is to identify ALL visible businesses and storefronts in the photo.
+
+Respond ONLY with valid JSON in this exact format — no markdown, no explanation, nothing else:
+{
+  "businesses": [
+    {
+      "name": "Business name from signage",
+      "signage": "Exact text visible on sign",
+      "address": "Street address if visible, otherwise null",
+      "businessType": "restaurant|retail|office|grocery|hotel|warehouse|medical|other",
+      "position": "left|center|right|background",
+      "confidence": 0.95,
+      "pestIndicators": ["dumpsters visible", "outdoor food prep", "standing water", "delivery activity"],
+      "notes": "any relevant observations for pest control prospecting"
+    }
+  ],
+  "totalDetected": 2,
+  "analysisNotes": "brief scene description"
+}
+
+If no businesses are clearly identifiable, return:
+{"businesses": [], "totalDetected": 0, "analysisNotes": "reason no businesses detected"}`;
+
+    const response = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/jpeg',
+                  data: base64Image,
+                },
+              },
+              {
+                type: 'text',
+                text: `Analyze this photo taken near ${context.city || 'Houston'}, ${context.county ? context.county + ' County,' : ''} TX. Identify every visible business and storefront. Focus on signage, storefronts, and any commercial activity. This is for pest control sales prospecting — note any food service, waste areas, or conditions that indicate pest risk.`,
+              },
+            ],
+          },
+        ],
+      }),
     });
 
-    if (!result) throw new Error('No result returned from multi-business detection');
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Claude API ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    const rawText = data.content?.[0]?.text || '';
+    console.log('[LeadLock] Claude raw response:', rawText.slice(0, 200));
+
+    // Strip any accidental markdown fences before parsing
+    const clean = rawText.replace(/```json|```/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (parseErr) {
+      console.error('[LeadLock] JSON parse failed:', parseErr, 'raw:', rawText);
+      throw new Error('Claude returned non-JSON response');
+    }
+
+    const businesses = parsed.businesses || [];
+    console.log(`[LeadLock] Detected ${businesses.length} businesses`);
 
     return {
-      success: true,
-      businesses: result.businesses || [],
-      totalDetected: result.totalDetected || 0,
-      analysisNotes: result.analysisNotes || '',
+      success: businesses.length > 0,
+      businesses,
+      totalDetected: parsed.totalDetected || businesses.length,
+      analysisNotes: parsed.analysisNotes || '',
       analyzedAt: new Date().toISOString(),
     };
   } catch (error) {
-    console.error('Vision detection error:', error);
+    console.error('[LeadLock] Vision detection error:', error);
     return {
       success: false,
       error: error.message,
@@ -96,10 +173,14 @@ async function detectBusinessesWithVision(base64Image, context) {
  */
 async function enrichBusinessDetection(business, context) {
   try {
+    // Build full address upfront so it's accessible throughout the function
+    const fullAddress = business.address
+      ? `${business.address}, ${context.city || 'Houston'}, TX`
+      : `${context.city || 'Houston'}, TX`;
+
     // Geocode the address
     let location = null;
     if (business.address) {
-      const fullAddress = `${business.address}, ${context.city || 'Houston'}, TX`;
       location = await extractLocationFromBusinessCard({
         address: fullAddress,
       }).catch(() => null);
