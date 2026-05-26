@@ -297,7 +297,6 @@ export default function DashboardScreen({ navigation, route }) {
         const rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
         const myZips = await loadMyZips().catch(() => []);
         const rawGoals = AsyncStorage.getJSONSync(GOALS_STORAGE_KEY, {});
-        ]);
 
         if (!active) return;
 
