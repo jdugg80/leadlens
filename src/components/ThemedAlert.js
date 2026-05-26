@@ -60,21 +60,19 @@ export function ThemedAlertHost() {
 
   const close = (button) => {
     const onPress = button?.onPress;
-    setConfig((prev) => ({ ...prev, visible: false }));
     if (typeof onPress === 'function') {
-      setTimeout(() => {
-        try {
-          const result = onPress();
-          // Handle async onPress — catch rejected Promises so they don't
-          // silently swallow errors and stop execution mid-function
-          if (result && typeof result.catch === 'function') {
-            result.catch(err => console.warn('[ThemedAlert] onPress error:', err?.message));
-          }
-        } catch (err) {
-          console.warn('[ThemedAlert] onPress error:', err?.message);
+      try {
+        const result = onPress();
+        // Handle async onPress — catch rejected Promises so they don't
+        // silently swallow errors and stop execution mid-function
+        if (result && typeof result.catch === 'function') {
+          result.catch(err => console.warn('[ThemedAlert] onPress error:', err?.message));
         }
-      }, 70);
+      } catch (err) {
+        console.warn('[ThemedAlert] onPress error:', err?.message);
+      }
     }
+    setConfig((prev) => ({ ...prev, visible: false }));
   };
 
   const buttons = useMemo(() => (Array.isArray(config.buttons) && config.buttons.length ? config.buttons : [{ text: 'OK' }]), [config.buttons]);

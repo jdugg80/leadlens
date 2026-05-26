@@ -462,10 +462,16 @@ export default function CaptureScreen({ navigation, route }) {
         });
         if (!keepGoing) break;
       }
+      console.log(`[Capture] Opening camera for ${label} #${stepNum}...`);
       const asset = await openCamera(quality);
-      if (!asset) break;
+      if (!asset) {
+        console.log(`[Capture] Camera returned null for ${label} #${stepNum}`);
+        break;
+      }
+      console.log(`[Capture] Camera returned asset for ${label} #${stepNum}`);
       assets.push(asset);
     }
+    console.log(`[Capture] captureMultiplePhotos complete: ${assets.length} assets captured`);
     return assets;
   };
 
@@ -484,30 +490,56 @@ export default function CaptureScreen({ navigation, route }) {
   };
 
   const handleCardCapture = async () => {
+    console.log('[Capture] handleCardCapture triggered');
     showThemedAlert('Business Card', 'Choose how you want to scan the card.', [
       {
         text: 'Single-Sided',
         onPress: async () => {
+          console.log('[Capture] Single-Sided option selected');
           const assets = await captureMultiplePhotos(0.65, 'card');
-          if (!assets.length) return;
+          console.log('[Capture] Single-sided assets:', assets?.length || 0);
+          if (!assets.length) {
+            console.log('[Capture] No assets returned, returning early');
+            return;
+          }
+          console.log('[Capture] Processing single-sided assets');
           await processAssets(assets, null, 'image');
         },
       },
       {
         text: 'Front & Back',
         onPress: async () => {
-          showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card');
+          console.log('[Capture] Front & Back option selected');
+          await new Promise((resolve) => {
+            showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card', [
+              { text: 'Ready', onPress: resolve }
+            ]);
+          });
+          console.log('[Capture] Opening camera for front side');
           const front = await openCamera(0.65);
-          if (!front) return;
+          if (!front) {
+            console.log('[Capture] Front photo not taken, returning early');
+            return;
+          }
+          console.log('[Capture] Front photo taken, showing step 2');
 
-          showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card');
+          await new Promise((resolve) => {
+            showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card', [
+              { text: 'Ready', onPress: resolve }
+            ]);
+          });
+          console.log('[Capture] Opening camera for back side');
           const back = await openCamera(0.65);
-          if (!back) return;
+          if (!back) {
+            console.log('[Capture] Back photo not taken, returning early');
+            return;
+          }
+          console.log('[Capture] Back photo taken, processing both');
 
           await processAssets([front, back], null, 'business-card-2-sided');
         },
       },
-      { text: 'Cancel', style: 'cancel' },
+      { text: 'Cancel', style: 'cancel', onPress: () => console.log('[Capture] Card capture cancelled') },
     ]);
   };
 

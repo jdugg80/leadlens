@@ -519,11 +519,23 @@ useEffect(() => {
             )}
 
             <View style={styles.buttonRow}>
-              <TouchableOpacity style={styles.filterBtn}>
+              <TouchableOpacity 
+                style={styles.filterBtn}
+                onPress={() => {
+                  setFilterTab('prospecting');
+                  setFilterModalVisible(true);
+                }}
+              >
                 <Ionicons name="home" size={16} color={COLORS.chrome} />
                 <Text style={styles.filterBtnText}>Industry</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.filterBtn}>
+              <TouchableOpacity 
+                style={styles.filterBtn}
+                onPress={() => {
+                  setFilterTab('lenssignal');
+                  setFilterModalVisible(true);
+                }}
+              >
                 <Ionicons name="bar-chart" size={16} color={COLORS.chrome} />
                 <Text style={styles.filterBtnText}>Signals</Text>
               </TouchableOpacity>
@@ -552,8 +564,6 @@ useEffect(() => {
   );
 })}
 {/* FAB Buttons */}
-<View style={styles.fabContainer}></View>
-      {/* FAB Buttons */}
       <View style={styles.fabContainer}>
         <TouchableOpacity style={styles.fab} onPress={handleLocationPress}>
           <Ionicons name="location" size={24} color={COLORS.bg} />
