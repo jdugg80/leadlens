@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';

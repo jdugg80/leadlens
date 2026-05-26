@@ -120,14 +120,13 @@ export default function TerritoryManagerScreen({ navigation, route }) {
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      const [zips, shared, rawLeads, rawGoals, profileVal, modeVal] = await Promise.all([
-        loadMyZips(),
-        loadSharedTerritories(),
-        AsyncStorage.getItem(LEADS_STORAGE_KEY).then(r => r ? JSON.parse(r) : []),
-        AsyncStorage.getItem(GOALS_STORAGE_KEY).then(r => r ? JSON.parse(r) : {}),
-        AsyncStorage.getItem(TARGET_LENS_PROFILES_KEY),
-        AsyncStorage.getItem(TARGET_LENS_SEARCH_MODE_KEY),
-      ]);
+      // Use sync API for instant territory load
+      const zips = await loadMyZips();
+      const shared = await loadSharedTerritories();
+      const rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
+      const rawGoals = AsyncStorage.getJSONSync(GOALS_STORAGE_KEY, {});
+      const profileVal = AsyncStorage.getSync(TARGET_LENS_PROFILES_KEY);
+      const modeVal = AsyncStorage.getSync(TARGET_LENS_SEARCH_MODE_KEY);
       const goal = Math.max(1, Number(rawGoals?.dailyProspects) || 10);
       setDailyGoal(goal);
       setMyZips(zips);

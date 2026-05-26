@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import { LEADS_STORAGE_KEY } from '../constants';
 
 export const OUTREACH_TYPES = {
@@ -20,7 +20,8 @@ export function buildOutreachEntry(type, note = '') {
 
 export async function logOutreachActivity(leadId, type, note = '') {
   try {
-    const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+    // Use sync API for instant activity logging
+    const raw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
     const leads = raw ? JSON.parse(raw) : [];
     const idx = leads.findIndex(l => l.id === leadId);
     if (idx === -1) return { ok: false, reason: 'lead-not-found' };
@@ -37,7 +38,8 @@ export async function logOutreachActivity(leadId, type, note = '') {
       lastOutreachType: type,
     };
 
-    await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+    // Use sync API for instant save
+    AsyncStorage.setSync(LEADS_STORAGE_KEY, JSON.stringify(leads));
     return { ok: true, entry };
   } catch (err) {
     return { ok: false, reason: err?.message };

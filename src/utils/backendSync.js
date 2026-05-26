@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import {
   AUTOMATION_SETTINGS_KEY,
   LEADS_STORAGE_KEY,

@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, Image, TouchableOpacity,
   StyleSheet, Dimensions, Alert, Modal,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage as AsyncStorage } from '../utils/storage';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect } from '@react-navigation/native';
@@ -36,8 +36,8 @@ export default function CardGalleryScreen({ navigation, route }) {
   const loadCards = async () => {
     setLoading(true);
     try {
-      // Load all prospects with imageUri
-      const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+      // Load all prospects with imageUri - use sync API for instant loading
+      const raw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
       const leads = raw ? JSON.parse(raw) : [];
 
       const withImages = leads

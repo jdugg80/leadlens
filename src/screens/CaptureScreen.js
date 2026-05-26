@@ -486,15 +486,28 @@ export default function CaptureScreen({ navigation, route }) {
   const handleSingleCapture = async (isStorefront = false) => {
     console.log('[Capture] handleSingleCapture started, isStorefront:', isStorefront);
     let coords = null;
-    if (isStorefront) {
-      setProcessingMsg('Getting your location...');
-      coords = await getCurrentCoords();
-      console.log('[Capture] Coords received:', !!coords);
+    setProcessing(true);
+    setProcessingMsg('Opening camera...');
+    try {
+      if (isStorefront) {
+        setProcessingMsg('Getting your location...');
+        coords = await getCurrentCoords();
+        console.log('[Capture] Coords received:', !!coords);
+      }
+      setProcessingMsg('Ready to capture...');
+      const assets = await captureMultiplePhotos(isStorefront ? 0.8 : 0.7);
+      console.log('[Capture] Assets captured:', assets?.length || 0);
+      if (!assets?.length) {
+        setProcessing(false);
+        return;
+      }
+      await processAssets(assets, coords, isStorefront ? 'storefront' : 'image');
+    } catch (err) {
+      console.error('[Capture] handleSingleCapture error:', err);
+      BetaTracker.crash('CaptureScreen', err);
+      showThemedAlert('Capture Error', err.message || 'Could not complete capture.');
+      setProcessing(false);
     }
-    const assets = await captureMultiplePhotos(isStorefront ? 0.8 : 0.7);
-    console.log('[Capture] Assets captured:', assets?.length || 0);
-    if (!assets?.length) return;
-    await processAssets(assets, coords, isStorefront ? 'storefront' : 'image');
   };
 
   const handleCardCapture = async () => {
@@ -532,55 +545,79 @@ export default function CaptureScreen({ navigation, route }) {
         text: 'Single-Sided',
         onPress: async () => {
           console.log('[Capture] Single-Sided option selected');
-          // Wait for the alert modal to fully dismiss before opening camera
-          await new Promise(r => setTimeout(r, 500));
-          const assets = await captureMultiplePhotos(0.65, 'card', true);
-          console.log('[Capture] Single-sided assets:', assets?.length || 0);
-          if (!assets.length) {
-            console.log('[Capture] No assets returned, returning early');
-            return;
+          setProcessing(true);
+          setProcessingMsg('Opening camera...');
+          try {
+            // Wait for the alert modal to fully dismiss before opening camera
+            await new Promise(r => setTimeout(r, 500));
+            const assets = await captureMultiplePhotos(0.65, 'card', true);
+            console.log('[Capture] Single-sided assets:', assets?.length || 0);
+            if (!assets.length) {
+              console.log('[Capture] No assets returned, returning early');
+              setProcessing(false);
+              return;
+            }
+            console.log('[Capture] Processing single-sided assets');
+            await processAssets(assets, null, 'image');
+          } catch (err) {
+            console.error('[Capture] Single-sided capture error:', err);
+            BetaTracker.crash('CaptureScreen', err);
+            showThemedAlert('Capture Error', err.message || 'Could not capture business card.');
+            setProcessing(false);
           }
-          console.log('[Capture] Processing single-sided assets');
-          await processAssets(assets, null, 'image');
         },
       },
       {
         text: 'Front & Back',
         onPress: async () => {
           console.log('[Capture] Front & Back option selected');
-          // Permission already granted above — no need to re-request
-          
-          await new Promise((resolve) => {
-            showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card', [
-              { text: 'Ready', onPress: resolve }
-            ]);
-          });
-          // Give the modal time to fully close
-          await new Promise(r => setTimeout(r, 500));
-          console.log('[Capture] Opening camera for front side');
-          const front = await openCamera(0.65, true);
-          if (!front) {
-            console.log('[Capture] Front photo not taken, returning early');
-            return;
-          }
-          console.log('[Capture] Front photo taken, showing step 2');
+          setProcessing(true);
+          setProcessingMsg('Step 1 of 2: Preparing...');
+          try {
+            // Permission already granted above — no need to re-request
+            
+            await new Promise((resolve) => {
+              showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card', [
+                { text: 'Ready', onPress: resolve }
+              ]);
+            });
+            // Give the modal time to fully close
+            await new Promise(r => setTimeout(r, 500));
+            console.log('[Capture] Opening camera for front side');
+            setProcessingMsg('Taking front photo...');
+            const front = await openCamera(0.65, true);
+            if (!front) {
+              console.log('[Capture] Front photo not taken, returning early');
+              setProcessing(false);
+              return;
+            }
+            console.log('[Capture] Front photo taken, showing step 2');
 
-          await new Promise((resolve) => {
-            showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card', [
-              { text: 'Ready', onPress: resolve }
-            ]);
-          });
-          // Give the modal time to fully close
-          await new Promise(r => setTimeout(r, 500));
-          console.log('[Capture] Opening camera for back side');
-          const back = await openCamera(0.65, true);
-          if (!back) {
-            console.log('[Capture] Back photo not taken, returning early');
-            return;
-          }
-          console.log('[Capture] Back photo taken, processing both');
+            await new Promise((resolve) => {
+              showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card', [
+                { text: 'Ready', onPress: resolve }
+              ]);
+            });
+            // Give the modal time to fully close
+            await new Promise(r => setTimeout(r, 500));
+            console.log('[Capture] Opening camera for back side');
+            setProcessingMsg('Taking back photo...');
+            const back = await openCamera(0.65, true);
+            if (!back) {
+              console.log('[Capture] Back photo not taken, returning early');
+              setProcessing(false);
+              return;
+            }
+            console.log('[Capture] Back photo taken, processing both');
 
-          await processAssets([front, back], null, 'business-card-2-sided');
+            setProcessingMsg('Processing both sides...');
+            await processAssets([front, back], null, 'business-card-2-sided');
+          } catch (err) {
+            console.error('[Capture] Front & Back capture error:', err);
+            BetaTracker.crash('CaptureScreen', err);
+            showThemedAlert('Capture Error', err.message || 'Could not capture business card.');
+            setProcessing(false);
+          }
         },
       },
       { text: 'Cancel', style: 'cancel', onPress: () => console.log('[Capture] Card capture cancelled') },

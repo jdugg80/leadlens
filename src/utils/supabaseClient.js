@@ -1,5 +1,5 @@
 import 'react-native-url-polyfill/auto';
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import { createClient } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
 
@@ -8,9 +8,9 @@ let cachedClient = null;
 let appStateSubscription = null;
 
 const storageAdapter = {
-  getItem: (key) => AsyncStorage.getItem(key),
-  setItem: (key, value) => AsyncStorage.setItem(key, value),
-  removeItem: (key) => AsyncStorage.removeItem(key),
+  getItem: (key) => AsyncStorage.getSync(key),
+  setItem: (key, value) => AsyncStorage.setSync(key, value),
+  removeItem: (key) => AsyncStorage.removeSync(key),
 };
 
 function clean(value) {

@@ -1,6 +1,6 @@
 import { calculateLeadViability, hasUsablePhone } from './leadHelpers';
 import { fetchPlaceDetails as getGooglePlaceDetails } from './nearbySearch';
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import { upsertProspect } from './backendSync';
 import { LEADS_STORAGE_KEY } from '../constants';
 
@@ -8,7 +8,7 @@ export async function applyAddressCandidateToProspect(prospectId, addressCandida
   console.log("[LeadLock] Apply address started", { prospectId, addressCandidate });
 
   // 1. Find the active prospect by prospectId in local queue
-  const rawQueue = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+  const rawQueue = AsyncStorage.getSync(LEADS_STORAGE_KEY);
   let queue = [];
   if (rawQueue) {
     try {
@@ -55,7 +55,7 @@ export async function applyAddressCandidateToProspect(prospectId, addressCandida
 
   // 6. Save the updated prospect back to local queue
   queue[prospectIndex] = updatedProspect;
-  await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(queue));
+  AsyncStorage.setSync(LEADS_STORAGE_KEY, JSON.stringify(queue));
   console.log("[LeadLock] Local state update success");
 
   if (__DEV__) {

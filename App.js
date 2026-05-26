@@ -12,7 +12,7 @@ import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { AppRegistry } from 'react-native';
 
-import { storageBridge as AsyncStorage } from './src/utils/storage';
+import { storage as AsyncStorage } from './src/utils/storage';
 import { USER_STORAGE_KEY } from './src/constants';
 import { bindAutoExportOnAppResume, registerBackgroundAutoExport } from './src/utils/autoExport';
 import { processQueue } from './src/utils/taskRunner';
@@ -136,7 +136,8 @@ async function updateGlobalLocation() {
         updatedAt: new Date().toISOString()
       };
 
-      await AsyncStorage.setItem('currentLocation', JSON.stringify(locationObj));
+      // Use sync API for instant storage
+      AsyncStorage.setSync('currentLocation', JSON.stringify(locationObj));
       console.log('[GPS] Global location updated successfully:', locationObj);
     }
   } catch (err) {
@@ -163,7 +164,8 @@ export default function App() {
       // ── Existing startup tasks ──────────────────
       processQueue().catch(() => {});
 
-      const rawUser = await AsyncStorage.getItem(USER_STORAGE_KEY);
+      // Use sync API for instant app startup
+      const rawUser = AsyncStorage.getSync(USER_STORAGE_KEY);
       if (rawUser) {
         try {
           const user = JSON.parse(rawUser);

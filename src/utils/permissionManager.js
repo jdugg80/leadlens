@@ -2,7 +2,7 @@ import * as Camera from 'expo-camera';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import { Platform, PermissionsAndroid } from 'react-native';
 
 const PERMISSIONS_CHECKED_KEY = '@leadlens_permissions_setup_v1';
@@ -11,7 +11,8 @@ const PERMISSIONS_CHECKED_KEY = '@leadlens_permissions_setup_v1';
  * Checks if we have already prompted the user for the "bulk" permission grant.
  */
 export async function hasRequestedBulkPermissions() {
-  const val = await AsyncStorage.getItem(PERMISSIONS_CHECKED_KEY);
+  // Use sync API for instant permission check
+  const val = AsyncStorage.getSync(PERMISSIONS_CHECKED_KEY);
   return val === 'true';
 }
 
@@ -19,7 +20,8 @@ export async function hasRequestedBulkPermissions() {
  * Marks that we have attempted the bulk permission grant.
  */
 export async function markBulkPermissionsRequested() {
-  await AsyncStorage.setItem(PERMISSIONS_CHECKED_KEY, 'true');
+  // Use sync API for instant marking
+  AsyncStorage.setSync(PERMISSIONS_CHECKED_KEY, 'true');
 }
 
 /**

@@ -94,7 +94,7 @@ export async function maybeRunAutoExport(user, options = {}) {
      return { skipped: true, reason: 'background execution requires user interaction for mail/share' };
   }
 
-  const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+  const raw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
   const leads = raw ? JSON.parse(raw) : [];
   const queued = settings.reviewedOnly ? leads.filter((lead) => lead.reviewed) : leads;
   const sendable = settings.excludeDuplicates ? queued.filter((lead) => !lead.duplicateWarning) : queued;

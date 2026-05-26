@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 
 const TASK_QUEUE_KEY = '@leadlens_task_queue';
 
@@ -21,7 +21,8 @@ export const TASK_STATUS = {
 
 export async function getTaskQueue() {
   try {
-    const raw = await AsyncStorage.getItem(TASK_QUEUE_KEY);
+    // Use sync API for instant queue loading
+    const raw = AsyncStorage.getSync(TASK_QUEUE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch (err) {
     console.error('[TaskQueue] Load failed:', err);
@@ -31,7 +32,8 @@ export async function getTaskQueue() {
 
 export async function saveTaskQueue(queue) {
   try {
-    await AsyncStorage.setItem(TASK_QUEUE_KEY, JSON.stringify(queue));
+    // Use sync API for instant queue saving
+    AsyncStorage.setSync(TASK_QUEUE_KEY, JSON.stringify(queue));
   } catch (err) {
     console.error('[TaskQueue] Save failed:', err);
   }

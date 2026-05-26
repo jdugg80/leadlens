@@ -1,10 +1,10 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 
 const PREFIX = '@leadlens_tutorial_seen_';
 
 export async function hasTutorialBeenSeen(tutorialId) {
   try {
-    const val = await AsyncStorage.getItem(PREFIX + tutorialId);
+    const val = AsyncStorage.getSync(PREFIX + tutorialId);
     return val === 'true';
   } catch {
     return false;
@@ -13,15 +13,15 @@ export async function hasTutorialBeenSeen(tutorialId) {
 
 export async function markTutorialSeen(tutorialId) {
   try {
-    await AsyncStorage.setItem(PREFIX + tutorialId, 'true');
+    AsyncStorage.setSync(PREFIX + tutorialId, 'true');
   } catch {}
 }
 
 export async function resetAllTutorials() {
   try {
-    const keys = await AsyncStorage.getAllKeys();
+    const keys = AsyncStorage.getAllKeysSync();
     const tutorialKeys = keys.filter(k => k.startsWith(PREFIX));
-    if (tutorialKeys.length) await AsyncStorage.multiRemove(tutorialKeys);
+    if (tutorialKeys.length) AsyncStorage.multiRemove(tutorialKeys);
   } catch {}
 }
 

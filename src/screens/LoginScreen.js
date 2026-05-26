@@ -163,16 +163,15 @@ export default function LoginScreen({ navigation }) {
 
     (async () => {
       try {
-        const [raw, legal, supa, authProfile, disabledRaw, remember, bio, pinEn] = await Promise.all([
-          AsyncStorage.getItem(USER_STORAGE_KEY),
-          AsyncStorage.getItem(LEGAL_ACCEPTANCE_KEY),
-          AsyncStorage.getItem(SUPABASE_SETTINGS_KEY),
-          AsyncStorage.getItem(AUTH_PROFILE_KEY),
-          AsyncStorage.getItem(DISABLED_USERS_KEY),
-          AsyncStorage.getItem(REMEMBER_ME_KEY),
-          AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY),
-          AsyncStorage.getItem(PIN_LOGIN_ENABLED_KEY),
-        ]);
+        // Use sync API for instant login screen data load
+        const raw = AsyncStorage.getSync(USER_STORAGE_KEY);
+        const legal = AsyncStorage.getSync(LEGAL_ACCEPTANCE_KEY);
+        const supa = AsyncStorage.getSync(SUPABASE_SETTINGS_KEY);
+        const authProfile = AsyncStorage.getSync(AUTH_PROFILE_KEY);
+        const disabledRaw = AsyncStorage.getSync(DISABLED_USERS_KEY);
+        const remember = AsyncStorage.getSync(REMEMBER_ME_KEY);
+        const bio = AsyncStorage.getSync(BIOMETRIC_ENABLED_KEY);
+        const pinEn = AsyncStorage.getSync(PIN_LOGIN_ENABLED_KEY);
 
         if (!alive) return;
 

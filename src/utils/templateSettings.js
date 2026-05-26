@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storage as AsyncStorage } from './storage';
 import {
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_INTRO_TEMPLATES,
@@ -19,7 +19,8 @@ function normalizeMode(mode) {
 
 async function syncSettingsToSupabase(key, data) {
   try {
-    const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+    // Use sync API for instant settings retrieval
+    const raw = AsyncStorage.getSync(SUPABASE_SETTINGS_KEY);
     const config = raw ? JSON.parse(raw) : null;
     const supabase = createSupabaseClient(config);
     if (!supabase) return;

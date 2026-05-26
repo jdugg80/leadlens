@@ -230,9 +230,8 @@ export default function DashboardScreen({ navigation, route }) {
     if (user?.id) {
       (async () => {
         try {
-          const [rawSupa] = await Promise.all([
-            AsyncStorage.getItem('@leadlens_supabase_settings'),
-          ]);
+          // Use sync API for instant heartbeat data
+          const rawSupa = AsyncStorage.getSync('@leadlens_supabase_settings');
           const settings = rawSupa ? JSON.parse(rawSupa) : {};
           const supabase = createSupabaseClient(settings);
           if (supabase) {
@@ -294,10 +293,10 @@ export default function DashboardScreen({ navigation, route }) {
 
     (async () => {
       try {
-        const [rawLeads, myZips, rawGoals] = await Promise.all([
-          AsyncStorage.getItem(LEADS_STORAGE_KEY).then(r => r ? JSON.parse(r) : []).catch(() => []),
-          loadMyZips().catch(() => []),
-          AsyncStorage.getItem(GOALS_STORAGE_KEY).then((r) => r ? JSON.parse(r) : {}).catch(() => ({})),
+        // Use sync API for instant dashboard data load
+        const rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
+        const myZips = await loadMyZips().catch(() => []);
+        const rawGoals = AsyncStorage.getJSONSync(GOALS_STORAGE_KEY, {});
         ]);
 
         if (!active) return;
