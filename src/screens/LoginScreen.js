@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   ScrollView, StyleSheet, KeyboardAvoidingView,
-  Platform, Image, Animated, Dimensions, Pressable,
+  Platform, Image, Animated, Pressable,
 } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
@@ -35,8 +35,6 @@ async function ensureAuthenticatedClient(client, maxAttempts = 3) {
     if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 100));
   }
 }
-
-const { width: SW } = Dimensions.get('window');
 
 const REMEMBER_ME_KEY = '@leadlens_remember_me';
 const BIOMETRIC_ENABLED_KEY = '@leadlens_biometric_enabled';
@@ -372,15 +370,19 @@ export default function LoginScreen({ navigation }) {
 
     if (profile?.email) await AsyncStorage.setItem(AUTH_PROFILE_KEY, JSON.stringify({ email: profile.email, provider: profile.provider }));
 
-    // Pull the user's specific data from Supabase
+    // Pull from Supabase only when local queue is empty (e.g. fresh install / rebuild).
+    // This prevents overwriting locally-captured prospects on every login.
     try {
-      await syncProspectsFromSupabase(supabaseSettings);
-      try {
-  await syncProspectsFromSupabase(supabaseSettings);
-  await syncUserSettingsFromSupabase(supabaseSettings);  // ← ADD THIS LINE
-} catch (err) {
-  console.warn('[Login] Pull sync failed:', err.message);
-}
+      const RawStorage = require('@react-native-async-storage/async-storage').default;
+      const localRaw = await RawStorage.getItem(LEADS_STORAGE_KEY).catch(() => null);
+      const localLeads = localRaw ? JSON.parse(localRaw) : [];
+      if (!localLeads.length) {
+        console.log('[Login] Local queue empty — pulling from Supabase');
+        await syncProspectsFromSupabase(supabaseSettings);
+      } else {
+        console.log(`[Login] Local queue has ${localLeads.length} prospects — skipping pull sync`);
+      }
+      await syncUserSettingsFromSupabase(supabaseSettings);
     } catch (err) {
       console.warn('[Login] Pull sync failed:', err.message);
     }
@@ -640,7 +642,6 @@ export default function LoginScreen({ navigation }) {
       <View style={s.root}>
       <ThemedAlertHost />
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-          {renderDebugPanel()}
           {/* Logo */}
           <View style={s.logoWrap}>
             <View style={s.logoBorder}>
@@ -760,7 +761,6 @@ export default function LoginScreen({ navigation }) {
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ThemedAlertHost />
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        {renderDebugPanel()}
         <View style={s.logoWrap}>
           <Image source={require('../../assets/leadlens/LeadLens_header_logo_v4.png')} style={s.logoProfileImg} resizeMode="contain" />
         </View>
@@ -918,9 +918,9 @@ const s = StyleSheet.create({
     borderRadius: 16, paddingHorizontal: 10, paddingVertical: 8,
     backgroundColor: COLORS.surface,
   },
-  logoHeroImg: { width: 300, height: 120 },
-  logoProfileImg: { width: 250, height: 96 },
-  logoAccentLine: { flexDirection: 'row', width: 280, height: 2, marginTop: 8 },
+  logoHeroImg: { width: 220, height: 80 },
+  logoProfileImg: { width: '65%', maxWidth: 250, aspectRatio: 250 / 96 },
+  logoAccentLine: { flexDirection: 'row', width: '70%', maxWidth: 280, height: 2, marginTop: 8 },
   logoAccentL: { flex: 1, backgroundColor: COLORS.purple, opacity: 0.7 },
   logoAccentR: { flex: 1, backgroundColor: COLORS.accent2, opacity: 0.7 },
 

@@ -9,8 +9,10 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LensSignalRecord } from './lenssignalTypes';
 import { COLORS } from '../../constants';
+import { screenHeight } from '../../utils/responsive';
 import { getAlertColor, getPestIconType, getPestEmoji, getSignalMarkerColor } from './lenssignalScoring';
 import { buildEnrichmentBundle } from '../../utils/enrichmentNormalizer';
 import { formatPestSignal } from '../../utils/pestUtils';
@@ -22,6 +24,7 @@ interface Props {
 }
 
 export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) => {
+  const insets = useSafeAreaInsets();
   const alertColor = getAlertColor(signal.alert_level);
   const layer = signal.signal_layer || signal.signal_type || (signal as any).opening_type || 'Standard Discovery';
 
@@ -66,7 +69,7 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
   const displayContacts = enrichmentBundle.contacts || [];
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { bottom: insets.bottom + 16, maxHeight: screenHeight * 0.55 }]}>
       <View style={styles.header}>
         <View style={styles.titleArea}>
           <Text style={styles.brandLabel}>LensSignal</Text>
@@ -229,7 +232,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 40,
     backgroundColor: COLORS.surface,
     borderRadius: 20,
     padding: 20,
@@ -240,7 +242,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 20,
-    maxHeight: '50%',
     zIndex: 100,
   },
   header: {

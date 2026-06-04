@@ -6,6 +6,8 @@ import { COLORS, LEADS_STORAGE_KEY, GOOGLE_PLACES_API_KEY } from '../constants';
 import { searchGooglePlacesByText } from '../utils/nearbySearch';
 import { getCurrentCoords } from '../utils/geoEnrich';
 import { ScreenHeader, FieldInput, PrimaryButton, Card, SectionLabel, SecondaryButton } from '../components/UI';
+import AddressRow from '../components/AddressRow';
+import { screenWidth } from '../utils/responsive';
 import { applyRequiredPlaceholders, findDuplicateInLeads, inferVertical, normalizeLead, calculateLeadViability } from '../utils/leadHelpers';
 import { showThemedAlert } from '../components/ThemedAlert';
 import { playSoundEffect } from '../utils/soundManager';
@@ -46,7 +48,7 @@ const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onRemove }) {
       onPanResponderMove: (_, { dx }) => {
         // Only allow swiping left (negative dx)
         if (dx < 0) {
-          swipeOffset.setValue(Math.max(dx, -80)); // Max swipe of 80px
+          swipeOffset.setValue(Math.max(dx, -(screenWidth * 0.20)));
         }
       },
       onPanResponderRelease: (_, { dx }) => {
@@ -67,7 +69,7 @@ const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onRemove }) {
   const handleDelete = () => {
     // Animate slide out to left
     Animated.timing(swipeOffset, {
-      toValue: -400,
+      toValue: -screenWidth,
       duration: 300,
       useNativeDriver: false,
     }).start(() => {
@@ -225,13 +227,15 @@ const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onRemove }) {
           <View style={{ marginTop: 10 }}>
             <FieldInput label="Address Line 2" value={lead.addressLine2} onChangeText={(v) => onUpdate(idx, 'addressLine2', v)} />
           </View>
-          <View style={s.row}>
-            <FieldInput label="City" value={lead.city} onChangeText={(v) => onUpdate(idx, 'city', v)} />
-            <View style={{ width: 10 }} />
-            <FieldInput label="State" value={lead.state} onChangeText={(v) => onUpdate(idx, 'state', v)} />
-            <View style={{ width: 10 }} />
-            <FieldInput label="ZIP" value={lead.zip} onChangeText={(v) => onUpdate(idx, 'zip', v)} />
-          </View>
+          <AddressRow
+            renderField={(props) => <FieldInput {...props} />}
+            city={lead.city}
+            onCityChange={(v) => onUpdate(idx, 'city', v)}
+            state={lead.state}
+            onStateChange={(v) => onUpdate(idx, 'state', v)}
+            zip={lead.zip}
+            onZipChange={(v) => onUpdate(idx, 'zip', v)}
+          />
         </Card>
       </Animated.View>
     </View>
@@ -343,16 +347,38 @@ export default function BatchReviewScreen({ navigation, route }) {
   }, []);
 
   const saveAll = async () => {
-    const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
-    const queue = raw ? JSON.parse(raw) : [];
-    const nextQueue = [...queue];
+    // Read from MMKV first, then fall back to raw AsyncStorage if MMKV returns empty.
+    // MMKV can silently return null/[] on some devices — this prevents new scans
+    // from overwriting the existing queue instead of appending to it.
+    let existing = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
+    if (!existing || !existing.length) {
+      try {
+        const RawStorage = require('@react-native-async-storage/async-storage').default;
+        const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length) {
+            existing = parsed;
+            console.log('[BatchReview] MMKV empty — recovered', parsed.length, 'leads from AsyncStorage');
+          }
+        }
+      } catch (e) {
+        console.warn('[BatchReview] AsyncStorage fallback read failed:', e.message);
+      }
+    }
+    console.log('[BatchReview][SAVE_DEBUG] MMKV read:', JSON.stringify(existing?.length), 'leads');
+    console.log('[BatchReview][SAVE_DEBUG] LEADS_STORAGE_KEY:', LEADS_STORAGE_KEY);
+    const nextQueue = [...existing];
     const duplicates = [];
     const saved = [];
     const now = new Date().toISOString();
 
+    const isSpreadsheetImport = sourceLabel === 'Excel import';
+
     for (const lead of filteredLeads.filter((item) => item.keep)) {
       const tagged = { ...buildTaggedLead(lead, user), updatedAt: now };
-      const duplicate = allowDuplicates ? null : findDuplicateInLeads(tagged, nextQueue);
+      const checkAgainst = isSpreadsheetImport ? existing : nextQueue;
+      const duplicate = allowDuplicates ? null : findDuplicateInLeads(tagged, checkAgainst);
       if (duplicate && !lead.ignoreDuplicate) {
         duplicates.push({ lead: tagged, duplicate });
       } else {
@@ -390,7 +416,15 @@ export default function BatchReviewScreen({ navigation, route }) {
     }
 
     if (!saved.length) return;
-    await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(nextQueue));
+
+    // Primary write via MMKV (sync, instant)
+    AsyncStorage.setJSONSync(LEADS_STORAGE_KEY, nextQueue);
+    // Safety backup via raw AsyncStorage — guarantees persistence if MMKV silent-failed
+    const RawStorage = require('@react-native-async-storage/async-storage').default;
+    RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(nextQueue)).catch((e) =>
+      console.warn('[BatchReview] AsyncStorage backup write failed:', e.message)
+    );
+
     playSoundEffect('prospect-added').catch(() => {});
 
     saved.forEach((lead) => {
@@ -648,7 +682,7 @@ const s = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    width: 80,
+    width: screenWidth * 0.20,
     backgroundColor: COLORS.danger,
     borderRadius: 10,
     justifyContent: 'center',

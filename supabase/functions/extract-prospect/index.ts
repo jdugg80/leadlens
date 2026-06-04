@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
   try {
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
     const model =
-      Deno.env.get("ANTHROPIC_MODEL") || "claude-3-5-haiku-latest";
+      Deno.env.get("CLAUDE_API_MODEL") || "claude-haiku-4-5-20251001";
 
     if (!anthropicKey) {
       return jsonResponse(

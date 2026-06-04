@@ -15,6 +15,8 @@ import {
   Modal,
   Alert,
   Image,
+  useWindowDimensions,
+  Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,8 +27,11 @@ import {
   convertSelectedBusinessesToProspects,
 } from '../utils/multiBusinessDetection';
 import { storageBridge } from '../utils/storage';
+import { LEADS_STORAGE_KEY } from '../constants';
 import { getCurrentCoords, reverseGeocodeCoords } from '../utils/geoEnrich';
 import * as ImageManipulator from 'expo-image-manipulator';
+import useLeadLockLocationSnapshot from '../hooks/useLeadLockLocationSnapshot';
+import resolveZipFromLeadLockPhoto from '../utils/location/resolveZipFromLeadLockPhoto';
 
 const COLORS_THEME = {
   bg: '#080A0F',
@@ -45,6 +50,13 @@ export default function LeadLockCameraScreen({ navigation }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+
+  // Track actual camera view dimensions for dynamic bounding box
+  const [cameraLayout, setCameraLayout] = useState({
+    width: screenWidth,
+    height: screenHeight,
+  });
 
   // Camera states
   const [cameraActive, setCameraActive] = useState(true);
@@ -89,6 +101,12 @@ export default function LeadLockCameraScreen({ navigation }) {
     initialDistRef.current = null;
   };
 
+  // State for captured photo exif data
+  const [photoExifData, setPhotoExifData] = useState(null);
+
+  // Resolved location for display
+  const [resolvedLocation, setResolvedLocation] = useState(null);
+
   // Detection states
   const [detecting, setDetecting] = useState(false);
   const [detectionResult, setDetectionResult] = useState(null);
@@ -96,6 +114,7 @@ export default function LeadLockCameraScreen({ navigation }) {
 
   // Location context
   const [location, setLocation] = useState(null);
+  const { leadLockGps } = useLeadLockLocationSnapshot(true);
 
   useEffect(() => {
     getLocation();
@@ -182,12 +201,25 @@ export default function LeadLockCameraScreen({ navigation }) {
   }
 
   if (!permission.granted) {
+    const canAskAgain = permission?.canAskAgain !== false;
     return (
       <View style={s.permissionContainer}>
         <Text style={s.permissionText}>Camera permission denied</Text>
         <Text style={s.permissionSubtext}>
           Enable in Settings → Apps → LeadLens → Permissions
         </Text>
+        <TouchableOpacity
+          style={s.permissionBtn}
+          onPress={() => {
+            if (canAskAgain) {
+              requestPermission();
+            } else {
+              Linking.openSettings().catch(() => {});
+            }
+          }}
+        >
+          <Text style={s.permissionBtnText}>{canAskAgain ? 'Grant Permission' : 'Open Settings'}</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -200,7 +232,13 @@ export default function LeadLockCameraScreen({ navigation }) {
       // Do NOT request base64 directly from raw high-res photo to prevent OOM
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.85,
+        exif: true,
       });
+
+      // Capture EXIF from raw photo before manipulation may strip it
+      const rawExif = photo?.exif || null;
+      setPhotoExifData(rawExif);
+      console.log('[LeadLockCamera] Photo EXIF captured:', rawExif ? 'yes' : 'no');
 
       // Resize and compress the captured photo before converting to base64
       const manipulated = await ImageManipulator.manipulateAsync(
@@ -226,6 +264,18 @@ export default function LeadLockCameraScreen({ navigation }) {
     setDetecting(true);
     try {
       const result = await detectMultipleBusinessesInPhoto(base64, location);
+
+      // Resolve location for display
+      const firstBusinessZip = result?.businesses?.[0]?.detection?.address
+        ? (result.businesses[0].detection.address.match(/\b(\d{5})(?:-\d{4})?\b/) || [])[1]
+        : null;
+      const resolved = await resolveZipFromLeadLockPhoto({
+        liveGps: leadLockGps,
+        photoExif: photoExifData,
+        businessAddressZip: firstBusinessZip || null,
+        allowDeviceFallback: true,
+      });
+      setResolvedLocation(resolved);
 
       if (result.success) {
         const formatted = formatMultiBusinessesForDisplay(result);
@@ -260,20 +310,43 @@ export default function LeadLockCameraScreen({ navigation }) {
       return;
     }
 
-    try {
-      const prospects = convertSelectedBusinessesToProspects(selected);
+    // Extract best available zip from selected businesses for fallback
+    const businessZip = selected
+      .map(b => {
+        const addr = b.address || (b.fullData?.detection?.address) || '';
+        const m = addr.match(/\b(\d{5})(?:-\d{4})?\b/);
+        return m ? m[1] : null;
+      })
+      .find(Boolean) || null;
 
-      // Store in queue
-      const queue = await storageBridge.getItem('leadQueue');
-      const currentQueue = queue ? JSON.parse(queue) : [];
+    try {
+      // Resolve photo location once for the whole photo — prefer live GPS snapshot
+      const resolved = await resolveZipFromLeadLockPhoto({
+        liveGps: leadLockGps,
+        photoExif: photoExifData,
+        businessAddressZip: businessZip,
+        allowDeviceFallback: true,
+      });
+
+      console.log('[LeadLockCamera] Resolved photo location:', resolved);
+
+      const prospects = convertSelectedBusinessesToProspects(selected, resolved);
+
+      // Read existing queue from correct storage key
+      const raw = storageBridge.getSync(LEADS_STORAGE_KEY);
+      const currentQueue = raw ? JSON.parse(raw) : [];
       const updatedQueue = [...currentQueue, ...prospects];
 
-      await storageBridge.setItem('leadQueue', JSON.stringify(updatedQueue));
+      // Write to both MMKV and raw AsyncStorage backup
+      storageBridge.setSync(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+      const RawStorage = require('@react-native-async-storage/async-storage').default;
+      await RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue)).catch(() => {});
 
-      Alert.alert('Success', `Added ${prospects.length} prospects to queue`, [
+      Alert.alert('Added to Queue', `${prospects.length} prospect${prospects.length !== 1 ? 's' : ''} added successfully`, [
         { text: 'OK', onPress: () => resetCamera() },
       ]);
     } catch (error) {
+      console.error('[LeadLock] Queue save error:', error);
       Alert.alert('Error', 'Failed to add to queue: ' + error.message);
     }
   };
@@ -281,6 +354,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   // Reset to camera
   const _resetCamera = () => {
     setPhotoData(null);
+    setPhotoExifData(null);
     setDetectionResult(null);
     setSelectedBusinesses([]);
     setZoom(0);
@@ -301,6 +375,10 @@ export default function LeadLockCameraScreen({ navigation }) {
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setCameraLayout({ width, height });
+          }}
         >
           {/* Header */}
           <View style={[s.header, { paddingTop: insets.top + 12 }]}>
@@ -312,7 +390,7 @@ export default function LeadLockCameraScreen({ navigation }) {
           </View>
 
           {/* Capture button */}
-          <View style={s.footer}>
+          <View style={[s.footer, { bottom: insets.bottom + 16 }]}>
             <TouchableOpacity
               style={s.captureBtn}
               onPress={handleTakePhoto}
@@ -351,6 +429,23 @@ export default function LeadLockCameraScreen({ navigation }) {
         </Text>
         <View style={{ width: 50 }} />
       </View>
+
+      {/* Location info bar */}
+      {resolvedLocation && (
+        <View style={s.locationBar}>
+          <Text style={s.locationText}>
+            Zip: {resolvedLocation.zip || '—'}  |  Source: {resolvedLocation.source === 'live_gps' ? 'Live GPS' : resolvedLocation.source === 'photo_exif' ? 'Photo EXIF' : resolvedLocation.source === 'business_address' ? 'Business Address' : resolvedLocation.source === 'device_fallback' ? 'Device Fallback' : resolvedLocation.source}
+          </Text>
+          <Text style={[s.locationConfidence, {
+            color: resolvedLocation.confidence >= 0.85 ? '#51CF66' : resolvedLocation.confidence >= 0.65 ? '#FFA94D' : '#FF6B6B'
+          }]}>
+            Location Confidence: {resolvedLocation.confidence >= 0.85 ? 'High' : resolvedLocation.confidence >= 0.65 ? 'Medium' : resolvedLocation.confidence > 0 ? 'Low' : 'Missing'}
+          </Text>
+          {resolvedLocation.confidence < 0.65 && (
+            <Text style={s.locationWarning}>⚠ Confirm location before enrichment</Text>
+          )}
+        </View>
+      )}
 
       {/* Photo preview */}
       {photoData && (
@@ -538,7 +633,6 @@ const s = StyleSheet.create({
 
   footer: {
     position: 'absolute',
-    bottom: 30,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -585,6 +679,30 @@ const s = StyleSheet.create({
     color: COLORS_THEME.text,
     fontSize: 14,
     fontWeight: '700',
+  },
+
+  locationBar: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: COLORS_THEME.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS_THEME.borderLit,
+  },
+  locationText: {
+    color: COLORS_THEME.muted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  locationConfidence: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  locationWarning: {
+    color: '#FF6B6B',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 2,
   },
 
   photoPreview: {

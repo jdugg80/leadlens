@@ -100,11 +100,25 @@ function parseCallbackUrl(url) {
 }
 
 export async function signInWithOAuthProvider(settings, provider) {
+  // Lock a single client instance for this entire flow.
+  // Using createSupabaseClient() multiple times can produce different instances
+  // with different PKCE verifiers — causing "code challenge does not match" errors.
   const supabase = createSupabaseClient(settings);
   if (!supabase) return { ok: false, reason: 'Missing Supabase URL or anon key.' };
 
   if (provider === 'google') console.log('OAUTH_START_GOOGLE');
   if (provider === 'azure') console.log('OAUTH_START_MICROSOFT');
+
+  // Clear any stale PKCE state from a previous failed attempt before starting
+  try {
+    const RawStorage = require('@react-native-async-storage/async-storage').default;
+    const allKeys = await RawStorage.getAllKeys();
+    const pkceKeys = allKeys.filter(k => k.includes('pkce') || k.includes('code_verifier') || k.includes('oauth_state'));
+    if (pkceKeys.length) {
+      await RawStorage.multiRemove(pkceKeys);
+      console.log('[Auth] Cleared stale PKCE keys:', pkceKeys);
+    }
+  } catch (_) {}
 
   const redirectTo = AUTH_REDIRECT_URL;
 
@@ -135,6 +149,20 @@ export async function signInWithOAuthProvider(settings, provider) {
     console.log('OAUTH_RESULT_TYPE', result.type);
 
     if (result.type !== 'success' || !result.url) {
+      // On Android, Chrome Custom Tab sometimes closes and returns 'dismiss'
+      // even when auth completed successfully (deep link fired before tab returned URL).
+      // Check if a session was established before declaring failure.
+      if (result.type === 'dismiss' || result.type === 'cancel') {
+        try {
+          // Give the deep link a moment to be processed
+          await new Promise(r => setTimeout(r, 800));
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            console.log('OAUTH_SESSION_RECOVERED', 'via fallback getSession after dismiss');
+            return { ok: true, session, user: session.user };
+          }
+        } catch (_) {}
+      }
       return {
         ok: false,
         reason:

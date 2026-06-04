@@ -1,1358 +1,1402 @@
-
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  SafeAreaView,
-  ActivityIndicator,
-  Modal,
-  Animated,
-  Linking,
+  View, Text, StyleSheet, ActivityIndicator,
+  TouchableOpacity, ScrollView, Linking, Modal, AppState, TextInput,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import MapView, { Polygon, Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import MapView, { Polygon, Marker, Circle } from 'react-native-maps';
-import { ScreenHeader } from '../components/UI';
-import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
-import { makeSafePolygons } from '../utils/mapSafety';
-import { storageBridge as AsyncStorage } from '../utils/storage';
-import { LEADS_STORAGE_KEY } from '../constants';
+import {
+  makeSafeRegion,
+  makeSafeCoordinate,
+  makeSafePolygonCoordinates,
+  makeSafePolygons,
+  DEFAULT_TERRITORY_REGION,
+} from '../utils/mapSafety';
+import { screenHeight } from '../utils/responsive';
 
+// Unicode constants for safety
+const ICON_CROSS = "\u2715";
+const ICON_PIN = "\uD83D\uDCCD";
+const ICON_PHONE = "\uD83D\uDCDE";
+const ICON_EMAIL = "\u2709\uFE0F";
+const ICON_WEB = "\uD83C\uDF10";
+const ICON_BUILDING = "\uD83C\uDFE2";
+const ICON_SEARCH = "\uD83D\uDD0D";
+const ICON_TARGET = "\uD83C\uDFAF";
+const ICON_GEAR = "\u2699\uFE0F";
+const ICON_RELOAD = "\u21BB";
+const ICON_SIGNAL = "\uD83D\uDCE1";
 
-const COLORS = {
-  bg: '#080A0F',
-  surface: '#0F1318',
-  accent: '#00C9FF',
-  accent2: '#CC1040',
-  purple: '#7B3FBE',
-  chrome: '#B8BDD0',
-  border: '#1a1f2e',
+const _makeSafeCoordinate = (coord) => {
+  if (!coord) return null;
+  const lat = Number(coord.latitude ?? coord.lat);
+  const lng = Number(coord.longitude ?? coord.lng);
+  return (isFinite(lat) && isFinite(lng)) ? { latitude: lat, longitude: lng } : null;
 };
 
-const BUSINESS_TYPES = [
-  'All Businesses', 'Food Service', 'Hospitality', 'Healthcare', 'Retail',
-  'Office/Corporate', 'Warehouses', 'Manufacturing', 'Education', 'Multi-family', 'Entertainment',
-];
-const ALERT_LEVELS = [
-  'All Alerts', 'Priority Review', 'Monitor', 'Opportunity', 'Good Standing',
-];
-const BUSINESS_TYPE_ICONS = {
-  'school': '🏫',
-  'university': '🎓',
-  'hospital': '🏥',
-  'doctor': '👨‍⚕️',
-  'pharmacy': '💊',
-  'restaurant': '🍽️',
-  'cafe': '☕',
-  'bar': '🍷',
-  'lodging': '🏨',
-  'grocery_or_supermarket': '🛒',
-  'shopping_mall': '🏬',
-  'store': '🏪',
-  'office': '🏢',
-  'bank': '🏦',
-  'factory': '🏭',
-  'storage': '📦',
-  'apartment': '🏠',
-  'real_estate_agency': '🏡',
-  'movie_theater': '🎬',
-  'amusement_park': '🎡',
-  'default': '📍',
+const _normalizeZipCode = (value) => {
+  const zip = String(value ?? '').replace(/\D/g, '').slice(0, 5);
+  return zip.length === 5 ? zip : '';
 };
-const SIGNAL_TYPE_ICONS = {
-  'rodent': '🐭',
-  'bird': '🐦',
-  'roach': '🪳',
-  'wildlife': '🦌',
-  'new_opening': '🆕',
-  'new_permit': '📋',
-  'health_code': '🏥',
-  'health_score': '📊',
-  'default': '⚠️',
-};
-export default function TerritoryMapScreen() {
-  const mapRef = useRef(null);
-  const navigation = useNavigation();
 
-  const [loading, setLoading] = useState(false);
-  const [zipMarkers, setZipMarkers] = useState([]);
-  const [searchAddress, setSearchAddress] = useState('');
-  const [addressSuggestions, setAddressSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [filterTab, setFilterTab] = useState('lenssignal');
-  const [selectedBusinessType, setSelectedBusinessType] = useState('All Businesses');
-  const [selectedAlertLevel, setSelectedAlertLevel] = useState('All Alerts');
-  const [showSignalsOnly, setShowSignalsOnly] = useState(false);
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [selectedSignalType, setSelectedSignalType] = useState('All Types');
-  const [selectedHealthRating, setSelectedHealthRating] = useState('All Ratings');
-  const [lensSignalResults, setLensSignalResults] = useState([]);
-  const [selectedLensSignal, setSelectedLensSignal] = useState(null);
-  const [lensSignalModalVisible, setLensSignalModalVisible] = useState(false);
-  const [searchingLensSignal, setSearchingLensSignal] = useState(false);
-  const [pulseAnim] = useState(new Animated.Value(0));
-  const [prospects, setProspects] = useState([]);
-  const [selectedProspect, setSelectedProspect] = useState(null);
-  const [prospectModalVisible, setProspectModalVisible] = useState(false);
-  useEffect(() => {
-  Animated.loop(
-    Animated.sequence([
-      Animated.timing(pulseAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: false,
-      }),
-      Animated.timing(pulseAnim, {
-        toValue: 0,
-        duration: 1000,
-        useNativeDriver: false,
-      }),
-    ])
-  ).start();
-}, [pulseAnim]);
-  const BUSINESS_TYPE_MAP = {
-  'All Businesses': ['restaurant', 'lodging', 'grocery_or_supermarket', 'school', 'hospital'],
-  'Food Service': ['restaurant', 'cafe', 'bakery'],
-  'Hospitality': ['lodging', 'restaurant', 'bar'],
-  'Healthcare': ['hospital', 'doctor', 'pharmacy'],
-  'Retail': ['shopping_mall', 'store', 'supermarket'],
-  'Office/Corporate': ['office', 'bank'],
-  'Warehouses': ['storage'],
-  'Manufacturing': ['factory'],
-  'Education': ['school', 'university'],
-  'Multi-family': ['apartment', 'real_estate_agency'],
-  'Entertainment': ['movie_theater', 'amusement_park', 'bar'],
-  
-};
-const filterByAlertLevel = (results) => {
-  if (selectedAlertLevel === 'All Alerts') return results;
-  
-  return results.filter((result) => {
-    const rating = result.rating || 3;
-    
-    switch (selectedAlertLevel) {
-      case 'Priority Review':
-        return rating < 3.5;
-      case 'Monitor':
-        return rating >= 3.5 && rating < 4.2;
-      case 'Opportunity':
-        return rating >= 4.2;
-      case 'Good Standing':
-        return rating >= 4.5;
-      default:
-        return true;
-    }
-  });
-};
-  useEffect(() => {
-    loadTerritories();
-  }, []);
+const _toNormalizedZipEntry = (entry, defaults = {}) => {
+  if (entry === null || entry === undefined) return null;
 
-  useEffect(() => {
-    const loadProspects = async () => {
-      try {
-        const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
-        const all = raw ? JSON.parse(raw) : [];
-        // Only show prospects that have GPS coordinates captured
-        const mapped = all.filter(p => p.latitude && p.longitude);
-        setProspects(mapped);
-        console.log(`[TerritoryMap] Loaded ${mapped.length} mapped prospects`);
-      } catch (e) {
-        console.error('[TerritoryMap] prospects load error:', e);
-      }
+  if (typeof entry === 'string' || typeof entry === 'number') {
+    const zip = _normalizeZipCode(entry);
+    if (!zip) return null;
+    return {
+      zip,
+      notes: String(defaults.notes || '').trim(),
+      addedAt: defaults.addedAt || new Date().toISOString(),
+      repName: String(defaults.repName || '').trim(),
     };
-    loadProspects();
-  }, []);
+  }
 
-  const loadTerritories = async () => {
-    try {
-      setLoading(true);
-      const markers = await loadTerritoryZipMarkersFallback();
-      setZipMarkers(markers);
-    } catch (error) {
-      console.error('[TerritoryMap] Error:', error);
-    } finally {
-      setLoading(false);
-    }
+  const zip = _normalizeZipCode(
+    entry?.zip
+    ?? entry?.zipCode
+    ?? entry?.zip_code
+    ?? entry?.ZIP
+    ?? entry?.postalCode
+    ?? entry?.postal_code
+  );
+  if (!zip) return null;
+
+  return {
+    ...entry,
+    zip,
+    notes: String(entry?.notes ?? entry?.note ?? defaults.notes ?? '').trim(),
+    addedAt: entry?.addedAt || entry?.added_at || defaults.addedAt || new Date().toISOString(),
+    repName: String(entry?.repName || entry?.rep_name || defaults.repName || '').trim(),
+  };
+};
+
+import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
+import { useFocusEffect } from '@react-navigation/native';
+import { storageBridge as AsyncStorage } from '../utils/storage';
+import {
+  COLORS,
+  LEADS_STORAGE_KEY,
+  GOALS_STORAGE_KEY,
+  MAP_FILTERS_KEY,
+  MAP_REGION_KEY,
+  MAP_NEARBY_PLACES_KEY,
+} from '../constants';
+import { ScreenHeader } from '../components/UI';
+import {
+  loadMyZips, saveMyZips, fetchMyTerritoryFromSupabase, getMyZipsRevision, buildZipActivity,
+  getHeatLevel, getHeatColor, getHeatLabel,
+} from '../utils/territoryUtils';
+import { sortLeadsNewestFirst } from '../utils/leadHelpers';
+import { getBulkZipBounds, getZipBounds } from '../utils/zipBoundaryCache';
+import { getCurrentCoords } from '../utils/geoEnrich';
+import { recordUserActivityEvent, loadUserLearningProfile } from '../utils/userLearning';
+import { showThemedAlert } from '../components/ThemedAlert';
+import { getStyledMessage } from '../utils/aiPersonality';
+import { enqueueTask, TASK_TYPES } from '../utils/taskQueue';
+import { processQueue } from '../utils/taskRunner';
+import { supabase } from '../lib/supabase';
+import {
+  searchNearbyBusinesses,
+  fetchPlaceDetails,
+  parseAddressComponents,
+  classifyGooglePlace,
+} from '../utils/nearbySearch';
+import {
+  parseBusinessAddress,
+  extractBestPhone,
+  buildEnrichmentBundle,
+  enrichBusinessWithPublicSources,
+} from '../utils/enrichmentNormalizer';
+
+import { LensSignalMapMarker } from '../features/lenssignal/LensSignalMapMarker';
+import { LensSignalBadge } from '../features/lenssignal/LensSignalBadge';
+import { LensSignalDetailsCard } from '../features/lenssignal/LensSignalDetailsCard';
+import LeadFiltersBottomSheet from '../components/LeadFiltersBottomSheet';
+import TargetLensProfileSelector from '../components/TargetLensProfileSelector';
+
+import { calculateMatchConfidence } from '../services/lensSignal/lensSignalMatcher';
+import { processTargetLensMatch } from '../services/targetLens/targetLensMatcher';
+import Supercluster from 'supercluster';
+import { MapClusterMarker } from '../features/map/MapClusterMarker';
+import BetaTracker from '../../utils/betaTracker';
+
+const GOOGLE_MAPS_API_KEY = 'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI';
+const MAP_SAFE_MODE = true;
+
+export default function TerritoryMapScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
+  const { user, initialZip, initialNearbySearch } = route?.params || {};
+  const mapRef = useRef(null);
+  const loadingRef = useRef(false);
+  const hasLoadedMapRef = useRef(false);
+  const territoryRevisionRef = useRef(0);
+  const signalFetchTimerRef = useRef(null);
+  const clusterBuildTimerRef = useRef(null);
+  const isMapReadyRef = useRef(false);
+  const superclusterRef = useRef(new Supercluster({ radius: 40, maxZoom: 16 }));
+  const lastLensCountRef = useRef(null);
+
+  const [loading, setLoading] = useState(true);
+  const [initialNearbyTriggered, setInitialNearbyTriggered] = useState(false);
+  const [dailyGoal, setDailyGoal] = useState(10);
+  const [zipMarkers, setZipMarkers] = useState([]);
+  const [totalLoadedZips, setTotalLoadedZips] = useState(0);
+  const [selectedZip, setSelectedZip] = useState(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState([]);
+  const [selectedPlace, setSelectedPlace] = useState(null);
+  const [selectedNearbyIds, setSelectedNearbyIds] = useState([]);
+  const getNearbyPlaceId = (p) => p?.placeId || p?.place_id || p?.id;
+  const addSelectedNearbyToQueue = () => showThemedAlert("Coming Soon", "Batch adding from map will be available shortly.");
+  const [searchingNearby, setSearchingNearby] = useState(false);
+  const [showNearby, setShowNearby] = useState(false);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+  const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
+
+  const DEFAULT_FILTERS = {
+    businessType: 'All Businesses',
+    leadStatus: 'All',
+    signalsOnly: false,
+    signals: { lensSignal: true, contactSignal: true, pest: true, opening: true, priority: true },
+    matchStrength: 'Show All',
   };
 
-  const handleLocationPress = () => {
-    mapRef.current?.animateToRegion({
-      latitude: 29.2108,
-      longitude: -95.4506,
-      latitudeDelta: 0.5,
-      longitudeDelta: 0.5,
-    });
-  };
-  
-  const handleAddressChange = async (text) => {
-  setSearchAddress(text);
-  
-  if (text.length < 3) {
-    setAddressSuggestions([]);
-    return;
-  }
-  
-  try {
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/place/autocomplete/json?` +
-      `input=${encodeURIComponent(text)}` +
-      `&key=AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI`
-    );
-    const data = await response.json();
-    setAddressSuggestions(data.predictions || []);
-  } catch (error) {
-    console.error('[AddressSearch] Error:', error);
-  }
-};
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const isInitializedRef = useRef(false);
 
-const handleSuggestionSelect = async (suggestion) => {
-  setSearchAddress(suggestion.description);
-  setShowSuggestions(false);
-  
-  try {
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?` +
-      `place_id=${suggestion.place_id}` +
-      `&key=AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI`
-    );
-    const data = await response.json();
-    
-    if (data.results.length > 0) {
-      const { lat, lng } = data.results[0].geometry.location;
-      mapRef.current?.animateToRegion({
-        latitude: lat,
-        longitude: lng,
-        latitudeDelta: 0.1,
-        longitudeDelta: 0.1,
-      });
+  // Persistence Effects
+  useEffect(() => {
+    if (isInitializedRef.current && filters) {
+      AsyncStorage.setItem(MAP_FILTERS_KEY, JSON.stringify(filters)).catch(() => {});
     }
-  } catch (error) {
-    console.error('[Geocoding] Error:', error);
-  }
-};
-
-const handleAddressSearch = async () => {
-  if (!searchAddress) return;
-  
-  try {
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?` +
-      `address=${encodeURIComponent(searchAddress)}` +
-      `&key=AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI`
-    );
-    const data = await response.json();
-    
-    if (data.results.length > 0) {
-      const { lat, lng } = data.results[0].geometry.location;
-      mapRef.current?.animateToRegion({
-        latitude: lat,
-        longitude: lng,
-        latitudeDelta: 0.1,
-        longitudeDelta: 0.1,
-      });
-      setShowSuggestions(false);
-    }
-  } catch (error) {
-    console.error('[Geocoding] Error:', error);
-  }
-};
-
-    const handleSearchPress = async () => {
-     try {
-        setSearching(true);
-        setSearchResults([]);
-
-    const region = await mapRef.current?.getCamera?.();
-    const latitude = region?.center?.latitude || 29.2108;
-    const longitude = region?.center?.longitude || -95.4506;
-
-    const types = selectedBusinessType === 'All Businesses' 
-      ? BUSINESS_TYPE_MAP['All Businesses']
-      : BUSINESS_TYPE_MAP[selectedBusinessType] || [];
-
-    if (types.length === 0) {
-      setSearching(false);
-      return;
-    }
-
-    const allResults = [];
-    for (const type of types) {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
-        `location=${latitude},${longitude}` +
-        `&radius=5000` +
-        `&type=${type}` +
-        `&key=AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI`
-      );
-
-      const data = await response.json();
-      if (data.results) {
-        allResults.push(...data.results);
-      }
-    }
-
-    const uniqueResults = Array.from(
-      new Map(allResults.map((item) => [item.place_id, item])).values()
-    );
-
-    const filtered = filterByAlertLevel(uniqueResults);
-
-    const final = showSignalsOnly 
-      ? filtered.filter((r) => r.rating && r.rating > 4.0)
-      : filtered;
-
-    setSearchResults(final);
-
-  } catch (error) {
-    console.error('[Search] Error:', error);
-  } finally {
-    setSearching(false);
-  }
-};
-    
-  const handleReloadPress = () => {
-    loadTerritories();
-  };
-
-  const handleLensSignalSearch = async () => {
-  try {
-    setSearchingLensSignal(true);
-    const region = await mapRef.current?.getCamera?.();
-    const latitude = region?.center?.latitude || 29.2108;
-    const longitude = region?.center?.longitude || -95.4506;
-    
-    const results = await queryLensSignals(
-      latitude,
-      longitude,
-      selectedAlertLevel,
-      selectedSignalType,
-      selectedHealthRating
-    );
-    
-    setLensSignalResults(results);
-  } catch (error) {
-    console.error('[LensSignal] Error:', error);
-  } finally {
-    setSearchingLensSignal(false);
-  }
-};
-const queryLensSignals = async (latitude, longitude, alertLevel, signalType, healthRating) => {
-  try {
-    const { createSupabaseClient } = require('../utils/supabaseClient');
-    const supabase = createSupabaseClient();
-    
-    let query = supabase.from('lens_signals').select('*');
-    
-    if (alertLevel && alertLevel !== 'All Alerts') {
-      query = query.eq('compliance_level', alertLevel);
-    }
-    
-    if (signalType && signalType !== 'All Types') {
-      let dbSignalType;
-      if (signalType === 'General Compliance') dbSignalType = 'compliance';
-      if (signalType === 'Health Code Violations') dbSignalType = 'health_code_violation';
-      if (signalType === 'New Business') dbSignalType = 'new_opening';
-      if (dbSignalType) query = query.eq('signal_type', dbSignalType);
-    }
-    
-    if (healthRating && healthRating !== 'All Ratings') {
-      query = query.eq('compliance_score', healthRating);
-    }
-    
-    const { data, error } = await query;
-    if (error) {
-      console.error('[LensSignal Query] Error:', error);
-      return [];
-    }
-    
-    // Filter by distance client-side (5 miles = 8047 meters)
-    if (data && Array.isArray(data)) {
-      return data.filter(signal => {
-        const distance = getDistance(latitude, longitude, parseFloat(signal.latitude), parseFloat(signal.longitude));
-        return distance <= 8047; // 5 miles in meters
-      });
-    }
-    return [];
-  } catch (error) {
-    console.error('[LensSignal Query] Exception:', error);
-    return [];
-  }
-};
-
-// Add distance calculation helper:
-const getDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371000; // Earth radius in meters
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-};
-
-  const [userLocation, setUserLocation] = useState(null);
+  }, [filters]);
 
   useEffect(() => {
-  const getLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('[Location] Permission denied');
+    if (!loading && region && isMapReadyRef.current) {
+      AsyncStorage.setItem(MAP_REGION_KEY, JSON.stringify(region)).catch(() => {});
+    }
+  }, [region, loading]);
+
+  useEffect(() => {
+    if (!loading && nearbyPlaces && Array.isArray(nearbyPlaces)) {
+      AsyncStorage.setItem(MAP_NEARBY_PLACES_KEY, JSON.stringify(nearbyPlaces)).catch(() => {});
+    }
+  }, [nearbyPlaces, loading]);
+
+  // Monitor AppState to prevent background location usage
+  useEffect(() => {
+    setIsAppActive(AppState.currentState === 'active');
+    const sub = AppState.addEventListener('change', (nextState) => {
+      const active = nextState === 'active';
+      setIsAppActive(active);
+      if (!active) {
+        if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  const [filtersVisible, setFiltersVisible] = useState(false);
+  const [targetLensVisible, setTargetLensVisible] = useState(false);
+  const [activeProfile, setActiveProfile] = useState(null);
+  const [lensSignalRecords, setLensSignalRecords] = useState([]);
+  const [loadingLensSignal, setLoadingLensSignal] = useState(false);
+  const [selectedLensSignalRecord, setSelectedLensSignalRecord] = useState(null);
+  const [leads, setLeads] = useState([]);
+  const [leadMarkers, setLeadMarkers] = useState([]);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [searchMode, setSearchMode] = useState('Strict');
+  const [addressQuery, setAddressQuery] = useState('');
+  const [addressSearching, setAddressSearching] = useState(false);
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState([]);
+  const autocompleteTimerRef = useRef(null);
+  const [region, setRegion] = useState(DEFAULT_TERRITORY_REGION);
+  const regionRef = useRef(null);
+  const lastFetchedCoordsRef = useRef({ lat: 0, lng: 0 });
+  const initialLocationAppliedRef = useRef(false);
+  const [clusters, setClusters] = useState([]);
+
+  useEffect(() => { BetaTracker.screen('TerritoryMapScreen'); }, []);
+
+  const moveMapTo = useCallback((target, duration = 800) => {
+    if (!target?.latitude || !target?.longitude) return;
+    const safe = makeSafeRegion(target, regionRef.current || DEFAULT_TERRITORY_REGION);
+    regionRef.current = safe;
+    setRegion(safe);
+    if (mapRef.current && isMapReadyRef.current) {
+      try { mapRef.current.animateToRegion(safe, duration); } catch (e) {}
+    }
+  }, []);
+
+  const setSafeRegion = useCallback((nextRegion) => {
+    const safe = makeSafeRegion(nextRegion, regionRef.current);
+    const prev = regionRef.current || DEFAULT_TERRITORY_REGION;
+    if (
+      Math.abs(prev.latitude - safe.latitude) < 0.0008
+      && Math.abs(prev.longitude - safe.longitude) < 0.0008
+      && Math.abs(prev.latitudeDelta - safe.latitudeDelta) < 0.001
+      && Math.abs(prev.longitudeDelta - safe.longitudeDelta) < 0.001
+    ) return;
+    regionRef.current = safe;
+    setRegion(safe);
+  }, []);
+
+  const fitMapToZipMarkers = useCallback((markers = []) => {
+    const points = (markers || [])
+      .map((marker) => marker?.coords)
+      .filter((coord) => coord && isFinite(coord.latitude) && isFinite(coord.longitude));
+
+    if (!points.length) return;
+
+    const forceRegionFallback = () => {
+      const lats = points.map((p) => Number(p.latitude));
+      const lngs = points.map((p) => Number(p.longitude));
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+      const latSpan = maxLat - minLat;
+      const lngSpan = maxLng - minLng;
+
+      // Guardrail: skip fallback when points span very large geographies.
+      // In that case fitToCoordinates already does a better job.
+      if (latSpan > 8 || lngSpan > 12) {
+        console.log('[TerritoryMap] ZIP fit fallback skipped due to wide territory span:', {
+          latSpan,
+          lngSpan,
+          pointCount: points.length,
+        });
         return;
       }
-      
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+
+      const centerLat = (minLat + maxLat) / 2;
+      const centerLng = (minLng + maxLng) / 2;
+      const latDelta = Math.max(0.08, (maxLat - minLat) * 1.35);
+      const lngDelta = Math.max(0.08, (maxLng - minLng) * 1.35);
+      const regionTarget = {
+        latitude: centerLat,
+        longitude: centerLng,
+        latitudeDelta: latDelta,
+        longitudeDelta: lngDelta,
+      };
+      moveMapTo(regionTarget, 700);
+      console.log('[TerritoryMap] ZIP fit fallback region applied:', regionTarget);
+    };
+
+    const doFit = () => {
+      if (!mapRef.current || !isMapReadyRef.current) return false;
+      try {
+        mapRef.current.fitToCoordinates(points, {
+          edgePadding: { top: 72, right: 52, bottom: screenHeight * 0.24, left: 52 },
+          animated: true,
+        });
+        console.log('[TerritoryMap] ZIP fitToCoordinates success:', points.length);
+        return true;
+      } catch (err) {
+        console.warn('[TerritoryMap] fitToCoordinates failed:', err?.message || err);
+        return false;
+      }
+    };
+
+    if (!doFit()) {
+      setTimeout(() => {
+        if (!doFit()) {
+          forceRegionFallback();
+        }
+      }, 450);
+    }
+  }, [moveMapTo]);
+
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+
+    (async () => {
+      const latestRevision = await getMyZipsRevision().catch(() => 0);
+      const shouldReload = !hasLoadedMapRef.current || latestRevision !== territoryRevisionRef.current;
+
+      console.log(
+        shouldReload
+          ? '[TerritoryMap] Screen focused, territory changed - loading map...'
+          : '[TerritoryMap] Screen focused, keeping current map session.'
+      );
+
+      if (!shouldReload || cancelled) return;
+
+      loadingRef.current = false;
+      const didLoad = await loadMap();
+      if (!cancelled && didLoad !== false) {
+        hasLoadedMapRef.current = true;
+        territoryRevisionRef.current = latestRevision;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []));
+
+  useEffect(() => {
+    if (isAppActive && !loading && region?.latitude && Math.abs(region.latitude) > 0.1) {
+      const dist = getDistanceBetweenMeters({ latitude: region.latitude, longitude: region.longitude }, { latitude: lastFetchedCoordsRef.current.lat, longitude: lastFetchedCoordsRef.current.lng });
+      if (lastFetchedCoordsRef.current.lat === 0) {
+        lastFetchedCoordsRef.current = { lat: region.latitude, lng: region.longitude };
+        fetchLensSignals(region.latitude, region.longitude);
+      } else if (dist && dist > 1800) {
+        if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current);
+        signalFetchTimerRef.current = setTimeout(() => {
+          if (!loadingRef.current && isAppActive) {
+            lastFetchedCoordsRef.current = { lat: region.latitude, lng: region.longitude };
+            fetchLensSignals(region.latitude, region.longitude);
+          }
+        }, 2000);
+      }
+    }
+    return () => { if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current); };
+  }, [loading, region.latitude, region.longitude, isAppActive]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') setLocationPermissionGranted(true);
+      } catch (e) {}
+    })();
+  }, []);
+
+  async function loadMap() {
+    if (loadingRef.current) return false;
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      console.log('[TerritoryMap] loadMap() started, fetching zips...');
+      const [myZips, rawGoals, storedFilters, storedRegion, storedNearby] = await Promise.all([
+        loadMyZips(),
+        AsyncStorage.getItem(GOALS_STORAGE_KEY).then(r => r ? JSON.parse(r) : {}),
+        AsyncStorage.getItem(MAP_FILTERS_KEY).then(r => r ? JSON.parse(r) : null),
+        AsyncStorage.getItem(MAP_REGION_KEY).then(r => r ? JSON.parse(r) : null),
+        AsyncStorage.getItem(MAP_NEARBY_PLACES_KEY).then(r => r ? JSON.parse(r) : null),
+      ]);
+
+      console.log('[TerritoryMap] Resolved myZips:', {
+        count: myZips?.length,
+        data: myZips?.slice(0, 3),
       });
-      
-      setUserLocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy,
+
+      let resolvedMyZips = Array.isArray(myZips)
+        ? myZips.map((entry) => _toNormalizedZipEntry(entry)).filter(Boolean)
+        : [];
+      if (!resolvedMyZips.length) {
+        try {
+          const remoteTerritory = await fetchMyTerritoryFromSupabase(supabase, user);
+          if (remoteTerritory?.ok && Array.isArray(remoteTerritory.data) && remoteTerritory.data.length > 0) {
+            resolvedMyZips = remoteTerritory.data
+              .map((entry) => _toNormalizedZipEntry(entry))
+              .filter(Boolean);
+            await saveMyZips(resolvedMyZips).catch(() => {});
+            console.log('[TerritoryMap] Loaded territory ZIPs from Supabase fallback:', resolvedMyZips.length);
+          }
+        } catch (remoteZipErr) {
+          console.warn('[TerritoryMap] Supabase territory fallback failed:', remoteZipErr?.message || remoteZipErr);
+        }
+      }
+
+      // Dual-read leads — check MMKV first, fall back to raw AsyncStorage
+      let rawLeads = [];
+      try {
+        const mmkvRaw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
+        if (mmkvRaw) rawLeads = JSON.parse(mmkvRaw);
+        else {
+          const RawStorage = require('@react-native-async-storage/async-storage').default;
+          const asyncRaw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+          if (asyncRaw) rawLeads = JSON.parse(asyncRaw);
+        }
+      } catch (e) { console.warn('[TerritoryMap] Leads load error:', e); }
+
+      if (storedFilters) {
+        const mergedFilters = {
+          ...DEFAULT_FILTERS,
+          ...storedFilters,
+          signals: {
+            ...DEFAULT_FILTERS.signals,
+            ...(storedFilters.signals || {}),
+          },
+        };
+        setFilters(mergedFilters);
+        console.log('[TerritoryMap] loaded stored filters', mergedFilters);
+      } else {
+        setFilters(DEFAULT_FILTERS);
+      }
+      isInitializedRef.current = true;
+      if (storedNearby) {
+        setNearbyPlaces(storedNearby);
+        setShowNearby(true);
+      }
+
+      if (storedRegion) {
+        setSafeRegion(storedRegion);
+      }
+
+      const goal = Math.max(1, Number(rawGoals?.dailyProspects) || 10);
+      setDailyGoal(goal);
+      setLeads(rawLeads || []);
+      setLeadMarkers((rawLeads || []).map(l => { const c = getLeadCoords(l); return c ? { ...l, coords: c } : null; }).filter(Boolean));
+      // Deduplicate — same zip twice causes duplicate React keys crashing the map
+      const seen = new Set();
+      const uniqueMyZips = [];
+      for (const entry of (resolvedMyZips || [])) {
+        const normalized = _toNormalizedZipEntry(entry);
+        if (!normalized) continue;
+        if (seen.has(normalized.zip)) continue;
+        seen.add(normalized.zip);
+        uniqueMyZips.push(normalized);
+      }
+
+      const zipEntriesToRender = uniqueMyZips;
+      setTotalLoadedZips(zipEntriesToRender.length);
+
+      console.log('[TerritoryMap] zipEntriesToRender:', {
+        count: zipEntriesToRender?.length,
+        source: 'territory',
       });
-      
-      console.log('[Location] GPS updated:', { lat: location.coords.latitude, lng: location.coords.longitude });
-    } catch (error) {
-      console.error('[Location] Error:', error);
+      console.log('[TerritoryMap] myZips:', resolvedMyZips?.length, '->', uniqueMyZips.length, 'unique');
+
+      // Do not block ZIP rendering on GPS. Territory users expect their stored ZIPs
+      // to appear immediately, and GPS can stall indoors or during permission prompts.
+      if (!initialLocationAppliedRef.current && zipEntriesToRender.length === 0) {
+        initialLocationAppliedRef.current = true;
+        getCurrentCoords()
+          .then((current) => {
+            if (!current) return;
+            setLocationPermissionGranted(true);
+            moveMapTo({ ...current, latitudeDelta: 0.08, longitudeDelta: 0.08 }, 400);
+            console.log('[TerritoryMap] applied initial GPS location', { latitude: current.latitude, longitude: current.longitude });
+          })
+          .catch(() => null);
+      }
+
+      const buildMarkersFromZipEntries = async (entries = []) => {
+        const normalizedEntries = entries
+          .map((entry) => _toNormalizedZipEntry(entry))
+          .filter(Boolean);
+        const boundsMap = await getBulkZipBounds(normalizedEntries.map((entry) => entry.zip)).catch(() => ({}));
+        const markers = [];
+        for (const normalizedEntry of normalizedEntries) {
+          const zip = normalizedEntry.zip;
+          const bounds = boundsMap?.[zip] || null;
+          if (!bounds?.center) continue;
+          const act = buildZipActivity([normalizedEntry], rawLeads || [])[0];
+          const level = getHeatLevel(act?.dailyAvg || 0, goal);
+          markers.push({
+            zip,
+            coords: bounds.center,
+            allRings: bounds.allRings || [],
+            level,
+            colors: getHeatColor(level),
+            activity: act,
+          });
+        }
+        return markers.filter((m) => isFinite(m?.coords?.latitude) && isFinite(m?.coords?.longitude));
+      };
+
+      let finalZipMarkers = [];
+      let zipSource = 'none';
+
+      if (zipEntriesToRender.length) {
+        const activeZips = zipEntriesToRender.map((z) => z.zip);
+        if (activeZips.length > 0) {
+          supabase.functions.invoke('signal-ingest', {
+            body: { zipCodes: activeZips }
+          }).catch(e => console.warn('[TerritoryMap] Pulse failed:', e));
+        }
+
+        finalZipMarkers = await buildMarkersFromZipEntries(zipEntriesToRender);
+        zipSource = 'territory';
+      }
+
+      if (finalZipMarkers.length === 0) {
+        try {
+          const fallbackMarkersRaw = await loadTerritoryZipMarkersFallback({ supabaseClient: supabase });
+          const fallbackMarkers = [];
+          for (const m of (fallbackMarkersRaw || [])) {
+            const normalizedFallback = _toNormalizedZipEntry(m);
+            if (!normalizedFallback) continue;
+            const zip = normalizedFallback.zip;
+
+            let coords =
+              _makeSafeCoordinate(m?.coords)
+              || _makeSafeCoordinate(m)
+              || _makeSafeCoordinate(m?.centroid)
+              || _makeSafeCoordinate(m?.coordinate)
+              || null;
+            let allRings = m?.allRings || m?.all_rings || m?.polygons || m?.coordinates || m?.geometry?.coordinates || [];
+
+            if ((!coords || !Array.isArray(allRings) || allRings.length === 0) && zip) {
+              const bounds = await getZipBounds(zip).catch(() => null);
+              if (bounds) {
+                coords = coords || bounds.center || null;
+                if (!Array.isArray(allRings) || allRings.length === 0) {
+                  allRings = bounds.allRings || [];
+                }
+              }
+            }
+
+            if (!coords || !isFinite(coords.latitude) || !isFinite(coords.longitude)) continue;
+            fallbackMarkers.push({
+              ...m,
+              ...normalizedFallback,
+              zip,
+              coords,
+              allRings,
+              level: m?.level || 'none',
+              colors: m?.colors || getHeatColor('none'),
+            });
+          }
+
+          if (fallbackMarkers.length > 0) {
+            finalZipMarkers = fallbackMarkers;
+            zipSource = 'territory_loader';
+          }
+        } catch (fallbackErr) {
+          console.warn('[TerritoryMap] Territory loader fallback failed:', fallbackErr);
+        }
+      }
+
+      console.log('[TerritoryMap] ZIP source selected:', zipSource, 'count:', finalZipMarkers.length, '| totalLoadedZips:', zipEntriesToRender.length);
+      if (finalZipMarkers.length > 0) {
+        console.log('[TerritoryMap] First marker sample:', JSON.stringify(finalZipMarkers[0]).slice(0, 300));
+      } else if (zipEntriesToRender.length > 0) {
+        console.warn('[TerritoryMap] WARNING:', zipEntriesToRender.length, 'ZIPs loaded but 0 rendered - getZipBounds may be failing');
+      }
+      setZipMarkers(finalZipMarkers);
+      if (finalZipMarkers.length > 0) {
+        fitMapToZipMarkers(finalZipMarkers);
+      }
+      return true;
+    } catch (err) { console.warn('[TerritoryMap] loadMap failed:', err); }
+    finally {
+      setLoading(false);
+      loadingRef.current = false;
+      const safeFetchRegion = regionRef.current || region || DEFAULT_TERRITORY_REGION;
+      if (isAppActive && lastFetchedCoordsRef.current.lat === 0 && safeFetchRegion?.latitude && Math.abs(safeFetchRegion.latitude) > 0.1) {
+        console.log('[TerritoryMap] loadMap complete; performing initial lens signal fetch', { region: safeFetchRegion });
+        lastFetchedCoordsRef.current = { lat: safeFetchRegion.latitude, lng: safeFetchRegion.longitude };
+        fetchLensSignals(safeFetchRegion.latitude, safeFetchRegion.longitude);
+      }
+    }
+    return false;
+  }
+
+  const fetchLensSignals = async (lat, lng) => {
+    if (!isAppActive) {
+      console.log('[TerritoryMap] fetchLensSignals skipped because app is not active');
+      return;
+    }
+    setLoadingLensSignal(true);
+    try {
+      console.log('[TerritoryMap] Fetching signals near', { lat, lng, radius: '25mi' });
+      const rpcName = 'get_lenssignal_nearby';
+      console.log('[TerritoryMap] Calling RPC:', rpcName);
+      const { data, error } = await supabase.rpc(rpcName, { p_latitude: lat, p_longitude: lng, p_radius_miles: 25 });
+      const records = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+      console.log('[TerritoryMap] RPC response type:', typeof data, 'records length:', records.length);
+      if (error) {
+        console.warn('[TerritoryMap] Signal RPC error:', error);
+      } else if (Array.isArray(records)) {
+        if (!Array.isArray(data) && Array.isArray(data?.data)) {
+          console.log('[TerritoryMap] RPC returned nested payload array in data.data');
+        }
+        console.log('[TerritoryMap] Got', records.length, 'signals:', records.slice(0, 3).map(s => ({ name: s.establishment_name, lat: s.latitude, lng: s.longitude })));
+        setLensSignalRecords(records);
+          // Debug: print a larger sample of returned signals (coords + id)
+          try {
+            console.log('[TerritoryMap] LensSignal sample:', records.slice(0, 6).map(s => ({ id: s.id, name: s.establishment_name || s.business_name, lat: s.latitude, lng: s.longitude })));
+          } catch (e) {}
+      } else {
+        console.warn('[TerritoryMap] RPC returned non-array:', typeof data, data);
+      }
+    } catch (e) {
+      console.error('[TerritoryMap] Fetch exception:', e?.message || String(e));
+    } finally { setLoadingLensSignal(false); }
+  };
+
+  const isLeadVisible = useCallback((lead) => {
+    if (!lead?.coords || !filters) return false;
+    if (!activeProfile || activeProfile.category === 'Pest Control') {
+      if (filters.signalsOnly) {
+        const hasLens = !!(lead.lensSignal || lead.lens_signal_id);
+        const hasContact = !!lead.contactSignal;
+        if (!hasLens && !hasContact) return false;
+      }
+      return true;
+    }
+    const type = classifyGooglePlace(lead);
+    if (filters.businessType !== 'All Businesses' && type !== filters.businessType) return false;
+    if (filters.leadStatus !== 'All' && (lead.status || 'Suspect') !== filters.leadStatus) return false;
+    if (filters.signalsOnly && !(lead.lensSignal || lead.lens_signal_id || lead.contactSignal)) return false;
+    return true;
+  }, [activeProfile, filters]);
+
+  const filteredLeadMarkers = useMemo(() => leadMarkers.filter(isLeadVisible), [leadMarkers, isLeadVisible]);
+
+  const safeNearbyPlaces = useMemo(() => {
+    const raw = Array.isArray(nearbyPlaces) ? nearbyPlaces : [];
+    return raw.map(p => {
+      if (!p || !filters) return null;
+      const type = classifyGooglePlace(p);
+      let sig = null;
+      if (Array.isArray(lensSignalRecords)) {
+        const matches = lensSignalRecords.map(r => ({ r, ...calculateMatchConfidence(r, { name: p.name, address: p.address, latitude: p.coords?.latitude, longitude: p.coords?.longitude }) })).filter(m => m.score >= 0.4).sort((a, b) => b.score - a.score);
+        sig = matches[0]?.r || null;
+      }
+      return {
+        ...p, businessType: type, coordinate: p.coordinate || p.coords, lensSignal: sig,
+        signals: { lensSignal: !!sig, contactSignal: !!p.contactSignal, pest: !!sig?.pest_indicator, opening: (sig?.signal_layer || sig?.signal_type) === 'Opening Signal', priority: sig?.alert_level === 'Priority Review' }
+      };
+    }).filter(p => {
+      if (!p || !p.coordinate || !filters) return false;
+      if (!activeProfile || activeProfile.category === 'Pest Control') return !filters.signalsOnly || (p.signals.lensSignal || p.signals.contactSignal || p.signals.pest || p.signals.opening || p.signals.priority);
+      if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) return false;
+      if (filters.signalsOnly && !(p.signals.lensSignal || p.signals.contactSignal || p.signals.pest || p.signals.opening || p.signals.priority)) return false;
+      return true;
+    });
+  }, [nearbyPlaces, lensSignalRecords, filters, activeProfile]);
+
+  useEffect(() => {
+    try {
+      const raw = Array.isArray(nearbyPlaces) ? nearbyPlaces.length : 'not array';
+      const safe = Array.isArray(safeNearbyPlaces) ? safeNearbyPlaces.length : 'not array';
+      console.log('[TerritoryMap] nearbyPlaces update:', { rawNearby: raw, safeNearby: safe });
+      if (raw !== 0 && safe === 0) console.log('[TerritoryMap] WARNING: nearbyPlaces present but safeNearbyPlaces filtered to 0');
+    } catch (e) {}
+  }, [nearbyPlaces, safeNearbyPlaces]);
+
+  useEffect(() => {
+    if (!isAppActive || !filters) return;
+    if (clusterBuildTimerRef.current) clearTimeout(clusterBuildTimerRef.current);
+    clusterBuildTimerRef.current = setTimeout(() => {
+      const points = [];
+      filteredLeadMarkers.forEach(l => { if (l?.coords && isFinite(l.coords.longitude) && isFinite(l.coords.latitude)) points.push({ type: 'Feature', properties: { cluster: false, lead: l, isLead: true }, geometry: { type: 'Point', coordinates: [l.coords.longitude, l.coords.latitude] } }); });
+      if (showNearby) safeNearbyPlaces.forEach(p => { if (p?.coordinate && isFinite(p.coordinate.longitude) && isFinite(p.coordinate.latitude)) points.push({ type: 'Feature', properties: { cluster: false, place: p, isNearby: true }, geometry: { type: 'Point', coordinates: [p.coordinate.longitude, p.coordinate.latitude] } }); });
+      if (filters.signals?.lensSignal && Array.isArray(lensSignalRecords)) {
+        const beforeFilter = lensSignalRecords.length;
+        const filteredAll = lensSignalRecords.filter(s => !['apartment', 'condo', 'residential'].some(k => (s.establishment_name || '').toLowerCase().includes(k)));
+        const filtered = (MAP_SAFE_MODE && (region?.latitudeDelta || 0) > 0.12)
+          ? filteredAll.slice(0, 120)
+          : filteredAll;
+        const afterFilter = filtered.length;
+        if (lastLensCountRef.current !== beforeFilter) {
+          console.log('[TerritoryMap] LensSignals: before filter:', beforeFilter, 'after filter:', afterFilter);
+          lastLensCountRef.current = beforeFilter;
+        }
+        filtered.forEach(s => {
+          if (isFinite(s.longitude) && isFinite(s.latitude)) {
+            points.push({ type: 'Feature', properties: { cluster: false, signal: s, isLensSignal: true }, geometry: { type: 'Point', coordinates: [Number(s.longitude), Number(s.latitude)] } });
+          }
+        });
+      }
+
+      if (points.length === 0) {
+        setClusters([]);
+        return;
+      }
+      try {
+        superclusterRef.current.load(points);
+        const safeDeltaX = Math.max(region?.longitudeDelta || 0.01, 0.0001);
+        const safeDeltaY = Math.max(region?.latitudeDelta || 0.01, 0.0001);
+        const bBox = [
+          (region?.longitude || 0) - safeDeltaX * 2,
+          (region?.latitude || 0) - safeDeltaY * 2,
+          (region?.longitude || 0) + safeDeltaX * 2,
+          (region?.latitude || 0) + safeDeltaY * 2
+        ];
+        const rawZoom = Math.round(Math.log2(360 / safeDeltaX));
+        const zoom = Math.min(20, Math.max(0, isFinite(rawZoom) ? rawZoom : 10));
+        setClusters(superclusterRef.current.getClusters(bBox, zoom) || []);
+      } catch (err) {
+        console.warn("[Supercluster Error]:", err);
+        setClusters([]);
+      }
+    }, 220);
+
+    return () => {
+      if (clusterBuildTimerRef.current) clearTimeout(clusterBuildTimerRef.current);
+    };
+  }, [filteredLeadMarkers, safeNearbyPlaces, lensSignalRecords, filters.signals?.lensSignal, isAppActive, showNearby, region]);
+
+  const selectLeadSafe = (l) => { if (l) requestAnimationFrame(() => setSelectedLead(l)); };
+  const getLeadAddress = (l) => l ? [[l.streetNumber, l.streetName].filter(Boolean).join(' '), l.city, l.state, l.zip].filter(Boolean).join(', ') : '';
+  const getLeadSourceType = (l) => l?.sourceType || l?.captureMethod || 'Unknown';
+  const getLeadConfidence = (l) => String(l?.locationConfidence || l?.confidence || 'medium').toLowerCase();
+  const getDistanceBetweenMeters = (a, b) => { const R = 6371000, toRad = (d) => d * Math.PI / 180; if (!a?.latitude || !b?.latitude) return null; const dLat = toRad(b.latitude - a.latitude), dLon = toRad(b.longitude - a.longitude), lat1 = toRad(a.latitude), lat2 = toRad(b.latitude), c = 2 * Math.atan2(Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2), Math.sqrt(1 - (Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2))); return Math.round(R * c); };
+  const getLeadCoords = (l) => { const lat = Number(l.latitude ?? l.lat ?? l.captureLat ?? l.capture_lat ?? l.locationLat ?? l.latLng?.latitude); const lng = Number(l.longitude ?? l.lng ?? l.captureLng ?? l.capture_lng ?? l.locationLng ?? l.latLng?.longitude); return (isFinite(lat) && isFinite(lng)) ? { latitude: lat, longitude: lng } : null; };
+
+  const handlePlaceTap = async (p) => {
+    if (!p) return;
+    setSelectedPlace({ ...p, loading: true });
+    try {
+      const enriched = await enrichBusinessWithPublicSources(p);
+      setSelectedPlace({ ...enriched, loading: false });
+    } catch (e) {
+      console.warn("[TerritoryMap] Enrichment failed:", e.message);
+      setSelectedPlace({ ...p, loading: false });
     }
   };
-  
-  getLocation();
-  const interval = setInterval(getLocation, 10000);
-  
-  return () => clearInterval(interval);
-}, []);
 
-useEffect(() => {
-  if (selectedLensSignal) {
-    setLensSignalModalVisible(true);
-  }
-}, [selectedLensSignal]);
+  const captureAsLead = () => {
+    if (!selectedPlace) return;
 
-  return (
-    
-    <SafeAreaView style={styles.container}>
-      <ScreenHeader title="Territory Map" onBack={() => navigation.goBack()} />
+    const addressSource = {
+      ...selectedPlace,
+      formattedAddress:
+        selectedPlace.formattedAddress ||
+        selectedPlace.formatted_address ||
+        selectedPlace.fullAddress ||
+        selectedPlace.address ||
+        selectedPlace.vicinity ||
+        "",
+      address_components:
+        selectedPlace.address_components ||
+        selectedPlace.addressComponents ||
+        selectedPlace.placeDetails?.address_components ||
+        selectedPlace.googlePlace?.address_components ||
+        [],
+    };
 
-      {/* Map - Full Width */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.accent} />
-          <Text style={styles.loadingText}>Loading territories...</Text>
-        </View>
-      ) : (
-        <>
-          <MapView
-            ref={mapRef}
-            style={styles.map}
-            initialRegion={{
-              latitude: 29.2108,
-              longitude: -95.4506,
-              latitudeDelta: 0.5,
-              longitudeDelta: 0.5,
-            }}
-          >{/* GPS Location Target */}
-{userLocation && (
-  <Marker
-    coordinate={{
-      latitude: userLocation.latitude,
-      longitude: userLocation.longitude,
-    }}
-  >
-    <View style={styles.gpsMarker}>
-      <View style={styles.gpsPulse} />
-      <View style={styles.gpsCenter} />
-    </View>
-  </Marker>
-)}
+    const parsedAddress = parseBusinessAddress(addressSource);
+    const bestPhone = extractBestPhone(selectedPlace);
 
-          {/* Search Result Markers */}
-{searchResults.map((result) => {
-  const type = result.types?.[0] || 'default';
-  const icon = BUSINESS_TYPE_ICONS[type] || BUSINESS_TYPE_ICONS['default'];
-  
-  return (
-    <Marker
-      key={result.place_id}
-      coordinate={{
-        latitude: result.geometry.location.lat,
-        longitude: result.geometry.location.lng,
-      }}
-      onPress={() => setSelectedLensSignal({ ...result, isSearchResult: true })}
-    >
-        <Text style={styles.resultMarkerIcon}>{icon}</Text>
-    </Marker>
-  );
-})}
-{/* LensSignal Markers */}
-{lensSignalResults.map((signal) => {
-  const signalIcon = SIGNAL_TYPE_ICONS[signal.signal_type] || SIGNAL_TYPE_ICONS['default'];
-  
-  return (
-    <Marker
-      key={signal.id}
-      coordinate={{
-        latitude: parseFloat(signal.latitude),
-        longitude: parseFloat(signal.longitude),
-      }}
-      onPress={() => setSelectedLensSignal(signal)}
-    >
-      <Text style={{ fontSize: 28 }}>{signalIcon}</Text>
-    </Marker>
-  );
-})}
-   {/* Polygons disabled - debugging needed */}
-{/* {zipMarkers.map((marker) => { ... })} */}
+    const prospectToQueue = {
+      businessName:
+        selectedPlace.businessName ||
+        selectedPlace.name ||
+        selectedPlace.displayName ||
+        "",
+      streetNumber: parsedAddress.streetNumber || "",
+      streetName: parsedAddress.streetName || "",
+      addressLine2: parsedAddress.addressLine2 || "",
+      city: parsedAddress.city || "",
+      state: parsedAddress.state || "",
+      zip: parsedAddress.zip || "",
+      formattedAddress: parsedAddress.formattedAddress || "",
+      phone: bestPhone || selectedPlace.phone || selectedPlace.phoneNumber || "",
+      source: selectedPlace.source || "map",
+      placeId: selectedPlace.place_id || selectedPlace.placeId || "",
+      website: selectedPlace.website || "",
+      captureMethod: 'Nearby Search',
+      propertyType: 'Commercial',
+      status: 'New'
+    };
 
-          {/* ZIP Boundary Polygons */}
-          {zipMarkers.map((marker) => {
-            if (marker.isFallback) {
-              // Fallback: render a circle at the zip centroid
-              return (
-                <Circle
-                  key={`zip-fallback-${marker.zip}`}
-                  center={{ latitude: marker.latitude, longitude: marker.longitude }}
-                  radius={3000}
-                  strokeColor={`${COLORS.accent}80`}
-                  fillColor={`${COLORS.accent}15`}
-                  strokeWidth={1}
+
+    setSelectedPlace(null);
+    navigation.navigate('Review', { user, lead: prospectToQueue, editIdx: null });
+  };
+
+  const handleAddressChange = (text) => {
+    setAddressQuery(text);
+    setAutocompleteSuggestions([]);
+    if (autocompleteTimerRef.current) clearTimeout(autocompleteTimerRef.current);
+    if (text.length < 3) return;
+    autocompleteTimerRef.current = setTimeout(async () => {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_MAPS_API_KEY}&types=geocode|establishment&components=country:us`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (data.predictions?.length) {
+          setAutocompleteSuggestions(data.predictions.slice(0, 5));
+        }
+      } catch {}
+    }, 350);
+  };
+
+  const selectSuggestion = async (suggestion) => {
+    setAddressQuery(suggestion.description);
+    setAutocompleteSuggestions([]);
+    setAddressSearching(true);
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?place_id=${suggestion.place_id}&key=${GOOGLE_MAPS_API_KEY}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      const loc = data.results?.[0]?.geometry?.location;
+      if (loc) {
+        moveMapTo({ latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters: 2500, apiKey: GOOGLE_MAPS_API_KEY });
+        if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
+      }
+    } catch (err) {
+      console.warn('[TerritoryMap] Suggestion select error:', err);
+    } finally {
+      setAddressSearching(false);
+    }
+  };
+
+  const searchByAddress = async () => {
+    if (!addressQuery.trim()) { searchNearby(); return; }
+    setAddressSearching(true);
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressQuery)}&key=${GOOGLE_MAPS_API_KEY}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      const loc = data.results?.[0]?.geometry?.location;
+      if (loc) {
+        moveMapTo({ latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters: 2500, apiKey: GOOGLE_MAPS_API_KEY });
+        if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
+        else showThemedAlert('No results', 'No businesses found at that location.');
+      } else {
+        showThemedAlert('Not found', 'Could not find that address.');
+      }
+    } catch (err) {
+      showThemedAlert('Search failed', err.message || 'Could not search address.');
+    } finally {
+      setAddressSearching(false);
+    }
+  };
+
+  const searchNearby = async () => {
+    setSearchingNearby(true);
+    try {
+      // Use stored location first — set by App.js on startup, instant read
+      let current = null;
+      try {
+        const stored = AsyncStorage.getSync('currentLocation');
+        if (stored) {
+          const loc = JSON.parse(stored);
+          if (loc?.latitude && loc?.longitude) {
+            current = { latitude: loc.latitude, longitude: loc.longitude };
+          }
+        }
+      } catch {}
+
+      // Fall back to live GPS if stored location not available
+      if (!current) {
+        current = await Promise.race([
+          getCurrentCoords(),
+          new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+        ]);
+      }
+
+      if (!current) {
+        showThemedAlert('Location Required', 'Could not get your location. Try searching by address instead.');
+        return;
+      }
+
+      const results = await searchNearbyBusinesses({ center: current, radiusMeters: 2500, apiKey: GOOGLE_MAPS_API_KEY });
+      if (results && Array.isArray(results) && results.length > 0) {
+        setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords })));
+        setShowNearby(true);
+        moveMapTo({ ...current, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 400);
+      } else showThemedAlert('No results', 'No businesses found nearby.');
+
+    } catch (e) {
+      showThemedAlert('Search Error', String(e?.message || e));
+    } finally {
+      setSearchingNearby(false);
+    }
+  };
+
+  const showPins = region.latitudeDelta <= 0.55;
+  const isZoomedOut = (region?.latitudeDelta || 0) > 0.14;
+
+  const handleLensSignalAction = useCallback(() => {
+    setFilters((prev) => {
+      const safe = prev || DEFAULT_FILTERS;
+      return {
+        ...safe,
+        signals: {
+          ...safe.signals,
+          lensSignal: true,
+        },
+      };
+    });
+
+    if (isAppActive && isFinite(region?.latitude) && isFinite(region?.longitude)) {
+      fetchLensSignals(region.latitude, region.longitude);
+    }
+  }, [isAppActive, region?.latitude, region?.longitude]);
+
+  const zipBoundaryOverlays = useMemo(() => {
+    if (!Array.isArray(zipMarkers) || zipMarkers.length === 0) return [];
+
+    return zipMarkers.flatMap((m) => {
+      try {
+        const items = [];
+        const zip = m.zip || m.zipCode || m.ZIP;
+        const lat = parseFloat(m.coords?.latitude ?? m.coords?.lat ?? m.lat ?? m.centroid?.lat);
+        const lng = parseFloat(m.coords?.longitude ?? m.coords?.lng ?? m.lng ?? m.centroid?.lng);
+
+        const rawCoords =
+          m.allRings ||
+          m.polygons ||
+          m.coordinates ||
+          m.geometry?.coordinates ||
+          [];
+
+        let hasPolygon = false;
+        if (Array.isArray(rawCoords)) {
+          for (let rIdx = 0; rIdx < rawCoords.length; rIdx++) {
+            const ring = rawCoords[rIdx];
+            if (!Array.isArray(ring) || ring.length < 3) continue;
+            const safeRing = ring
+              .map((pt) => makeSafeCoordinate(pt))
+              .filter(Boolean);
+            if (safeRing.length >= 3) {
+              hasPolygon = true;
+              items.push(
+                <Polygon
+                  key={`zip-poly-${zip}-${rIdx}`}
+                  coordinates={safeRing}
+                  strokeColor="#00C9FFCC"
+                  fillColor="#00C9FF2A"
+                  strokeWidth={selectedZip === zip ? 3.5 : 2.2}
+                  onPress={() => setSelectedZip(zip)}
                 />
               );
             }
-            // Full polygon boundary
-            const coords = makeSafePolygons(marker.polygons || marker.coordinates || []);
-            if (!coords || coords.length < 3) return null;
-            return (
-              <Polygon
-                key={`zip-poly-${marker.zip}`}
-                coordinates={coords}
-                strokeColor={`${COLORS.accent}90`}
-                fillColor={`${COLORS.accent}18`}
-                strokeWidth={1.5}
-              />
-            );
-          })}
+          }
+        }
+        if (!hasPolygon && isFinite(lat) && isFinite(lng)) {
+          items.push(
+            <Circle
+              key={`zip-circle-${zip}`}
+              center={{ latitude: lat, longitude: lng }}
+              radius={3500}
+              strokeColor="#00C9FFB0"
+              fillColor="#00C9FF24"
+              strokeWidth={1.8}
+            />
+          );
+        }
 
-          {/* Prospect Contact Card Markers */}
-          {prospects.map((prospect, idx) => (
+        if (isFinite(lat) && isFinite(lng)) {
+          items.push(
             <Marker
-              key={`prospect-${prospect.id || idx}`}
-              coordinate={{
-                latitude: parseFloat(prospect.latitude),
-                longitude: parseFloat(prospect.longitude),
-              }}
-              onPress={() => {
-                setSelectedProspect(prospect);
-                setProspectModalVisible(true);
-              }}
+              key={`label-${zip}`}
+              coordinate={{ latitude: lat, longitude: lng }}
+              onPress={() => setSelectedZip(zip)}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={false}
             >
-              <View style={styles.prospectMarker}>
-                <Text style={styles.prospectMarkerIcon}>📇</Text>
+              <View style={[s.zipLabel, { borderColor: m.colors?.text || COLORS.purple }]}>
+                <Text style={[s.zipLabelText, { color: m.colors?.text || COLORS.purple }]}>{zip}</Text>
               </View>
             </Marker>
-          ))}
-  
-        </MapView>
+          );
+        }
 
-          {/* Floating Search Bar */}
-          <View style={styles.floatingSearchSection}>
-            <View style={styles.searchInputContainer}>
-              <Ionicons name="search" size={20} color={COLORS.accent} style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search address or business..."
-                placeholderTextColor={COLORS.chrome}
-                value={searchAddress}
-                onChangeText={handleAddressChange}
-                onFocus={() => setShowSuggestions(true)}
-              />
-            </View>
-            
-            {showSuggestions && addressSuggestions.length > 0 && (
-              <ScrollView style={styles.suggestionsDropdown}>
-                {addressSuggestions.map((suggestion, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={styles.suggestionItem}
-                    onPress={() => handleSuggestionSelect(suggestion)}
-                  >
-                    <Text style={styles.suggestionText}>{suggestion.description}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
+        return items;
+      } catch (err) {
+        console.warn('[TerritoryMap] Polygon render error for marker:', m?.zip, err);
+        return [];
+      }
+    }).filter(Boolean);
+  }, [zipMarkers, selectedZip, isZoomedOut]);
 
-            <View style={styles.buttonRow}>
-              <TouchableOpacity 
-                style={styles.filterBtn}
-                onPress={() => {
-                  setFilterTab('prospecting');
-                  setFilterModalVisible(true);
-                }}
-              >
-                <Ionicons name="home" size={16} color={COLORS.chrome} />
-                <Text style={styles.filterBtnText}>Industry</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.filterBtn}
-                onPress={() => {
-                  setFilterTab('lenssignal');
-                  setFilterModalVisible(true);
-                }}
-              >
-                <Ionicons name="bar-chart" size={16} color={COLORS.chrome} />
-                <Text style={styles.filterBtnText}>Signals</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </>
-      )}
-{/* Search Results Modal */}
+  const lensSignalDirectFallback = useMemo(() => {
+    if (!MAP_SAFE_MODE) return [];
+    if (!filters?.signals?.lensSignal) return [];
+    if (!Array.isArray(lensSignalRecords) || lensSignalRecords.length === 0) return [];
+    if (Array.isArray(clusters) && clusters.length > 0) return [];
 
-{/* FAB Buttons */}
-      <View style={styles.fabContainer}>
-        <TouchableOpacity style={styles.fab} onPress={handleLocationPress}>
-          <Ionicons name="location" size={24} color={COLORS.bg} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.fab} onPress={handleSearchPress}>
-  <Ionicons name="search" size={24} color={COLORS.bg} />
-</TouchableOpacity>
-<TouchableOpacity style={styles.fab} onPress={handleLensSignalSearch}>
-  <Text style={{ fontSize: 24 }}>🎯</Text>
-</TouchableOpacity>
-<TouchableOpacity style={styles.fab} onPress={() => setFilterModalVisible(true)}>
-  <Ionicons name="funnel" size={24} color={COLORS.bg} />
-</TouchableOpacity>
-        <TouchableOpacity style={styles.fab} onPress={handleReloadPress}>
-          <Ionicons name="reload" size={24} color={COLORS.bg} />
-        </TouchableOpacity>
-      </View>
+    const safeDeltaX = Math.max(region?.longitudeDelta || 0.05, 0.01);
+    const safeDeltaY = Math.max(region?.latitudeDelta || 0.05, 0.01);
+    const minLng = (region?.longitude || 0) - safeDeltaX * 2;
+    const maxLng = (region?.longitude || 0) + safeDeltaX * 2;
+    const minLat = (region?.latitude || 0) - safeDeltaY * 2;
+    const maxLat = (region?.latitude || 0) + safeDeltaY * 2;
 
-      {/* Filter Modal */}
-      <Modal visible={filterModalVisible} transparent animationType="slide"
-        onRequestClose={() => setFilterModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filters</Text>
-              <TouchableOpacity onPress={() => setFilterModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.chrome} />
-              </TouchableOpacity>
-            </View>
+    return lensSignalRecords
+      .filter((s) => !['apartment', 'condo', 'residential'].some((k) => (s.establishment_name || '').toLowerCase().includes(k)))
+      .filter((s) => {
+        const lat = Number(s.latitude);
+        const lng = Number(s.longitude);
+        if (!isFinite(lat) || !isFinite(lng)) return false;
+        return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+      })
+      .slice(0, 80);
+  }, [clusters, filters?.signals?.lensSignal, lensSignalRecords, region]);
 
-            {/* Tabs */}
-            <View style={styles.tabRow}>
-              <TouchableOpacity
-                style={[styles.tab, filterTab === 'lenssignal' && styles.tabActive]}
-                onPress={() => setFilterTab('lenssignal')}
-              >
-                <Text style={[styles.tabText, filterTab === 'lenssignal' && styles.tabTextActive]}>
-                  LensSignal
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tab, filterTab === 'prospecting' && styles.tabActive]}
-                onPress={() => setFilterTab('prospecting')}
-              >
-                <Text style={[styles.tabText, filterTab === 'prospecting' && styles.tabTextActive]}>
-                  Prospecting
-                </Text>
-              </TouchableOpacity>
-            </View>
+  const showMapActionButtons = !selectedLead && !selectedPlace && !selectedLensSignalRecord;
 
-            <ScrollView style={styles.modalScroll}>
-              {filterTab === 'lenssignal' ? (
-                <>
-                  <Text style={styles.label}>Alert Level:</Text>
-                  <View style={styles.pillRow}>
-                    {ALERT_LEVELS.map((level) => (
-                      <TouchableOpacity
-                        key={level}
-                        style={[styles.pill, selectedAlertLevel === level && styles.pillActive]}
-                        onPress={() => setSelectedAlertLevel(level)}
-                      >
-                        <Text style={[styles.pillText, selectedAlertLevel === level && styles.pillTextActive]}>
-                          {level}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+  return (
+    <View style={s.root}>
+      <ScreenHeader title="Territory Map" onBack={() => navigation.goBack()} badge={(totalLoadedZips || 0) + " ZIPS"} />
 
-                  <Text style={[styles.label, { marginTop: 20 }]}>Signal Type:</Text>
-                  <View style={styles.pillRow}>
-                    {['All Types', 'General Compliance', 'Health Code Violations', 'New Business'].map((type) => (
-                      <TouchableOpacity
-                        key={type}
-                        style={[styles.pill, selectedSignalType === type && styles.pillActive]}
-                        onPress={() => setSelectedSignalType(type)}
-                      >
-                        <Text style={[styles.pillText, selectedSignalType === type && styles.pillTextActive]}>
-                          {type}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <Text style={[styles.label, { marginTop: 20 }]}>Health Rating:</Text>
-                  <View style={styles.pillRow}>
-                    {['All Ratings', 'A', 'B', 'C', 'D', 'F'].map((rating) => (
-                      <TouchableOpacity
-                        key={rating}
-                        style={[styles.pill, selectedHealthRating === rating && styles.pillActive]}
-                        onPress={() => setSelectedHealthRating(rating)}
-                      >
-                        <Text style={[styles.pillText, selectedHealthRating === rating && styles.pillTextActive]}>
-                          {rating}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.label}>Business Type:</Text>
-                  <View style={styles.pillRow}>
-                    {BUSINESS_TYPES.map((type) => (
-                      <TouchableOpacity
-                        key={type}
-                        style={[styles.pill, selectedBusinessType === type && styles.pillActive]}
-                        onPress={() => setSelectedBusinessType(type)}
-                      >
-                        <Text style={[styles.pillText, selectedBusinessType === type && styles.pillTextActive]}>
-                          {type}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <Text style={[styles.label, { marginTop: 20 }]}>Show Signals Only:</Text>
-                  <TouchableOpacity
-                    style={[styles.pill, !showSignalsOnly && styles.pillActive]}
-                    onPress={() => setShowSignalsOnly(false)}
-                  >
-                    <Text style={[styles.pillText, !showSignalsOnly && styles.pillTextActive]}>
-                      Disabled
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </ScrollView>
-
-            <TouchableOpacity style={styles.applyBtn} onPress={() => setFilterModalVisible(false)}>
-              <Text style={styles.applyText}>Apply</Text>
-            </TouchableOpacity>
-          </View>
+      {/* Address search bar with autocomplete */}
+      <View style={{ marginHorizontal: 12, marginVertical: 8, zIndex: 100 }}>
+        <View style={s.searchBar}>
+          <TextInput
+            style={s.searchInput}
+            placeholder="Search address or business..."
+            placeholderTextColor={COLORS.textDim || '#666'}
+            value={addressQuery}
+            onChangeText={handleAddressChange}
+            onSubmitEditing={searchByAddress}
+            returnKeyType="search"
+          />
+          <TouchableOpacity style={s.searchBtn} onPress={searchByAddress} disabled={addressSearching}>
+            {addressSearching
+              ? <ActivityIndicator size="small" color="#080A0F" />
+              : <Text style={s.searchBtnText}>{ICON_SEARCH}</Text>
+            }
+          </TouchableOpacity>
         </View>
-        {/* LensSignal Contact Card Modal — nested inside filter modal intentionally removed; see below */}
-      </Modal>
-
-      {/* LensSignal / Search Result Contact Card Modal */}
-<Modal visible={lensSignalModalVisible} transparent animationType="slide" onRequestClose={() => setLensSignalModalVisible(false)}>
-  <View style={styles.modalOverlay}>
-    <View style={[styles.modalContent, { maxHeight: '70%' }]}>
-      {selectedLensSignal ? (
-        <>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{selectedLensSignal.establishment_name || selectedLensSignal.name}</Text>
-            <TouchableOpacity onPress={() => setLensSignalModalVisible(false)}>
-              <Ionicons name="close" size={24} color={COLORS.chrome} />
-            </TouchableOpacity>
+        {autocompleteSuggestions.length > 0 && (
+          <View style={s.suggestionsBox}>
+            {autocompleteSuggestions.map((suggestion, i) => (
+              <TouchableOpacity
+                key={suggestion.place_id}
+                style={[s.suggestionItem, i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }]}
+                onPress={() => selectSuggestion(suggestion)}
+              >
+                <Text style={s.suggestionText} numberOfLines={1}>{suggestion.description}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
-
-          <ScrollView style={styles.modalScroll}>
-            {selectedLensSignal.signal_type && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <Text style={{ fontSize: 20, marginRight: 8 }}>
-                  {SIGNAL_TYPE_ICONS[selectedLensSignal.signal_type] || SIGNAL_TYPE_ICONS['default']}
-                </Text>
-                <Text style={[styles.label, { margin: 0 }]}>{selectedLensSignal.signal_type}</Text>
-              </View>
-            )}
-            {(selectedLensSignal.address || selectedLensSignal.formatted_address) && (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>📍 Address:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
-                  {selectedLensSignal.address || selectedLensSignal.formatted_address}
-                </Text>
-              </View>
-            )}
-            {selectedLensSignal.phone && (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>☎️ Phone:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedLensSignal.phone}</Text>
-              </View>
-            )}
-            {selectedLensSignal.email && (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>✉️ Email:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedLensSignal.email}</Text>
-              </View>
-            )}
-            {selectedLensSignal.compliance_score && (
-              <View style={{ marginBottom: 16 }}>
-                <Text style={styles.label}>🏥 Health Rating:</Text>
-                <Text style={{ color: COLORS.accent, fontSize: 16, fontWeight: '700' }}>
-                  {selectedLensSignal.compliance_score}
-                </Text>
-              </View>
-            )}
-          </ScrollView>
-
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => {
-                setLensSignalModalVisible(false);
-                // Navigate to ManualEntry with pre-filled data
-                navigation.navigate('ManualEntry', {
-                  prefill: {
-                    businessName: selectedLensSignal.establishment_name || selectedLensSignal.name || '',
-                    phone: selectedLensSignal.phone || '',
-                    email: selectedLensSignal.email || '',
-                    streetAddress: selectedLensSignal.address || selectedLensSignal.formatted_address || '',
-                  }
-                });
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <MapView
+          ref={mapRef}
+          style={s.map}
+          provider={PROVIDER_GOOGLE}
+          initialRegion={region || DEFAULT_TERRITORY_REGION}
+          onRegionChangeComplete={setSafeRegion}
+          showsUserLocation={locationPermissionGranted && isAppActive}
+          showsMyLocationButton={locationPermissionGranted && isAppActive}
+          showsCompass={true}
+          toolbarEnabled={true}
+          loadingEnabled={true}
+          loadingIndicatorColor="#00C9FF"
+          moveOnMarkerPress={false}
+          onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
+        >
+          {/* ZIP Boundary Polygons */}
+          {zipBoundaryOverlays}
+          {(clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
+            if (!c?.geometry?.coordinates) return null;
+            const [lng, lat] = c.geometry.coordinates;
+            if (!isFinite(lat) || !isFinite(lng)) return null;
+            const props = c.properties || {};
+            if (props.cluster) return <MapClusterMarker key={`cluster-${c.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} count={props.point_count} onPress={() => { try { const z = Math.min(superclusterRef.current.getClusterExpansionZoom(c.id), 20); mapRef.current?.animateCamera({ center: { latitude: lat, longitude: lng }, zoom: z }); } catch(e) {} }} color={activeProfile?.themeColor || COLORS.accent} />;
+            if (props.isLead) return <Marker key={`lead-${props.lead?.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => selectLeadSafe(props.lead)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}><View style={[s.poiPin, props.lead?.has_signals && s.poiPinSignal, activeProfile && { backgroundColor: activeProfile.themeColor }]}><Text style={s.poiPinText}>{props.lead?.has_signals ? ICON_SIGNAL : "\u2022"}</Text></View></Marker>;
+            if (props.isNearby && showNearby) return <Marker key={`near-${props.place?.placeId || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => handlePlaceTap(props.place)} tracksViewChanges={false}><View style={s.placePin}><Text style={{ fontSize: 12 }}>{ICON_BUILDING}</Text>{props.place?.signals?.contactSignal ? <View style={s.smallBadge}><LensSignalBadge type="contact" /></View> : null}</View></Marker>;
+            if (props.isLensSignal && filters?.signals?.lensSignal) return <LensSignalMapMarker key={`sig-${props.signal?.id || ''}-${lat}-${lng}-${i}`} signal={props.signal} onPress={async (s) => {
+              if (s) {
+                setSelectedLensSignalRecord({ ...s, loading: true });
+                try {
+                  const enriched = await enrichBusinessWithPublicSources(s);
+                  setSelectedLensSignalRecord({ ...enriched, loading: false });
+                } catch (e) {
+                  setSelectedLensSignalRecord({ ...s, loading: false });
+                }
+              }
+            }} activeProfile={activeProfile} />;
+            return null;
+          }).filter(Boolean) : []}
+          {(lensSignalDirectFallback || []).map((signal, idx) => (
+            <LensSignalMapMarker
+              key={`sig-fallback-${signal?.id || idx}`}
+              signal={signal}
+              onPress={async (s) => {
+                if (!s) return;
+                setSelectedLensSignalRecord({ ...s, loading: true });
+                try {
+                  const enriched = await enrichBusinessWithPublicSources(s);
+                  setSelectedLensSignalRecord({ ...enriched, loading: false });
+                } catch {
+                  setSelectedLensSignalRecord({ ...s, loading: false });
+                }
               }}
-            >
-              <Ionicons name="add" size={18} color={COLORS.bg} />
-              <Text style={styles.actionBtnText}>Queue</Text>
-            </TouchableOpacity>
-            {selectedLensSignal.phone ? (
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => Linking.openURL(`tel:${selectedLensSignal.phone}`)}
-              >
-                <Ionicons name="call" size={18} color={COLORS.bg} />
-                <Text style={styles.actionBtnText}>Call</Text>
-              </TouchableOpacity>
-            ) : null}
-            {selectedLensSignal.email ? (
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => Linking.openURL(`mailto:${selectedLensSignal.email}`)}
-              >
-                <Ionicons name="mail" size={18} color={COLORS.bg} />
-                <Text style={styles.actionBtnText}>Email</Text>
-              </TouchableOpacity>
-            ) : null}
-            {(selectedLensSignal.geometry?.location || selectedLensSignal.latitude) ? (
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => {
-                  const lat = selectedLensSignal.geometry?.location?.lat || selectedLensSignal.latitude;
-                  const lng = selectedLensSignal.geometry?.location?.lng || selectedLensSignal.longitude;
-                  Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
-                }}
-              >
-                <Ionicons name="navigate" size={18} color={COLORS.bg} />
-                <Text style={styles.actionBtnText}>Navigate</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        </>
-      ) : null}
-    </View>
-  </View>
-</Modal>
-
-      {/* Prospect Contact Card Modal */}
-<Modal visible={prospectModalVisible} transparent animationType="slide" onRequestClose={() => setProspectModalVisible(false)}>
-  <View style={styles.modalOverlay}>
-    <View style={[styles.modalContent, { maxHeight: '75%' }]}>
-      {selectedProspect ? (
-        <>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle} numberOfLines={1}>
-              {selectedProspect.businessName || 'Prospect'}
-            </Text>
-            <TouchableOpacity onPress={() => setProspectModalVisible(false)}>
-              <Ionicons name="close" size={24} color={COLORS.chrome} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalScroll}>
-            {/* Contact name */}
-            {(selectedProspect.pocFirst || selectedProspect.pocLast) && (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>👤 Contact:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
-                  {[selectedProspect.pocFirst, selectedProspect.pocLast].filter(Boolean).join(' ')}
-                </Text>
-              </View>
-            )}
-            {/* Address */}
-            {(selectedProspect.streetNumber || selectedProspect.streetName || selectedProspect.city) && (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>📍 Address:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>
-                  {[
-                    [selectedProspect.streetNumber, selectedProspect.streetName].filter(Boolean).join(' '),
-                    selectedProspect.addressLine2,
-                    [selectedProspect.city, selectedProspect.state, selectedProspect.zip].filter(Boolean).join(', '),
-                  ].filter(Boolean).join('\n')}
-                </Text>
-              </View>
-            )}
-            {/* Phone */}
-            {selectedProspect.phone ? (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>☎️ Phone:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.phone}</Text>
-              </View>
-            ) : null}
-            {/* Email */}
-            {selectedProspect.email ? (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>✉️ Email:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.email}</Text>
-              </View>
-            ) : null}
-            {/* Vertical / property type */}
-            {selectedProspect.propertyType ? (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>🏢 Type:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.propertyType}</Text>
-              </View>
-            ) : null}
-            {/* Capture method */}
-            {selectedProspect.captureMethod ? (
-              <View style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>📸 Captured via:</Text>
-                <Text style={{ color: COLORS.chrome, fontSize: 13 }}>{selectedProspect.captureMethod}</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border }}>
-            {selectedProspect.phone ? (
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => Linking.openURL(`tel:${selectedProspect.phone}`)}
-              >
-                <Ionicons name="call" size={18} color={COLORS.bg} />
-                <Text style={styles.actionBtnText}>Call</Text>
-              </TouchableOpacity>
-            ) : null}
-            {selectedProspect.email ? (
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => Linking.openURL(`mailto:${selectedProspect.email}`)}
-              >
-                <Ionicons name="mail" size={18} color={COLORS.bg} />
-                <Text style={styles.actionBtnText}>Email</Text>
-              </TouchableOpacity>
-            ) : null}
-            {selectedProspect.latitude && selectedProspect.longitude ? (
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => {
-                  Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${selectedProspect.latitude},${selectedProspect.longitude}`);
-                }}
-              >
-                <Ionicons name="navigate" size={18} color={COLORS.bg} />
-                <Text style={styles.actionBtnText}>Navigate</Text>
-              </TouchableOpacity>
-            ) : null}
+              activeProfile={activeProfile}
+            />
+          ))}
+          {(!MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+        </MapView>
+        {showMapActionButtons && (
+          <View style={[s.bottomActions, { bottom: insets.bottom + 16 }]}>
+            <TouchableOpacity style={s.actionBtn} onPress={searchNearby}><Text style={s.actionBtnIcon}>{ICON_SEARCH}</Text></TouchableOpacity>
             <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: COLORS.purple }]}
-              onPress={() => {
-                setProspectModalVisible(false);
-                navigation.navigate('Review', { lead: selectedProspect });
-              }}
+              style={s.actionBtn}
+              onPress={handleLensSignalAction}
+              onLongPress={() => setTargetLensVisible(true)}
             >
-              <Ionicons name="document-text" size={18} color="#fff" />
-              <Text style={[styles.actionBtnText, { color: '#fff' }]}>View Details</Text>
+              <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={s.actionBtn} onPress={() => setFiltersVisible(true)}><Text style={s.actionBtnIcon}>{ICON_GEAR}</Text></TouchableOpacity>
+            <TouchableOpacity style={s.actionBtn} onPress={loadMap}><Text style={s.actionBtnIcon}>{ICON_RELOAD}</Text></TouchableOpacity>
           </View>
-        </>
-      ) : null}
+        )}
+        {!!selectedLead && (() => {
+          const enrichment = buildEnrichmentBundle(selectedLead);
+          const phone = selectedLead.phone || enrichment.primaryPhone;
+          const phoneSource = enrichment.phoneCandidates?.find(p => p.phone === phone)?.source || "";
+          const contacts = enrichment.contacts || [];
+
+          return (
+            <View style={[s.leadCard, { bottom: insets.bottom + 12 }]}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle} numberOfLines={1}>{selectedLead.businessName}</Text>
+                <TouchableOpacity onPress={() => setSelectedLead(null)}>
+                  <Text style={s.closeX}>{ICON_CROSS}</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={s.cardDetail}>{getLeadAddress(selectedLead)}</Text>
+
+              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' }}>
+                <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase' }}>Phone:</Text>
+                {phone ? (
+                  <View style={{ marginBottom: 8 }}>
+                    <Text style={{ color: COLORS.accent, fontSize: 14, fontWeight: '700' }}>📞 {phone}</Text>
+                    {!!phoneSource && <Text style={{ color: COLORS.muted, fontSize: 10, marginTop: 1 }}>Source: {phoneSource}</Text>}
+                  </View>
+                ) : (
+                  <Text style={{ color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>No phone found yet</Text>
+                )}
+
+                <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase' }}>Possible POCs:</Text>
+                {contacts.length > 0 ? (
+                  <>
+                    {contacts.slice(0, 3).map((c, i) => (
+                      <View key={i} style={{ marginBottom: 6 }}>
+                        <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: '600' }}>
+                          👤 {c.name} {c.title ? `— ${c.title}` : ''}
+                        </Text>
+                        {!!c.source && (
+                          <Text style={{ color: COLORS.muted, fontSize: 10 }}>Source: {c.source}</Text>
+                        )}
+                      </View>
+                    ))}
+                    {contacts.length > 3 && (
+                      <Text style={{ color: COLORS.accent, fontSize: 11, fontWeight: '600' }}>+{contacts.length - 3} more possible contacts</Text>
+                    )}
+                  </>
+                ) : (
+                  <Text style={{ color: COLORS.muted, fontSize: 12, fontStyle: 'italic' }}>No possible POC found yet</Text>
+                )}
+              </View>
+
+              <View style={[s.chipRow, { marginTop: 12 }]}>
+                <View style={s.chip}><Text style={s.chipText}>{selectedLead.status || 'Suspect'}</Text></View>
+                <View style={s.chip}><Text style={s.chipText}>{getLeadConfidence(selectedLead)}</Text></View>
+              </View>
+              <View style={s.actionRow}>
+                <TouchableOpacity style={s.cardBtn} onPress={() => navigation.navigate('Review', { user, lead: selectedLead, editIdx: leads.findIndex(l => l.id === selectedLead.id) })}>
+                  <Text style={s.cardBtnText}>View</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.cardBtn} onPress={() => phone && Linking.openURL(`tel:${phone}`)}>
+                  <Text style={s.cardBtnText}>Call</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.cardBtn} onPress={() => {
+                  const coords = getLeadCoords(selectedLead);
+                  if (coords) Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${coords.latitude},${coords.longitude}`);
+                }}>
+                  <Text style={s.cardBtnText}>Nav</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })()}
+
+        {!!selectedPlace && (() => {
+          const enrichment = buildEnrichmentBundle(
+            selectedPlace,
+            selectedPlace.placeDetails,
+            selectedPlace.googlePlace,
+            selectedPlace.publicRecord,
+            selectedPlace.comptrollerRecord,
+            selectedPlace.texasComptroller,
+            selectedPlace.lensSignal,
+            selectedPlace.enrichment
+          );
+          const phone = selectedPlace.phone || enrichment.primaryPhone;
+          const phoneSource = enrichment.phoneCandidates?.find(p => p.phone === phone)?.source || "";
+          const contacts = enrichment.contacts || [];
+          const placeDisplayName =
+            selectedPlace.name
+            || selectedPlace.businessName
+            || selectedPlace.displayName
+            || selectedPlace.establishment_name
+            || selectedPlace.business_name
+            || 'Business';
+          const placeDisplayAddress =
+            selectedPlace.fullAddress
+            || selectedPlace.formattedAddress
+            || selectedPlace.formatted_address
+            || selectedPlace.address
+            || selectedPlace.vicinity
+            || [selectedPlace.streetNumber, selectedPlace.streetName, selectedPlace.city, selectedPlace.state, selectedPlace.zip].filter(Boolean).join(' ')
+            || 'Address unavailable';
+          const placeRating =
+            selectedPlace.rating
+            ?? selectedPlace.placeDetails?.rating
+            ?? selectedPlace.googlePlace?.rating
+            ?? null;
+          const placeScore =
+            selectedPlace.total_score
+            ?? selectedPlace.score
+            ?? selectedPlace.match_score
+            ?? selectedPlace.confidence_score
+            ?? selectedPlace.lensSignal?.total_score
+            ?? null;
+
+          return (
+            <View style={[s.leadCard, { bottom: insets.bottom + 12 }]}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle} numberOfLines={1}>{placeDisplayName}</Text>
+                <TouchableOpacity onPress={() => setSelectedPlace(null)}>
+                  <Text style={s.closeX}>{ICON_CROSS}</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={s.cardDetail}>{placeDisplayAddress}</Text>
+              {(placeRating != null || placeScore != null) && (
+                <Text style={s.cardDetail}>
+                  {placeRating != null ? `Rating: ${placeRating}` : 'Rating: n/a'}
+                  {placeScore != null ? `  •  Score: ${placeScore}` : ''}
+                </Text>
+              )}
+
+              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' }}>
+                {selectedPlace.loading ? (
+                  <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={COLORS.accent} />
+                    <Text style={{ color: COLORS.accent, fontSize: 12, marginTop: 6 }}>Checking public/open records...</Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase' }}>Phone:</Text>
+                    {phone ? (
+                      <View style={{ marginBottom: 8 }}>
+                        <Text style={{ color: COLORS.accent, fontSize: 14, fontWeight: '700' }}>📞 {phone}</Text>
+                        {!!phoneSource && <Text style={{ color: COLORS.muted, fontSize: 10, marginTop: 1 }}>Source: {phoneSource}</Text>}
+                      </View>
+                    ) : (
+                      <Text style={{ color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>No phone found yet</Text>
+                    )}
+
+                    <Text style={{ color: COLORS.textDim, fontSize: 10, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase' }}>Possible POCs:</Text>
+                    {contacts.length > 0 ? (
+                      <>
+                        {contacts.slice(0, 3).map((c, i) => (
+                          <View key={i} style={{ marginBottom: 6 }}>
+                            <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: '600' }}>
+                              👤 {c.name} {c.title ? `— ${c.title}` : ''}
+                            </Text>
+                            {!!c.source && (
+                              <Text style={{ color: COLORS.muted, fontSize: 10 }}>Source: {c.source}</Text>
+                            )}
+                          </View>
+                        ))}
+                        {contacts.length > 3 && (
+                          <Text style={{ color: COLORS.accent, fontSize: 11, fontWeight: '600' }}>+{contacts.length - 3} more possible contacts</Text>
+                        )}
+                      </>
+                    ) : (
+                      <Text style={{ color: COLORS.muted, fontSize: 12, fontStyle: 'italic' }}>No possible POC found yet</Text>
+                    )}
+                  </>
+                )}
+              </View>
+
+              <TouchableOpacity style={[s.cardBtn, { marginTop: 10, backgroundColor: COLORS.accent }]} onPress={captureAsLead}>
+                <Text style={[s.cardBtnText, { color: '#000' }]}>Capture Lead</Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })()}
+        {showNearby && !!nearbyPlaces.length && !selectedPlace && (
+          <View style={[s.nearbyBatchCard, { bottom: insets.bottom + 12 }]}><Text style={s.cardDetail}>{nearbyPlaces.length} discovered businesses</Text><View style={s.actionRow}><TouchableOpacity style={s.cardBtn} onPress={() => setSelectedNearbyIds(nearbyPlaces.map(p => getNearbyPlaceId(p)))}><Text style={s.cardBtnText}>Select All</Text></TouchableOpacity><TouchableOpacity style={s.cardBtn} onPress={() => { setShowNearby(false); setNearbyPlaces([]); }}><Text style={s.cardBtnText}>Clear</Text></TouchableOpacity><TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent }]} onPress={() => addSelectedNearbyToQueue()} disabled={!selectedNearbyIds.length}><Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text></TouchableOpacity></View></View>
+        )}
+        <Modal visible={targetLensVisible} transparent animationType="slide" onRequestClose={() => setTargetLensVisible(false)}><View style={s.modal}><View style={s.modalContent}><TargetLensProfileSelector onProfileChange={(p, m) => { setActiveProfile(p); setSearchMode(m); setTargetLensVisible(false); }} /><TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}><Text style={s.closeBtnText}>Close</Text></TouchableOpacity></View></View></Modal>
+        <LeadFiltersBottomSheet visible={filtersVisible} onClose={() => setFiltersVisible(false)} filters={filters || DEFAULT_FILTERS} onApply={f => setFilters(f)} onReset={() => setFilters(DEFAULT_FILTERS)} />
+        {!!selectedLensSignalRecord && (
+          <View style={{ position: 'absolute', zIndex: 180, top: 0, bottom: 0, left: 0, right: 0, pointerEvents: 'box-none' }}>
+            <LensSignalDetailsCard
+              signal={selectedLensSignalRecord}
+              onClose={() => setSelectedLensSignalRecord(null)}
+              onAddToQueue={(sig) => {
+                try {
+                  const enrichment = buildEnrichmentBundle(sig);
+                  const poc = enrichment.primaryPOC;
+                  const parsedAddress = parseBusinessAddress(sig.address || sig);
+
+                  const lead = {
+                    businessName: String(sig.establishment_name || sig.business_name || 'Signal'),
+                    phone: enrichment.primaryPhone || '',
+                    pocFirst: poc?.firstName || '',
+                    pocLast: poc?.lastName || '',
+                    pocName: poc?.fullName || '',
+                    title: poc?.title || '',
+                    streetNumber: parsedAddress.streetNumber || '',
+                    streetName: parsedAddress.streetName || '',
+                    addressLine2: parsedAddress.addressLine2 || '',
+                    city: parsedAddress.city || String(sig.city || ''),
+                    state: parsedAddress.state || String(sig.state || ''),
+                    zip: parsedAddress.zip || String(sig.zip || ''),
+                    status: 'New',
+                    vertical: 'Other',
+                    captureMethod: 'LensSignal',
+                    source: String(sig.source_name || 'LensSignal'),
+                    propertyType: 'Commercial',
+                    lens_signal_id: sig.id,
+                    lensSignal: sig,
+                    contactCandidates: enrichment.contacts,
+                  };
+                  navigation.navigate('Review', { user, lead, editIdx: null });
+                  setSelectedLensSignalRecord(null);
+                } catch (e) {
+                  console.warn('[TerritoryMapScreen] onAddToQueue failed:', e);
+                }
+              }}
+            />
+          </View>
+        )}
+      </View>
     </View>
-  </View>
-</Modal>
-    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-  },
-  header: {
-    paddingHorizontal: 12,
-    paddingVertical: 16,
-    borderBottomWidth: 4,
-    borderBottomColor: COLORS.purple,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.chrome,
-  },
-  searchSection: {
-    paddingHorizontal: 12,
-    paddingVertical: 15,
-    gap: 5,
-  },
-  floatingSearchSection: {
-    position: 'absolute',
-    top: 100,
-    left: 12,
-    right: 12,
-    backgroundColor: 'transparent',
-    zIndex: 10,
-    gap: 8,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 10,
-    color: COLORS.chrome,
-    fontSize: 13,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  filterBtn: {
-    flex: 1,
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  filterBtnText: {
-    color: COLORS.chrome,
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  map: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: COLORS.chrome,
-    fontSize: 14,
-    marginTop: 10,
-  },
-  fabContainer: {
-    position: 'absolute',
-    bottom: 24,
-    right: 16,
-    gap: 12,
-  },
-  fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 16,
-    maxHeight: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: COLORS.chrome,
-  },
-  tabRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-  },
-  tabActive: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.chrome,
-  },
-  tabTextActive: {
-    color: COLORS.bg,
-  },
-  modalScroll: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    maxHeight: 400,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.chrome,
-    marginBottom: 10,
-  },
-  pillRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-  },
-  pillActive: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
-  },
-  pillText: {
-    fontSize: 12,
-    color: COLORS.chrome,
-    fontWeight: '500',
-  },
-  pillTextActive: {
-    color: COLORS.bg,
-  },
-  applyBtn: {
-    backgroundColor: COLORS.accent,
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  applyText: {
-    color: COLORS.bg,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  searchResultsOverlay: {
-  position: 'absolute',
-  bottom: 280,
-  left: 12,
-  right: 12,
-  backgroundColor: COLORS.surface,
-  borderRadius: 12,
-  maxHeight: 300,
-  borderWidth: 2,
-  borderColor: COLORS.accent,
-},
-resultHeader: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  paddingHorizontal: 12,
-  paddingVertical: 10,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.border,
-},
-resultTitle: {
-  fontSize: 14,
-  fontWeight: '700',
-  color: COLORS.accent,
-},
-resultsList: {
-  maxHeight: 250,
-},
-resultItem: {
-  paddingHorizontal: 12,
-  paddingVertical: 10,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.border,
-},
-resultName: {
-  fontSize: 13,
-  fontWeight: '600',
-  color: COLORS.chrome,
-},
-resultType: {
-  fontSize: 11,
-  color: COLORS.chrome,
-  marginTop: 4,
-  opacity: 0.7,
-},
-suggestionItem: {
-  padding: 12,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.border,
-  backgroundColor: COLORS.surface,
-},
-suggestionItem: {
-  padding: 12,
-  borderBottomWidth: 1,
-  borderBottomColor: COLORS.accent,
-},
-suggestionText: {
-  color: COLORS.accent,
-  fontSize: 14,
-  fontWeight: '600',
-},
-targetContainer: {
-  width: 60,
-  height: 60,
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-targetRing1: {
-  position: 'absolute',
-  width: 60,
-  height: 60,
-  borderRadius: 30,
-  borderWidth: 6,
-  borderColor: COLORS.accent,
-  opacity: 10.5,
-},
-targetRing2: {
-  position: 'absolute',
-  width: 40,
-  height: 40,
-  borderRadius: 20,
-  borderWidth: 6,
-  borderColor: COLORS.accent,
-  opacity: 10.5,
-},
-targetCrosshair: {
-  position: 'absolute',
-  width: 30,
-  height: 30,
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-targetVertical: {
-  position: 'absolute',
-  width: 2,
-  height: 30,
-  backgroundColor: COLORS.accent,
-},
-targetHorizontal: {
-  position: 'absolute',
-  width: 30,
-  height: 2,
-  backgroundColor: COLORS.accent,
-},
-targetDot: {
-  width: 8,
-  height: 8,
-  borderRadius: 5,
-  backgroundColor: COLORS.accent,
-  zIndex: 10,
-},
-resultMarker: {
-  width: 40,
-  height: 40,
-  borderRadius: 20,
-  backgroundColor: COLORS.accent2,
-  justifyContent: 'center',
-  alignItems: 'center',
-  borderWidth: 2,
-  borderColor: COLORS.bg,
-},
-resultMarkerIcon: {
-  fontSize: 30,
-},
-gpsMarker: {
-  width: 50,
-  height: 50,
-  borderRadius: 25,
-  justifyContent: 'center',
-  alignItems: 'center',
-  backgroundColor: `${COLORS.accent}20`,
-  borderWidth: 2,
-  borderColor: COLORS.accent,
-},
-gpsPulse: {
-  width: 30,
-  height: 30,
-  borderRadius: 15,
-  borderWidth: 2,
-  borderColor: COLORS.accent,
-  position: 'absolute',
-},
-gpsCenter: {
-  width: 12,
-  height: 12,
-  borderRadius: 6,
-  backgroundColor: COLORS.accent,
-},
-prospectMarker: {
-  width: 36,
-  height: 36,
-  borderRadius: 18,
-  backgroundColor: COLORS.surface,
-  borderWidth: 2,
-  borderColor: COLORS.purple,
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-prospectMarkerIcon: {
-  fontSize: 20,
-},
-actionBtn: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 6,
-  backgroundColor: COLORS.accent,
-  paddingHorizontal: 14,
-  paddingVertical: 10,
-  borderRadius: 10,
-},
-actionBtnText: {
-  color: COLORS.bg,
-  fontSize: 13,
-  fontWeight: '700',
-},
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: COLORS.bg },
+  map: { ...StyleSheet.absoluteFillObject },
+  zipLabel: { borderRadius: 4, borderWidth: 1, paddingHorizontal: 4, paddingVertical: 2, backgroundColor: COLORS.surface },
+  zipLabelText: { fontSize: 10, fontWeight: '700' },
+  poiPin: { width: 24, height: 24, borderRadius: 12, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
+  poiPinSignal: { backgroundColor: COLORS.purple, width: 28, height: 28, borderRadius: 14 },
+  poiPinText: { color: '#fff', fontSize: 14, fontWeight: '900' },
+  placePin: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
+  bottomActions: { position: 'absolute', right: 16, gap: 10, zIndex: 120, elevation: 30 },
+  actionBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center', elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit },
+  searchBar: { flexDirection: 'row', backgroundColor: COLORS.surface || '#111318', borderRadius: 12, borderWidth: 1, borderColor: COLORS.borderLit || '#2a3038', overflow: 'hidden' },
+  searchInput: { flex: 1, paddingHorizontal: 14, paddingVertical: 10, color: COLORS.text || '#fff', fontSize: 13 },
+  searchBtn: { width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#00C9FF' },
+  searchBtnText: { fontSize: 16 },
+  suggestionsBox: { backgroundColor: COLORS.surface || '#111318', borderRadius: 8, borderWidth: 1, borderColor: COLORS.borderLit || '#2a3038', marginTop: 2, overflow: 'hidden' },
+  suggestionItem: { paddingHorizontal: 14, paddingVertical: 11 },
+  suggestionText: { color: COLORS.text || '#fff', fontSize: 13 },
+  actionBtnIcon: { fontSize: 20 },
+  activeProfileBadge: { position: 'absolute', top: 80, left: 16, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 8 },
+  activeProfileLabel: { color: COLORS.label, fontSize: 8 },
+  activeProfileValue: { color: COLORS.accent, fontSize: 10, fontWeight: '800' },
+  mapHintBar: { position: 'absolute', top: 120, left: 16, right: 16, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 4 },
+  mapHintText: { color: '#fff', fontSize: 10, textAlign: 'center' },
+  leadCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 50 },
+  nearbyBatchCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 40 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800', flex: 1 },
+  closeX: { color: COLORS.muted, fontSize: 18, padding: 4 },
+  cardDetail: { color: COLORS.textDim, fontSize: 12, marginTop: 4 },
+  chipRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  chip: { backgroundColor: COLORS.surface2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  chipText: { color: COLORS.text, fontSize: 10 },
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  cardBtn: { flex: 1, backgroundColor: COLORS.surface2, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  cardBtnText: { color: COLORS.accent, fontSize: 12, fontWeight: '700' },
+  modal: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalContent: { backgroundColor: COLORS.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '80%' },
+  closeBtn: { marginTop: 20, padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2, borderRadius: 10 },
+  closeBtnText: { color: COLORS.text, fontWeight: '700' },
+  smallBadge: { position: 'absolute', top: -4, right: -4 },
 });

@@ -50,6 +50,8 @@ function getStorage() {
 export const storage = {
   /**
    * Get a value synchronously. Use this in performance-critical paths.
+   * NOTE: When MMKV is unavailable, sync reads cannot reach AsyncStorage (async-only).
+   * For critical flags (tutorial seen, auth), use getItem() instead.
    * @param {string} key
    * @returns {string | null} The stored value or null
    */
@@ -65,11 +67,12 @@ export const storage = {
       _fallback = true;
       _storage = null;
     }
-    return null; // Sync fallback: can't call AsyncStorage synchronously
+    return null; // Sync fallback: cannot call AsyncStorage synchronously
   },
 
   /**
    * Set a value synchronously. Returns immediately, no await needed.
+   * Falls back to AsyncStorage write when MMKV is unavailable.
    * @param {string} key
    * @param {string} value
    */
@@ -85,10 +88,15 @@ export const storage = {
       _fallback = true;
       _storage = null;
     }
+    // AsyncStorage fallback — MMKV unavailable, fire-and-forget async write
+    AsyncStorage.setItem(key, String(value)).catch((e) =>
+      console.warn(`[Storage] setSync AsyncStorage fallback error for "${key}":`, e.message)
+    );
   },
 
   /**
    * Remove a value synchronously.
+   * Falls back to AsyncStorage remove when MMKV is unavailable.
    * @param {string} key
    */
   removeSync: (key) => {
@@ -103,6 +111,10 @@ export const storage = {
       _fallback = true;
       _storage = null;
     }
+    // AsyncStorage fallback
+    AsyncStorage.removeItem(key).catch((e) =>
+      console.warn(`[Storage] removeSync AsyncStorage fallback error for "${key}":`, e.message)
+    );
   },
 
   /**
@@ -160,7 +172,14 @@ export const storage = {
    * @returns {Promise<string | null>}
    */
   getItem: async (key) => {
-    return storage.getSync(key);
+    const mmkvVal = storage.getSync(key);
+    if (mmkvVal !== null && mmkvVal !== undefined) return mmkvVal;
+    // MMKV returned nothing — fall back to AsyncStorage
+    try {
+      return await AsyncStorage.getItem(key);
+    } catch {
+      return null;
+    }
   },
 
   /**
@@ -197,7 +216,13 @@ export const storage = {
    * @returns {Promise<*>}
    */
   getJSON: async (key, fallback = null) => {
-    return storage.getJSONSync(key, fallback);
+    try {
+      const raw = await storage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
   },
 
   /**

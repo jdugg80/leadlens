@@ -7,6 +7,7 @@ import {
 import { COLORS, EMPTY_LEAD } from '../constants';
 import { normalizeLead, inferVertical, applyRequiredPlaceholders } from '../utils/leadHelpers';
 import { ScreenHeader, PrimaryButton } from '../components/UI';
+import AddressRow from '../components/AddressRow';
 import BetaTracker from '../../utils/betaTracker';
 
 export default function ManualEntryScreen({ navigation, route }) {
@@ -163,23 +164,18 @@ export default function ManualEntryScreen({ navigation, route }) {
               value={lead.addressLine2} onChangeText={v => update('addressLine2', v)}
               onVoice={() => startVoice('addressLine2', 'Address Line 2')} />
           </View>
-          <View style={[s.row, { marginTop: 10 }]}>
-            <VF label="City" placeholder="Houston"
-              value={lead.city} onChangeText={v => update('city', v)}
-              onVoice={() => startVoice('city', 'City')} />
-            <View style={{ width: 10 }} />
-            <View style={{ width: 60 }}>
-              <VF label="State" placeholder="TX" maxLength={2} autoCapitalize="characters"
-                value={lead.state} onChangeText={v => update('state', v.toUpperCase())}
-                onVoice={() => startVoice('state', 'State')} />
-            </View>
-            <View style={{ width: 10 }} />
-            <View style={{ width: 80 }}>
-              <VF label="ZIP" placeholder="77001" keyboardType="numeric"
-                value={lead.zip} onChangeText={v => update('zip', v)}
-                onVoice={() => startVoice('zip', 'ZIP')} />
-            </View>
-          </View>
+          <AddressRow
+            renderField={(props) => <VF {...props} />}
+            city={lead.city}
+            onCityChange={v => update('city', v)}
+            state={lead.state}
+            onStateChange={v => update('state', v.toUpperCase())}
+            zip={lead.zip}
+            onZipChange={v => update('zip', v)}
+            cityOnVoice={() => startVoice('city', 'City')}
+            stateOnVoice={() => startVoice('state', 'State')}
+            zipOnVoice={() => startVoice('zip', 'ZIP')}
+          />
         </View>
 
         <PrimaryButton title="Review Prospect →" onPress={goReview} style={{ marginTop: 20 }} />

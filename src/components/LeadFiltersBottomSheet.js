@@ -52,13 +52,17 @@ export default function LeadFiltersBottomSheet({
   }, [visible, filters]);
 
   const toggleSignal = (key) => {
-    setLocalFilters((prev) => ({
-      ...prev,
-      signals: {
-        ...prev.signals,
-        [key]: !prev.signals[key],
-      },
-    }));
+    setLocalFilters((prev) => {
+      const next = {
+        ...prev,
+        signals: {
+          ...prev.signals,
+          [key]: !prev.signals[key],
+        },
+      };
+      try { onApply && onApply(next); } catch (e) {}
+      return next;
+    });
   };
 
   const handleApply = () => {

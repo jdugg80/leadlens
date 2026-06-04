@@ -1,8 +1,7 @@
-import * as Camera from 'expo-camera';
+import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
-import { storage as AsyncStorage } from './storage';
 import { Platform, PermissionsAndroid } from 'react-native';
 
 const PERMISSIONS_CHECKED_KEY = '@leadlens_permissions_setup_v1';
@@ -11,17 +10,54 @@ const PERMISSIONS_CHECKED_KEY = '@leadlens_permissions_setup_v1';
  * Checks if we have already prompted the user for the "bulk" permission grant.
  */
 export async function hasRequestedBulkPermissions() {
-  // Use sync API for instant permission check
-  const val = AsyncStorage.getSync(PERMISSIONS_CHECKED_KEY);
-  return val === 'true';
+  // Bypass MMKV — use raw AsyncStorage for this flag.
+  try {
+    const RawStorage = require('@react-native-async-storage/async-storage').default;
+    const val = await RawStorage.getItem(PERMISSIONS_CHECKED_KEY);
+    return val === 'true';
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Marks that we have attempted the bulk permission grant.
  */
 export async function markBulkPermissionsRequested() {
-  // Use sync API for instant marking
-  AsyncStorage.setSync(PERMISSIONS_CHECKED_KEY, 'true');
+  // Bypass MMKV — use raw AsyncStorage.
+  try {
+    const RawStorage = require('@react-native-async-storage/async-storage').default;
+    await RawStorage.setItem(PERMISSIONS_CHECKED_KEY, 'true');
+  } catch (e) {
+    console.warn('[PermissionManager] Could not mark permissions requested:', e?.message || e);
+  }
+}
+
+/**
+ * Checks current permission state without prompting.
+ */
+export async function checkCriticalPermissions() {
+  try {
+    const camera = await Camera.getCameraPermissionsAsync();
+    const location = await Location.getForegroundPermissionsAsync();
+
+    return {
+      camera: camera?.status === 'granted',
+      location: location?.status === 'granted',
+      allGranted: camera?.status === 'granted' && location?.status === 'granted',
+      cameraCanAsk: camera?.canAskAgain !== false,
+      locationCanAsk: location?.canAskAgain !== false,
+    };
+  } catch (e) {
+    console.warn('[PermissionManager] checkCriticalPermissions error:', e);
+    return {
+      camera: false,
+      location: false,
+      allGranted: false,
+      cameraCanAsk: true,
+      locationCanAsk: true,
+    };
+  }
 }
 
 /**

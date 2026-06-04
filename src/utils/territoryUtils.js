@@ -4,29 +4,60 @@ export { GOALS_STORAGE_KEY } from '../constants';
 
 const TERRITORY_STORAGE_KEY  = 'leadlens_territory_zips';
 const SHARED_TERRITORY_KEY   = 'leadlens_shared_territories';
+const TERRITORY_REVISION_KEY = 'leadlens_territory_zips_revision';
+
+const getRaw = require('@react-native-async-storage/async-storage').default;
+
+async function dualRead(key) {
+  // Try MMKV first (fast sync), fall back to raw AsyncStorage
+  try {
+    const sync = AsyncStorage.getSync(key);
+    if (sync) return sync;
+  } catch {}
+  try {
+    return await getRaw.getItem(key);
+  } catch { return null; }
+}
+
+async function dualWrite(key, value) {
+  // Write to both MMKV and raw AsyncStorage
+  try { AsyncStorage.setSync(key, value); } catch {}
+  try { await getRaw.setItem(key, value); } catch {}
+}
 
 // ─── Local Storage Helpers ────────────────────────────────────────────────────
 
 export async function loadMyZips() {
   try {
-    const raw = await AsyncStorage.getItem(TERRITORY_STORAGE_KEY);
+    const raw = await dualRead(TERRITORY_STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
 export async function saveMyZips(zips) {
-  await AsyncStorage.setItem(TERRITORY_STORAGE_KEY, JSON.stringify(zips));
+  await dualWrite(TERRITORY_STORAGE_KEY, JSON.stringify(zips));
+  await dualWrite(TERRITORY_REVISION_KEY, String(Date.now()));
+}
+
+export async function getMyZipsRevision() {
+  try {
+    const raw = await dualRead(TERRITORY_REVISION_KEY);
+    const value = Number(raw || 0);
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function loadSharedTerritories() {
   try {
-    const raw = await AsyncStorage.getItem(SHARED_TERRITORY_KEY);
+    const raw = await dualRead(SHARED_TERRITORY_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
 export async function saveSharedTerritories(data) {
-  await AsyncStorage.setItem(SHARED_TERRITORY_KEY, JSON.stringify(data));
+  await dualWrite(SHARED_TERRITORY_KEY, JSON.stringify(data));
 }
 
 // ─── ZIP Helpers ──────────────────────────────────────────────────────────────

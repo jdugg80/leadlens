@@ -1,5 +1,19 @@
 import * as Location from 'expo-location';
 
+const REVERSE_GEOCODE_CACHE_TTL_MS = 10 * 60 * 1000;
+const REVERSE_GEOCODE_MIN_INTERVAL_MS = 1500;
+const REVERSE_GEOCODE_429_BACKOFF_MS = 60 * 1000;
+
+const reverseGeocodeCache = new Map();
+let reverseGeocodeLastRequestAt = 0;
+let reverseGeocodeBackoffUntil = 0;
+
+function reverseGeoCacheKey(coords) {
+  const lat = Number(coords?.latitude || 0).toFixed(4);
+  const lon = Number(coords?.longitude || 0).toFixed(4);
+  return `${lat},${lon}`;
+}
+
 function haversineMeters(a, b) {
   if (!a?.latitude || !a?.longitude || !b?.latitude || !b?.longitude) return null;
   const R = 6371000;
@@ -61,13 +75,41 @@ export async function getCurrentCoords() {
 
 export async function reverseGeocodeCoords(coords) {
   if (!coords?.latitude || !coords?.longitude) return null;
+
+  const key = reverseGeoCacheKey(coords);
+  const now = Date.now();
+  const cached = reverseGeocodeCache.get(key);
+  if (cached && now - cached.savedAt < REVERSE_GEOCODE_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  if (now < reverseGeocodeBackoffUntil) {
+    return cached?.value || null;
+  }
+
+  if (now - reverseGeocodeLastRequestAt < REVERSE_GEOCODE_MIN_INTERVAL_MS) {
+    return cached?.value || null;
+  }
+
+  reverseGeocodeLastRequestAt = now;
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}&addressdetails=1`;
+    console.log('[GeoEnrich] reverseGeocodeCoords calling:', url);
     const resp = await fetch(url, { headers: { 'User-Agent': 'LeadLens/1.12 (storefront-scan)' } });
-    if (!resp.ok) return null;
+    console.log('[GeoEnrich] reverseGeocodeCoords response status:', resp.status);
+    if (!resp.ok) {
+      console.warn('[GeoEnrich] reverseGeocodeCoords HTTP error:', resp.status);
+      if (resp.status === 429) {
+        reverseGeocodeBackoffUntil = Date.now() + REVERSE_GEOCODE_429_BACKOFF_MS;
+      }
+      return cached?.value || null;
+    }
     const result = await resp.json();
-    return {
-      ...parseNominatimResult(result),
+    console.log('[GeoEnrich] reverseGeocodeCoords result:', result);
+    const parsed = parseNominatimResult(result);
+    console.log('[GeoEnrich] reverseGeocodeCoords parsed:', parsed);
+    const resolved = {
+      ...parsed,
       latitude: coords.latitude,
       longitude: coords.longitude,
       _geoSource: 'OpenStreetMap reverse geocode',
@@ -75,8 +117,12 @@ export async function reverseGeocodeCoords(coords) {
       _matchConfidence: 'medium',
       _distanceMeters: 0,
     };
-  } catch {
-    return null;
+    reverseGeocodeCache.set(key, { value: resolved, savedAt: Date.now() });
+    reverseGeocodeBackoffUntil = 0;
+    return resolved;
+  } catch (err) {
+    console.error('[GeoEnrich] reverseGeocodeCoords error:', err);
+    return cached?.value || null;
   }
 }
 

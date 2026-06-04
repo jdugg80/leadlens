@@ -1,6 +1,8 @@
 import { fetchPlaceDetails, searchGooglePlacesByText } from './nearbySearch';
 import { enrichProspectWithComptroller } from '../services/comptrollerEnrichment';
 import { enrichMissingPOC } from './socialEnrichment';
+import { searchHealthViolations } from './healthDepartmentService';
+import { getPropertyRecord } from './propertyRecordsService';
 
 export function normalizePhone(value) {
   if (!value) return "";
@@ -385,10 +387,25 @@ export function buildEnrichmentBundle(...sources) {
 /**
  * Enrichment Orchestrator: Combines Google, Texas Comptroller, and LensSignal/Website data
  * into a single unified bundle and applies it to the business object.
+ *
+ * @param {object} business - Business data with fields like businessName, city, state, zip, latitude, longitude
+ * @param {object} [enrichContext] - Optional enrichment context with photoZip, locationSource, locationConfidence
  */
-export async function enrichBusinessWithPublicSources(business) {
+export async function enrichBusinessWithPublicSources(business, enrichContext = {}) {
   if (!business) return null;
   const sources = [];
+
+  const photoZip = enrichContext.photoZip || business.photo_zip || null;
+  const locationSource = enrichContext.locationSource || business.location_source || null;
+  const locationConfidence = enrichContext.locationConfidence ?? business.location_confidence ?? null;
+
+  console.log('[LeadLock Enrichment] Starting enrichment with context:', {
+    businessName: business.businessName,
+    zip: business.zip,
+    photoZip,
+    locationSource,
+    locationConfidence,
+  });
 
   // 1. Current available data
   sources.push({
@@ -406,23 +423,51 @@ export async function enrichBusinessWithPublicSources(business) {
     try {
       const searchCity = business.city || "";
       const searchState = business.state || "";
+      const searchZip = business.zip || photoZip || "";
       const searchPhone = business.phone ? String(business.phone).replace(/\D/g, '') : "";
 
-      // Try name + city first
-      let query = `${businessName} ${searchCity} ${searchState}`.trim();
-      let searchResults = await searchGooglePlacesByText({
-        query,
-        center: business.latitude && business.longitude ? { latitude: business.latitude, longitude: business.longitude } : null,
-        radiusMeters: 15000
-      });
+      // Strategy 1: Business name + zip (most specific)
+      let query = `${businessName} ${searchZip}`.trim();
+      let searchResults = null;
+      if (searchZip) {
+        searchResults = await searchGooglePlacesByText({
+          query,
+          center: business.latitude && business.longitude ? { latitude: business.latitude, longitude: business.longitude } : null,
+          radiusMeters: 10000
+        });
+        console.log(`[LeadLock Enrichment] Strategy 1 (name+zip): "${query}" → ${searchResults?.length || 0} results`);
+      }
 
-      // Strategy 2: Fallback to name + phone if Strategy 1 yields nothing
+      // Strategy 2: Business name + city + state
+      if ((!searchResults || searchResults.length === 0) && (searchCity || searchState)) {
+        query = `${businessName} ${searchCity} ${searchState}`.trim();
+        searchResults = await searchGooglePlacesByText({
+          query,
+          center: business.latitude && business.longitude ? { latitude: business.latitude, longitude: business.longitude } : null,
+          radiusMeters: 15000
+        });
+        console.log(`[LeadLock Enrichment] Strategy 2 (name+city+state): "${query}" → ${searchResults?.length || 0} results`);
+      }
+
+      // Strategy 3: Name + nearby coordinates
+      if ((!searchResults || searchResults.length === 0) && business.latitude && business.longitude) {
+        query = businessName;
+        searchResults = await searchGooglePlacesByText({
+          query,
+          center: { latitude: business.latitude, longitude: business.longitude },
+          radiusMeters: 5000
+        });
+        console.log(`[LeadLock Enrichment] Strategy 3 (name+nearby): "${query}" → ${searchResults?.length || 0} results`);
+      }
+
+      // Strategy 4: Fallback to name + phone
       if ((!searchResults || searchResults.length === 0) && searchPhone) {
         query = `${businessName} ${searchPhone}`;
         searchResults = await searchGooglePlacesByText({ query });
+        console.log(`[LeadLock Enrichment] Strategy 4 (name+phone): "${query}" → ${searchResults?.length || 0} results`);
       }
 
-      // Strategy 3: Fallback to just name + state (wider net)
+      // Strategy 5: Name + state (wider net)
       if ((!searchResults || searchResults.length === 0) && searchState) {
         query = `${businessName} ${searchState}`;
         searchResults = await searchGooglePlacesByText({
@@ -430,17 +475,21 @@ export async function enrichBusinessWithPublicSources(business) {
           center: business.latitude && business.longitude ? { latitude: business.latitude, longitude: business.longitude } : null,
           radiusMeters: 30000
         });
+        console.log(`[LeadLock Enrichment] Strategy 5 (name+state): "${query}" → ${searchResults?.length || 0} results`);
       }
 
-      // Strategy 4: Name only (ultimate fallback)
+      // Strategy 6: Name only (broad fallback)
       if (!searchResults || searchResults.length === 0) {
         searchResults = await searchGooglePlacesByText({ query: businessName });
+        console.log(`[LeadLock Enrichment] Strategy 6 (name only): "${query}" → ${searchResults?.length || 0} results`);
       }
 
-      // Strategy 5: Broad keyword search (e.g. "Acme Corp in Houston")
-      if ((!searchResults || searchResults.length === 0) && businessName.length > 2) {
-        const broadQuery = `${businessName}${searchCity ? ' in ' + searchCity : ''}${searchState ? ', ' + searchState : ''}`;
-        searchResults = await searchGooglePlacesByText({ query: broadQuery });
+      // Strategy 7: OCR text + zip (if available)
+      if ((!searchResults || searchResults.length === 0) && business.ocrText && searchZip) {
+        const ocrName = String(business.ocrText).split('\n')[0] || business.ocrText.slice(0, 60);
+        query = `${ocrName} ${searchZip}`;
+        searchResults = await searchGooglePlacesByText({ query });
+        console.log(`[LeadLock Enrichment] Strategy 7 (ocr+zip): "${query}" → ${searchResults?.length || 0} results`);
       }
 
       if (searchResults && searchResults.length > 0) {
@@ -453,13 +502,19 @@ export async function enrichBusinessWithPublicSources(business) {
           source: "Google Search Match",
           type: "place_search_result",
         });
+        console.log('[LeadLock Enrichment] Selected candidate:', bestSearchMatch.name, bestSearchMatch.formatted_address);
       }
     } catch (e) {
       console.warn("[PublicEnrichment] Google Search failed:", e.message);
     }
   }
 
-  if (placeId && (placeId.startsWith('ChI') || placeId.includes('osm'))) { // Check for Google Place ID or OSM ID format
+  if (placeId) {
+    // Accept all Google Place ID formats:
+    // Legacy:  ChIJ... (most common)
+    // New API: places/ChIJ... or just a long alphanumeric string
+    // OSM:     contains 'osm'
+    // Never filter by prefix — if we got an ID from Google search, try it
     try {
       const placeDetails = await fetchPlaceDetails(placeId);
       if (placeDetails) {
@@ -514,21 +569,113 @@ export async function enrichBusinessWithPublicSources(business) {
     console.warn("[PublicEnrichment] ContactSignal lookup failed:", e.message);
   }
 
+  // 5. Health violation / pest risk assessment
+  let healthData = null;
+  try {
+    healthData = await searchHealthViolations(
+      businessName,
+      business.city || 'Houston',
+      business.propertyType || business.businessType || ''
+    );
+  } catch (e) {
+    console.warn("[PublicEnrichment] Health assessment failed:", e.message);
+  }
+
+  // 6. Property record / structural risk
+  let propertyData = null;
+  const addressStr = [
+    business.streetNumber, business.streetName,
+    business.city, business.state, business.zip
+  ].filter(Boolean).join(' ') || business.address || business.streetAddress || '';
+  if (addressStr.length > 5) {
+    try {
+      propertyData = await getPropertyRecord(addressStr);
+    } catch (e) {
+      console.warn("[PublicEnrichment] Property lookup failed:", e.message);
+    }
+  }
+
   const enrichmentBundle = buildEnrichmentBundle(sources);
 
-  if (__DEV__) {
-    console.log("PUBLIC ENRICHMENT INPUT BUSINESS:", business);
-    console.log("PUBLIC ENRICHMENT SOURCES:", sources);
-    console.log("PUBLIC ENRICHMENT BUNDLE:", enrichmentBundle);
+  // Calculate enrichment confidence score based on sources found
+  const sourceTypes = sources.map(s => s.type);
+  const hasPlaceDetails = sourceTypes.includes('place_details');
+  const hasSearchMatch = sourceTypes.includes('place_search_result');
+  const hasPublicRecord = sourceTypes.includes('public_record');
+  const hasContacts = sourceTypes.includes('enrichment_candidate');
+  let enrichmentScore = 0;
+  if (hasPlaceDetails) enrichmentScore += 45;
+  if (hasSearchMatch) enrichmentScore += 20;
+  if (hasPublicRecord) enrichmentScore += 20;
+  if (hasContacts) enrichmentScore += 15;
+  if (enrichmentBundle.primaryPhone) enrichmentScore += 10;
+  if (enrichmentBundle.emailCandidates && enrichmentBundle.emailCandidates.length > 0) enrichmentScore += 10;
+  if (enrichmentBundle.contacts && enrichmentBundle.contacts.length > 0) enrichmentScore += 10;
+  enrichmentScore = Math.min(100, enrichmentScore);
+
+  let enrichmentConfidenceLabel = 'Missing';
+  if (enrichmentScore >= 85) enrichmentConfidenceLabel = 'High';
+  else if (enrichmentScore >= 65) enrichmentConfidenceLabel = 'Medium';
+  else if (enrichmentScore >= 35) enrichmentConfidenceLabel = 'Low';
+
+  const enrichmentStatus = enrichmentScore > 0 ? 'complete' : 'none';
+
+  const enrichmentNotes = [];
+  if (!hasPlaceDetails) enrichmentNotes.push('No Google Places details found');
+  if (!hasPublicRecord) enrichmentNotes.push('No public record match');
+  if (!enrichmentBundle.primaryPhone) enrichmentNotes.push('Phone not found');
+  if (!enrichmentBundle.emailCandidates || enrichmentBundle.emailCandidates.length === 0) enrichmentNotes.push('Email not found');
+  if (!enrichmentBundle.contacts || enrichmentBundle.contacts.length === 0) enrichmentNotes.push('No contacts found');
+
+  // Score the best match against the original prospect
+  let businessMatch = null;
+  const bestCandidate = sources.find(s => s.type === 'place_details' || s.type === 'place_search_result');
+  if (bestCandidate) {
+    businessMatch = scoreBusinessMatch(business, bestCandidate, {
+      photoLatitude: business.latitude || null,
+      photoLongitude: business.longitude || null,
+    });
+    console.log('[LeadLock Enrichment] Business match score:', businessMatch);
   }
+
+  console.log('[LeadLock Enrichment] Enrichment complete:', {
+    businessName: business.businessName,
+    candidatesFound: sources.length - 1,
+    confidenceScore: enrichmentScore,
+    confidenceLabel: enrichmentConfidenceLabel,
+    fieldsFilled: ['phone', 'email', 'contacts'].filter(f => enrichmentBundle[f] || (f === 'email' && enrichmentBundle.emailCandidates?.length) || (f === 'contacts' && enrichmentBundle.contacts?.length)),
+    businessMatch,
+  });
 
   return {
     ...business,
+    enrichment_confidence: enrichmentConfidenceLabel,
+    enrichment_confidence_score: enrichmentScore,
+    enrichment_status: enrichmentStatus,
+    enrichment_notes: enrichmentNotes.join('; ') || null,
+    business_match_score: businessMatch?.score ?? null,
+    business_match_label: businessMatch?.label ?? null,
+    business_match_details: businessMatch?.details ?? [],
     enrichment: {
       ...(business.enrichment || {}),
       ...enrichmentBundle,
       sources: enrichmentBundle.sources,
       rawSources: sources,
+      // Health / pest risk
+      healthRisk: healthData?.success ? {
+        riskScore:   healthData.riskScore,
+        riskLevel:   healthData.riskLevel,
+        riskFactors: healthData.riskFactors,
+        violations:  healthData.violations,
+        dataSource:  healthData.dataSource,
+      } : null,
+      // Property / structural risk
+      propertyRisk: propertyData?.success ? {
+        riskScore:   propertyData.pestRiskScore,
+        riskFactors: propertyData.pestRiskFactors,
+        property:    propertyData.property,
+        dataSource:  propertyData.dataSource,
+      } : null,
       enrichedAt: new Date().toISOString(),
     },
     phone: business.phone || enrichmentBundle.primaryPhone || "",
@@ -680,54 +827,293 @@ export function parseBusinessAddress(input) {
 
 
 /**
- * Prospect Update Logic (Preserved from previous implementation)
+ * Score how well an enrichment candidate matches the original prospect.
+ * Used to determine if enrichment data should be applied automatically.
+ *
+ * @param {object} prospect - Original prospect data
+ * @param {object} candidate - Enrichment candidate (e.g. Google Places result)
+ * @param {object} [options] - Additional scoring options
+ * @param {number} [options.photoLatitude] - Photo GPS latitude for distance scoring
+ * @param {number} [options.photoLongitude] - Photo GPS longitude for distance scoring
+ * @returns {{ score: number, label: string, details: string[] }}
+ */
+export function scoreBusinessMatch(prospect, candidate, options = {}) {
+  let score = 0;
+  const details = [];
+
+  const normalize = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const digits = (v) => String(v || '').replace(/\D/g, '');
+
+  const prospectName = normalize(prospect.businessName || prospect.name || '');
+  const candidateName = normalize(candidate.name || candidate.businessName || candidate.business_name || '');
+
+  // --- Name similarity (up to 35 points) ---
+  if (prospectName && candidateName) {
+    if (prospectName === candidateName) {
+      score += 35;
+      details.push('exact name match');
+    } else if (candidateName.includes(prospectName) || prospectName.includes(candidateName)) {
+      score += 25;
+      details.push('partial name match');
+    } else {
+      // Simple word overlap
+      const pWords = prospectName.split(' ');
+      const cWords = candidateName.split(' ');
+      const overlap = pWords.filter(w => w.length > 2 && cWords.includes(w)).length;
+      if (overlap >= 2) {
+        score += 20;
+        details.push('name word overlap');
+      } else if (overlap === 1) {
+        score += 10;
+        details.push('name single word match');
+      }
+    }
+  }
+
+  // --- Zip/city/state match (up to 20 points) ---
+  const prospectZip = digits(prospect.zip || prospect.postal_code || '');
+  const candidateZip = digits(candidate.zip || candidate.postal_code || '');
+  if (prospectZip && candidateZip && prospectZip === candidateZip) {
+    score += 20;
+    details.push('zip match');
+  } else {
+    const prospectCity = normalize(prospect.city || '');
+    const prospectState = normalize(prospect.state || '');
+    const candidateCity = normalize(candidate.city || '');
+    const candidateState = normalize(candidate.state || '');
+    let locationScore = 0;
+    if (prospectCity && candidateCity && prospectCity === candidateCity) locationScore += 10;
+    if (prospectState && candidateState && prospectState === candidateState) locationScore += 10;
+    if (locationScore > 0) {
+      score += locationScore;
+      details.push('city/state match');
+    }
+  }
+
+  // --- GPS distance match (up to 20 points) ---
+  const photoLat = options.photoLatitude || prospect.latitude;
+  const photoLon = options.photoLongitude || prospect.longitude;
+  const candidateLat = candidate.latitude;
+  const candidateLon = candidate.longitude;
+  if (photoLat && photoLon && candidateLat && candidateLon) {
+    const R = 6371000;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(candidateLat - photoLat);
+    const dLon = toRad(candidateLon - photoLon);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(photoLat)) * Math.cos(toRad(candidateLat)) * Math.sin(dLon / 2) ** 2;
+    const distance = 2 * R * Math.asin(Math.sqrt(a));
+
+    if (distance <= 50) {
+      score += 20;
+      details.push('GPS near-exact (<50m)');
+    } else if (distance <= 150) {
+      score += 15;
+      details.push('GPS very close (<150m)');
+    } else if (distance <= 500) {
+      score += 10;
+      details.push('GPS nearby (<500m)');
+    } else if (distance <= 2000) {
+      score += 5;
+      details.push('GPS in area (<2km)');
+    }
+  }
+
+  // --- Address match (up to 15 points) ---
+  const pStreet = normalize(`${prospect.streetNumber || ''} ${prospect.streetName || ''}`);
+  const cStreet = normalize(candidate.streetNumber ? `${candidate.streetNumber} ${candidate.streetName || ''}` : (candidate.address || candidate.formatted_address || ''));
+  if (pStreet && cStreet && pStreet.length > 3 && cStreet.length > 3) {
+    if (pStreet === cStreet) {
+      score += 15;
+      details.push('exact address match');
+    } else if (cStreet.includes(pStreet) || pStreet.includes(cStreet)) {
+      score += 10;
+      details.push('partial address match');
+    }
+  }
+
+  // --- Phone/website match (up to 10 points) ---
+  const prospectPhone = digits(prospect.phone || '');
+  const candidatePhone = digits(candidate.phone || candidate.formatted_phone_number || '');
+  if (prospectPhone && candidatePhone && prospectPhone === candidatePhone) {
+    score += 10;
+    details.push('phone match');
+  } else {
+    const pWebsite = normalize(prospect.website || '');
+    const cWebsite = normalize(candidate.website || candidate.websiteUri || '');
+    if (pWebsite && cWebsite && pWebsite === cWebsite) {
+      score += 10;
+      details.push('website match');
+    }
+  }
+
+  score = Math.min(100, Math.max(0, score));
+  let label = 'Missing';
+  if (score >= 85) label = 'High';
+  else if (score >= 65) label = 'Medium';
+  else if (score >= 35) label = 'Low';
+
+  return { score, label, details };
+}
+
+/**
+ * Prospect Update Logic with data protection.
+ * Does not overwrite existing good data with weaker enrichment results.
+ * Conflicts are stored as suggestions for manual review.
  */
 export function buildProspectUpdatesFromLookup(prospect, enrichmentResult) {
   const safeProspect = prospect || {};
   const updates = {};
+  let suggestions = {};
+  const fieldsFilled = [];
+  const fieldsProtected = [];
+  const fieldsSkipped = [];
 
   const parsedAddress = parseBusinessAddress(enrichmentResult);
   const bestPhone = extractBestPhone(enrichmentResult);
   const bestPOC = extractBestPOC(enrichmentResult);
   const contactCandidates = normalizeContactCandidates(enrichmentResult);
 
-  if (parsedAddress.streetNumber) updates.streetNumber = parsedAddress.streetNumber;
-  if (parsedAddress.streetName) updates.streetName = parsedAddress.streetName;
-  if (parsedAddress.addressLine2) updates.addressLine2 = parsedAddress.addressLine2;
-  if (parsedAddress.city) updates.city = parsedAddress.city;
-  if (parsedAddress.state) updates.state = parsedAddress.state;
-  if (parsedAddress.zip) updates.zip = parsedAddress.zip;
-  if (parsedAddress.formattedAddress) updates.formattedAddress = parsedAddress.formattedAddress;
-
-  if (bestPhone) {
-    updates.phone = bestPhone;
-  }
-
   const bestEmail = enrichmentResult.email || (enrichmentResult.emailCandidates && enrichmentResult.emailCandidates[0]) || enrichmentResult.bestEmail || "";
-  if (bestEmail && !safeProspect.email) {
+
+  // Helper: check if existing value is "confirmed" (non-empty and not placeholder)
+  const isConfirmed = (val) => {
+    if (!val) return false;
+    const s = String(val).trim();
+    if (!s || s === '.' || s === ',') return false;
+    return true;
+  };
+
+  const isEmpty = (val) => !val || String(val).trim() === '' || String(val).trim() === '.';
+
+  // Helper: determine if address is "complete" (has street number + street name + city + state)
+  const isCompleteAddress = (p) => {
+    return isConfirmed(p.streetNumber) && isConfirmed(p.streetName) && isConfirmed(p.city) && isConfirmed(p.state);
+  };
+
+  // --- Address fields: don't replace complete address with partial ---
+  const existingComplete = isCompleteAddress(safeProspect);
+  const incomingHasAddress = parsedAddress.streetNumber || parsedAddress.streetName;
+
+  if (incomingHasAddress && !existingComplete) {
+    if (parsedAddress.streetNumber && isEmpty(safeProspect.streetNumber)) {
+      updates.streetNumber = parsedAddress.streetNumber;
+      fieldsFilled.push('streetNumber');
+    } else if (parsedAddress.streetNumber && safeProspect.streetNumber !== parsedAddress.streetNumber) {
+      suggestions.streetNumber = parsedAddress.streetNumber;
+      fieldsProtected.push('streetNumber');
+    }
+    if (parsedAddress.streetName && isEmpty(safeProspect.streetName)) {
+      updates.streetName = parsedAddress.streetName;
+      fieldsFilled.push('streetName');
+    } else if (parsedAddress.streetName && safeProspect.streetName !== parsedAddress.streetName) {
+      suggestions.streetName = parsedAddress.streetName;
+      fieldsProtected.push('streetName');
+    }
+    if (parsedAddress.addressLine2 && isEmpty(safeProspect.addressLine2)) {
+      updates.addressLine2 = parsedAddress.addressLine2;
+      fieldsFilled.push('addressLine2');
+    }
+    if (parsedAddress.city && isEmpty(safeProspect.city)) {
+      updates.city = parsedAddress.city;
+      fieldsFilled.push('city');
+    } else if (parsedAddress.city && safeProspect.city !== parsedAddress.city) {
+      suggestions.city = parsedAddress.city;
+      fieldsProtected.push('city');
+    }
+    if (parsedAddress.state && isEmpty(safeProspect.state)) {
+      updates.state = parsedAddress.state;
+      fieldsFilled.push('state');
+    } else if (parsedAddress.state && safeProspect.state !== parsedAddress.state) {
+      suggestions.state = parsedAddress.state;
+      fieldsProtected.push('state');
+    }
+    if (parsedAddress.zip && isEmpty(safeProspect.zip)) {
+      updates.zip = parsedAddress.zip;
+      fieldsFilled.push('zip');
+    } else if (parsedAddress.zip && safeProspect.zip !== parsedAddress.zip) {
+      suggestions.zip = parsedAddress.zip;
+      fieldsProtected.push('zip');
+    }
+  } else if (incomingHasAddress && existingComplete) {
+    fieldsProtected.push('completeAddress');
+    suggestions = { ...suggestions, ...parsedAddress };
+  }
+
+  // --- Phone: don't replace confirmed phone ---
+  if (bestPhone && isEmpty(safeProspect.phone)) {
+    updates.phone = bestPhone;
+    fieldsFilled.push('phone');
+  } else if (bestPhone && safeProspect.phone !== bestPhone) {
+    suggestions.phone = bestPhone;
+    fieldsProtected.push('phone');
+  }
+
+  // --- Email: only fill if missing, never overwrite ---
+  if (bestEmail && isEmpty(safeProspect.email)) {
     updates.email = bestEmail;
+    fieldsFilled.push('email');
+  } else if (bestEmail && safeProspect.email !== bestEmail) {
+    suggestions.email = bestEmail;
+    fieldsProtected.push('email');
   }
 
-  if (bestPOC?.firstName) {
+  // --- POC fields: only fill if missing ---
+  if (bestPOC?.firstName && isEmpty(safeProspect.pocFirst)) {
     updates.pocFirst = bestPOC.firstName;
+    fieldsFilled.push('pocFirst');
+  } else if (bestPOC?.firstName && safeProspect.pocFirst !== bestPOC.firstName) {
+    suggestions.pocFirst = bestPOC.firstName;
+    fieldsProtected.push('pocFirst');
   }
-
-  if (bestPOC?.lastName) {
+  if (bestPOC?.lastName && isEmpty(safeProspect.pocLast)) {
     updates.pocLast = bestPOC.lastName;
+    fieldsFilled.push('pocLast');
+  } else if (bestPOC?.lastName && safeProspect.pocLast !== bestPOC.lastName) {
+    suggestions.pocLast = bestPOC.lastName;
+    fieldsProtected.push('pocLast');
+  }
+  if (bestPOC?.fullName && isEmpty(safeProspect.pocName)) {
+    updates.pocName = bestPOC.fullName;
+    fieldsFilled.push('pocName');
+  } else if (bestPOC?.fullName && safeProspect.pocName !== bestPOC.fullName) {
+    suggestions.pocName = bestPOC.fullName;
+    fieldsProtected.push('pocName');
   }
 
-  if (bestPOC?.fullName) {
-    updates.pocName = bestPOC.fullName;
-  }
+  console.log('[LeadLock Enrichment] Prospect updates:', {
+    fieldsFilled,
+    fieldsProtected,
+    fieldsSkipped: fieldsSkipped.length ? fieldsSkipped : undefined,
+    hasSuggestions: Object.keys(suggestions).length > 0,
+  });
+
+  // Carry through enrichment confidence metadata from the enrichment result
+  const enrichmentConfidence = enrichmentResult.enrichment_confidence || safeProspect.enrichment_confidence || null;
+  const enrichmentConfidenceScore = enrichmentResult.enrichment_confidence_score ?? safeProspect.enrichment_confidence_score ?? null;
+  const enrichmentStatus = enrichmentResult.enrichment_status || safeProspect.enrichment_status || null;
+  const enrichmentNotes = enrichmentResult.enrichment_notes || safeProspect.enrichment_notes || null;
+  const businessMatchScore = enrichmentResult.business_match_score ?? safeProspect.business_match_score ?? null;
+  const businessMatchLabel = enrichmentResult.business_match_label || safeProspect.business_match_label || null;
 
   return {
     ...safeProspect,
     ...updates,
+    enrichment_confidence: enrichmentConfidence,
+    enrichment_confidence_score: enrichmentConfidenceScore,
+    enrichment_status: enrichmentStatus,
+    enrichment_notes: enrichmentNotes,
+    business_match_score: businessMatchScore,
+    business_match_label: businessMatchLabel,
     contactCandidates,
+    enrichment_suggestions: Object.keys(suggestions).length > 0 ? suggestions : null,
     enrichment: {
       ...(safeProspect.enrichment || {}),
       lastLookupAt: new Date().toISOString(),
-      lookupApplied: true,
+      lookupApplied: Object.keys(updates).length > 0,
+      fieldsFilled,
+      fieldsProtected,
+      suggestions: Object.keys(suggestions).length > 0 ? suggestions : null,
       rawLookup: enrichmentResult,
       parsedAddress,
       bestPhone,

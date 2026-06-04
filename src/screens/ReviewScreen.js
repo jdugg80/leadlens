@@ -45,6 +45,8 @@ import {
   Card,
   SectionLabel,
 } from '../components/UI';
+import AddressRow from '../components/AddressRow';
+import { screenHeight } from '../utils/responsive';
 import {
   applyRequiredPlaceholders,
   findDuplicateInLeads,
@@ -175,12 +177,17 @@ export default function ReviewScreen({ navigation, route }) {
     setProfileLoading(true);
 
     try {
-      const enriched = await enrichBusinessWithPublicSources(lead);
+      const enriched = await enrichBusinessWithPublicSources(lead, {
+        photoZip: lead.photo_zip || lead.zip || null,
+        locationSource: lead.location_source || null,
+        locationConfidence: lead.location_confidence ?? null,
+      });
       if (enriched) {
-        setBusinessProfile(enriched.enrichment.rawLookup || enriched);
+        // enriched has normalized phone/email/contacts at the top level.
+        // rawLookup is just the raw sources array — don't use it for updates.
+        setBusinessProfile(enriched);
 
-        // Auto-apply logic if high confidence or user chooses
-        const updates = buildProspectUpdatesFromLookup(lead, enriched.enrichment.rawLookup || enriched);
+        const updates = buildProspectUpdatesFromLookup(lead, enriched);
         setLead(updates);
 
         if (enriched.website) runBackgroundSocialScan(enriched);
@@ -396,10 +403,21 @@ export default function ReviewScreen({ navigation, route }) {
       navigation.navigate('Dashboard', { user });
     }
   };
-
-  const persistLead = async (ignoreDuplicate = false) => {
-    const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
-    const leads = raw ? JSON.parse(raw) : [];
+const persistLead = async (ignoreDuplicate = false) => {
+    // Bypass MMKV entirely — use raw AsyncStorage as source of truth for leads.
+    // MMKV is not persisting on this device so all reads/writes go direct.
+    let leads = [];
+    try {
+      const RawStorage = require('@react-native-async-storage/async-storage').default;
+      const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) leads = parsed;
+      }
+      console.log('[Review] Read', leads.length, 'existing leads');
+    } catch (e) {
+      console.warn('[Review] leads read failed:', e.message);
+    }
 
     const baseNormalized = applyRequiredPlaceholders({
       ...normalizeLead({ ...lead, propertyType: 'Commercial' }),
@@ -487,7 +505,9 @@ export default function ReviewScreen({ navigation, route }) {
       leads.push({ ...baseLead, ...calculateLeadViability(baseLead) });
     }
 
-    await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+    // Write directly to AsyncStorage — bypass MMKV
+    const RawStorageSave = require('@react-native-async-storage/async-storage').default;
+    await RawStorageSave.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
 
     // AUTO-SYNC to Supabase
     try {
@@ -838,31 +858,15 @@ export default function ReviewScreen({ navigation, route }) {
             />
           </View>
 
-          <View style={[s.row, { marginTop: 10 }]}>
-            <FieldInput
-              label="City"
-              value={lead.city}
-              onChangeText={(v) => update('city', v)}
-            />
-            <View style={{ width: 10 }} />
-            <View style={{ width: 60 }}>
-              <FieldInput
-                label="State"
-                value={lead.state}
-                onChangeText={(v) => update('state', String(v).toUpperCase())}
-                maxLength={2}
-              />
-            </View>
-            <View style={{ width: 10 }} />
-            <View style={{ width: 80 }}>
-              <FieldInput
-                label="ZIP"
-                value={lead.zip}
-                onChangeText={(v) => update('zip', v)}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
+          <AddressRow
+            renderField={(props) => <FieldInput {...props} />}
+            city={lead.city}
+            onCityChange={(v) => update('city', v)}
+            state={lead.state}
+            onStateChange={(v) => update('state', String(v).toUpperCase())}
+            zip={lead.zip}
+            onZipChange={(v) => update('zip', v)}
+          />
         </Card>
 
         <SectionLabel>Classification</SectionLabel>
@@ -1127,6 +1131,43 @@ export default function ReviewScreen({ navigation, route }) {
                       </TouchableOpacity>
                     </View>
                   )}
+
+                  {/* Enrichment confidence */}
+                  {!!businessProfile.enrichment_confidence && (
+                    <View style={{ marginTop: 12, padding: 10, backgroundColor: 'rgba(0,201,255,0.05)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(0,201,255,0.2)' }}>
+                      <Text style={{ color: COLORS.accent, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>ENRICHMENT CONFIDENCE</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: COLORS.muted, fontSize: 11 }}>
+                          Score: {businessProfile.enrichment_confidence_score ?? '—'}
+                        </Text>
+                        <Text style={{
+                          color: businessProfile.enrichment_confidence === 'High' ? COLORS.success : businessProfile.enrichment_confidence === 'Medium' ? '#f5b041' : COLORS.accent2,
+                          fontSize: 11, fontWeight: '700'
+                        }}>
+                          {businessProfile.enrichment_confidence?.toUpperCase()}
+                        </Text>
+                      </View>
+                      {!!businessProfile.business_match_label && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                          <Text style={{ color: COLORS.muted, fontSize: 11 }}>Business Match:</Text>
+                          <Text style={{
+                            color: businessProfile.business_match_label === 'High' ? COLORS.success : businessProfile.business_match_label === 'Medium' ? '#f5b041' : COLORS.accent2,
+                            fontSize: 11, fontWeight: '700'
+                          }}>
+                            {businessProfile.business_match_label?.toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      {businessProfile.enrichment_confidence === 'Low' || businessProfile.enrichment_confidence === 'Missing' ? (
+                        <Text style={{ color: COLORS.accent2, fontSize: 10, fontWeight: '600', marginTop: 4 }}>
+                          ⚠ Low-confidence match. Review before export.
+                        </Text>
+                      ) : null}
+                      {!!businessProfile.enrichment_notes && (
+                        <Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>{businessProfile.enrichment_notes}</Text>
+                      )}
+                    </View>
+                  )}
                 </View>
               )}
             </Card>
@@ -1146,7 +1187,8 @@ export default function ReviewScreen({ navigation, route }) {
                       if (!lead.id) return;
                       await logOutreachActivity(lead.id, type.key);
                       // Refresh lead state to show new entry
-                      const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+                      const RawStorage = require('@react-native-async-storage/async-storage').default;
+                      const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
                       const leads_ = raw ? JSON.parse(raw) : [];
                       const updated = leads_.find(l => l.id === lead.id);
                       if (updated) setLead(prev => ({ ...prev, outreachHistory: updated.outreachHistory, lastOutreachAt: updated.lastOutreachAt }));
@@ -1269,8 +1311,8 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.borderLit,
     backgroundColor: COLORS.surface,
   },
-  cardImage: { width: '100%', height: 170 },
-  cardImageExpanded: { height: 340 },
+  cardImage: { width: '100%', height: screenHeight * 0.19 },
+  cardImageExpanded: { height: screenHeight * 0.37 },
   cardImageHint: {
     color: COLORS.muted, fontSize: 11,
     textAlign: 'center', paddingVertical: 7,

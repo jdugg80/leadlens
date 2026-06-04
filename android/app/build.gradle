@@ -114,7 +114,7 @@ android {
         applicationId 'com.okaymedia.leadlens'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 45
+        versionCode 44
         versionName "2.0.1"
     }
     signingConfigs {

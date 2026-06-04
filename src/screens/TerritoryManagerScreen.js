@@ -4,7 +4,7 @@ import {
   StyleSheet, TextInput, ActivityIndicator,
   KeyboardAvoidingView, Platform, Animated,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage as AsyncStorage } from '../utils/storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
@@ -184,7 +184,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       return;
     }
     const updated = [...myZips, buildZipEntry(zip)];
+    console.log('[Territory] Saving zips:', updated.map(z => z.zip).join(', '));
     await saveMyZips(updated);
+    console.log('[Territory] Zips saved to storage');
     await refreshData(updated);
     setManualZip('');
   };
@@ -197,7 +199,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       {
         text: 'Remove', style: 'destructive', onPress: async () => {
           const updated = myZips.filter(z => z.zip !== zip);
+          console.log('[Territory] Removing zip:', zip, '- Updated list:', updated.map(z => z.zip).join(', '));
           await saveMyZips(updated);
+          console.log('[Territory] Zips saved after removal');
           await refreshData(updated);
         },
       },
@@ -243,7 +247,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
 
       const newEntries = valid.map(z => buildZipEntry(z));
       const updated = [...myZips, ...newEntries];
+      console.log('[Territory] Importing zips:', valid.join(', '));
       await saveMyZips(updated);
+      console.log('[Territory] Imported zips saved to storage');
       await refreshData(updated);
 
       setStatusText('');

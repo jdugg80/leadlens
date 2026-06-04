@@ -3,6 +3,8 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 
+const pushTokenRlsWarnedUsers = new Set();
+
 // ─── Call this once from App.js root, not at module level ────────────────────
 export function configurePushNotifications() {
   Notifications.setNotificationHandler({
@@ -60,7 +62,18 @@ export async function registerPushToken(userId) {
         { onConflict: 'user_id' }
       );
 
-    if (error) console.warn('[Push] Token save failed:', error.message);
+    if (error) {
+      const message = String(error.message || '');
+      const isRls = /row-level security/i.test(message);
+      if (isRls) {
+        if (!pushTokenRlsWarnedUsers.has(String(userId))) {
+          pushTokenRlsWarnedUsers.add(String(userId));
+          console.warn('[Push] Token save skipped by RLS policy for this user.');
+        }
+      } else {
+        console.warn('[Push] Token save failed:', message);
+      }
+    }
     return token;
   } catch (err) {
     console.warn('[Push] Registration error:', err.message);

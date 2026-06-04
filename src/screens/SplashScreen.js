@@ -21,6 +21,7 @@ import {
   USER_STORAGE_KEY,
 } from '../constants';
 import { createSupabaseClient } from '../utils/supabaseClient';
+import { getWarmRestoreRoute } from '../utils/backgroundStability';
 
 const { width: SW } = Dimensions.get('window');
 const ICON_SIZE = Math.min(SW * 0.76, 330);
@@ -29,7 +30,7 @@ const PANEL_PADDING = 14;
 const TILE_GAP = 10;
 const TILE_WIDTH = (PANEL_WIDTH - PANEL_PADDING * 2 - TILE_GAP * 2) / 3;
 
-const iconSource = require('../../assets/leadlens/LeadLens_app_icon.png');
+const iconSource = require('../../assets/leadlens/LeadLens_app_icon_v3.png');
 const TILE_CONFIG = [
   { key: 'scan', title: 'SCAN', label: 'Capture', color: COLORS.purple },
   { key: 'map', title: 'MAP', label: 'Territory', color: COLORS.accent },
@@ -72,6 +73,23 @@ function chooseStartupTarget(savedUser, legalAccepted) {
   // Fresh installs / cleared app data should go to Login first.
   // Consent is shown after a usable profile exists, which avoids userless legal routing crashes.
   return makeTarget('Login');
+}
+
+// Screens that should never be warm-restored (camera/modal/adjuster screens
+// have no back navigation to Dashboard and leave the user stranded).
+const WARM_RESTORE_BLACKLIST = [
+  'Capture',
+  'LeadLockCamera',
+  'PhotoIngest',
+  'TargetMapAdjuster',
+  'ManualEntry',
+];
+
+function chooseWarmRestoreTarget(savedUser, legalAccepted) {
+  if (!hasCompleteProfile(savedUser) || !legalAccepted) return null;
+  const routeName = getWarmRestoreRoute();
+  if (!routeName || WARM_RESTORE_BLACKLIST.includes(routeName)) return null;
+  return { ...makeTarget(routeName, { user: savedUser }), warmRestore: true };
 }
 
 export default function SplashScreen({ navigation }) {
@@ -164,6 +182,8 @@ export default function SplashScreen({ navigation }) {
         const legalAccepted = hasAcceptedLegal(rawLegal);
         const supabaseSettings = safeParseJson(rawSupa, {});
         const fallbackTarget = chooseStartupTarget(savedUser, legalAccepted);
+        const warmRestoreTarget = chooseWarmRestoreTarget(savedUser, legalAccepted);
+        const preferredTarget = warmRestoreTarget || fallbackTarget;
         const supabase = createSupabaseClient(supabaseSettings || {});
 
         if (supabase) {
@@ -180,7 +200,7 @@ export default function SplashScreen({ navigation }) {
           if (data?.session) {
             console.log('AUTH_BOOT_SESSION_FOUND');
             if (!mountedRef.current) return;
-            setStartupTarget(fallbackTarget);
+            setStartupTarget(preferredTarget);
             return;
           } else {
              console.log('AUTH_BOOT_NO_SESSION', error?.message || 'none');
@@ -189,7 +209,7 @@ export default function SplashScreen({ navigation }) {
           const { data: authStateData } = supabase.auth.onAuthStateChange((event, session) => {
             console.log('Splash auth state change', { event, sessionExists: !!session });
             if (!session || !mountedRef.current) return;
-            setStartupTarget(fallbackTarget);
+            setStartupTarget(preferredTarget);
           });
           subscription = authStateData?.subscription;
         } else {
@@ -197,7 +217,7 @@ export default function SplashScreen({ navigation }) {
         }
 
         if (!mountedRef.current) return;
-        setStartupTarget(fallbackTarget);
+        setStartupTarget(preferredTarget);
       } catch (err) {
         console.error('AUTH_BOOT_ERROR', err?.message || String(err));
         if (mountedRef.current) setStartupTarget(makeTarget('Login'));
@@ -409,10 +429,19 @@ export default function SplashScreen({ navigation }) {
   }, []);
 
   const skip = () => {
+    // If startupTarget isn't resolved yet, fall back to Login immediately.
+    // Never block the user — auth state will be re-evaluated on the next screen.
     const target = startupTarget || makeTarget('Login');
-    if (!startupTarget) setStatusText('Finalizing startup');
     navigation.replace(target.name, target.params);
   };
+
+  useEffect(() => {
+    if (!startupTarget?.warmRestore) return;
+    const id = setTimeout(() => {
+      navigation.replace(startupTarget.name, startupTarget.params);
+    }, 220);
+    return () => clearTimeout(id);
+  }, [navigation, startupTarget]);
 
   return (
     <Animated.View style={[styles.root, { opacity: rootOpacity }]}> 

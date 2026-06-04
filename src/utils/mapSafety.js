@@ -85,18 +85,49 @@ export function makeSafePolygonCoordinates(points = [], label = 'polygon') {
 }
 
 /**
- * Filters an array of polygon objects, returning only those with 3+ valid coordinates.
- * Each polygon object is expected to have a `coordinates` array.
+ * Takes raw GeoJSON coordinate arrays (possibly nested) and returns
+ * a flat array of {latitude, longitude} objects safe for react-native-maps <Polygon>.
+ * Filters out any invalid or non-finite coordinate pairs.
  */
-export function makeSafePolygons(polygons = [], coordinatesKey = 'coordinates') {
-  if (!Array.isArray(polygons)) return [];
-  return polygons
-    .map((polygon) => {
-      if (!polygon || typeof polygon !== 'object') return null;
-      const raw = polygon[coordinatesKey];
-      const safe = makeSafePolygonCoordinates(raw || []);
-      if (safe.length < 3) return null;
-      return { ...polygon, [coordinatesKey]: safe };
+export function makeSafePolygons(rawCoords) {
+  if (!rawCoords || !Array.isArray(rawCoords)) return [];
+
+  // GeoJSON polygons are arrays of rings; the first ring is the outer boundary.
+  // Coordinates may be nested 1, 2, or 3 levels deep depending on the source.
+  let flat = rawCoords;
+
+  // Unwrap one level if it's an array-of-arrays-of-arrays (MultiPolygon outer shell)
+  if (Array.isArray(flat[0]) && Array.isArray(flat[0][0]) && Array.isArray(flat[0][0][0])) {
+    flat = flat[0]; // Take the first polygon of a MultiPolygon
+  }
+
+  // Unwrap ring level: array of [lng, lat] pairs or {latitude, longitude} objects.
+  if (
+    Array.isArray(flat[0]) && (
+      Array.isArray(flat[0][0]) ||
+      (flat[0][0] && typeof flat[0][0] === 'object' && (
+        ('latitude' in flat[0][0] && 'longitude' in flat[0][0]) ||
+        ('lat' in flat[0][0] && 'lng' in flat[0][0])
+      ))
+    )
+  ) {
+    flat = flat[0]; // Take the outer ring
+  }
+
+  // Now flat should be an array of [lng, lat] or {lat, lng} pairs
+  return flat
+    .map(coord => {
+      if (Array.isArray(coord) && coord.length >= 2) {
+        const lng = parseFloat(coord[0]);
+        const lat = parseFloat(coord[1]);
+        if (isFinite(lat) && isFinite(lng)) return { latitude: lat, longitude: lng };
+      }
+      if (coord && typeof coord === 'object' && 'latitude' in coord && 'longitude' in coord) {
+        const lat = parseFloat(coord.latitude);
+        const lng = parseFloat(coord.longitude);
+        if (isFinite(lat) && isFinite(lng)) return { latitude: lat, longitude: lng };
+      }
+      return null;
     })
     .filter(Boolean);
 }

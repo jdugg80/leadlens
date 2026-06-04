@@ -18,6 +18,13 @@ import { bindAutoExportOnAppResume, registerBackgroundAutoExport } from './src/u
 import { processQueue } from './src/utils/taskRunner';
 import BetaTracker from './utils/betaTracker';
 import { getCurrentCoords, reverseGeocodeCoords } from './src/utils/geoEnrich';
+import {
+  markBackgroundOptimizationPrompted,
+  openBatteryOptimizationSettings,
+  recordLastActiveAt,
+  recordLastActiveRoute,
+  shouldPromptBackgroundOptimization,
+} from './src/utils/backgroundStability';
 
 import SplashScreen               from './src/screens/SplashScreen';
 import LoginScreen                from './src/screens/LoginScreen';
@@ -37,6 +44,7 @@ import TerritoryManagerScreen     from './src/screens/TerritoryManagerScreen';
 import TerritoryMapScreen         from './src/screens/TerritoryMapScreen';
 import LeadLockReviewScreen       from './src/screens/LeadLockReviewScreen';
 import LeadLockCameraScreen       from './src/screens/LeadLockCameraScreen';
+import PhotoIngestScreen          from './src/screens/PhotoIngestScreen';
 import CardGalleryScreen          from './src/screens/CardGalleryScreen';
 import TargetMapAdjusterScreen    from './src/screens/TargetMapAdjusterScreen';
 
@@ -158,6 +166,7 @@ function FlashOverlay({ flashAnim }) {
 export default function App() {
   const flashAnim = useRef(new Animated.Value(0)).current;
   const appState  = useRef(AppState.currentState);
+  const navRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -191,6 +200,24 @@ export default function App() {
 
       // ── Update actual GPS on app launch ──
       updateGlobalLocation().catch(() => {});
+
+      // ── One-time Android battery optimization prompt ──
+      if (shouldPromptBackgroundOptimization()) {
+        markBackgroundOptimizationPrompted();
+        Alert.alert(
+          'Keep LeadLens Active',
+          'To reduce shutdowns while in background, disable battery optimization for LeadLens. This helps keep scans and queue processing ready during the work day.',
+          [
+            { text: 'Not Now', style: 'cancel' },
+            {
+              text: 'Open Battery Settings',
+              onPress: () => {
+                openBatteryOptimizationSettings().catch(() => {});
+              },
+            },
+          ]
+        );
+      }
     })();
 
     // ── AppState listener: task queue + beta session tracking ──
@@ -199,14 +226,16 @@ export default function App() {
       appState.current = nextState;
 
       if (nextState === 'active') {
-        // App came to foreground
+        recordLastActiveAt();
         processQueue().catch(() => {});
         updateGlobalLocation().catch(() => {});
-        await BetaTracker.init();  // resumes/starts a new session
+        await BetaTracker.init();
       }
 
       if (prev === 'active' && nextState.match(/inactive|background/)) {
-        // App went to background
+        const routeName = navRef.current?.getCurrentRoute?.()?.name;
+        recordLastActiveAt();
+        if (routeName) recordLastActiveRoute(routeName);
         await BetaTracker.endSession();
       }
     });
@@ -223,11 +252,21 @@ export default function App() {
 
   const onStateChange = useCallback(() => {
     triggerFlash();
+    const routeName = navRef.current?.getCurrentRoute?.()?.name;
+    if (routeName) recordLastActiveRoute(routeName);
   }, [triggerFlash]);
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer onStateChange={onStateChange}>
+      <NavigationContainer
+        ref={navRef}
+        onReady={() => {
+          const routeName = navRef.current?.getCurrentRoute?.()?.name;
+          if (routeName) recordLastActiveRoute(routeName);
+          recordLastActiveAt();
+        }}
+        onStateChange={onStateChange}
+      >
         <StatusBar style="light" backgroundColor="#0D0F14" />
         <Stack.Navigator
           initialRouteName="Splash"
@@ -256,6 +295,7 @@ export default function App() {
           <Stack.Screen name="TerritoryMap"        component={TerritoryMapScreen} />
           <Stack.Screen name="LeadLockReview"      component={LeadLockReviewScreen} />
           <Stack.Screen name="LeadLockCamera"      component={LeadLockCameraScreen} />
+          <Stack.Screen name="PhotoIngest"         component={PhotoIngestScreen} />
           <Stack.Screen name="CardGallery"         component={CardGalleryScreen} />
           <Stack.Screen
             name="TargetMapAdjuster"

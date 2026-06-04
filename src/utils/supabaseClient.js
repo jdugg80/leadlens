@@ -1,5 +1,6 @@
 import 'react-native-url-polyfill/auto';
-import { storage as AsyncStorage } from './storage';
+import { storage as MMKVStorage } from './storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
 
@@ -7,10 +8,14 @@ let cachedKey = '';
 let cachedClient = null;
 let appStateSubscription = null;
 
+// Use async AsyncStorage for Supabase auth — Supabase awaits these calls,
+// so async is fine and far more reliable than sync MMKV for the PKCE verifier.
+// MMKV sync writes can silently fail (no AsyncStorage fallback for sync ops),
+// which causes "PKCE code verifier not found" on exchangeCodeForSession.
 const storageAdapter = {
-  getItem: (key) => AsyncStorage.getSync(key),
-  setItem: (key, value) => AsyncStorage.setSync(key, value),
-  removeItem: (key) => AsyncStorage.removeSync(key),
+  getItem:    (key) => AsyncStorage.getItem(key),
+  setItem:    (key, value) => AsyncStorage.setItem(key, value),
+  removeItem: (key) => AsyncStorage.removeItem(key),
 };
 
 function clean(value) {

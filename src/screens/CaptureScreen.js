@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, ScrollView, Linking,
+  BackHandler, Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
@@ -12,11 +14,14 @@ import { ScreenHeader, Card, SectionLabel } from '../components/UI';
 import AILoader from '../components/AILoader';
 import { extractLeadsWithDebugFromImage, enrichLead, enqueueExtractLeadsFromImage } from '../utils/claudeApi';
 import { getCurrentCoords, geocodeBusinessNearby, reverseGeocodeCoords, getCameraHeading } from '../utils/geoEnrich';
+import resolveZipFromLeadLockPhoto from '../utils/location/resolveZipFromLeadLockPhoto';
 import { loadUserLearningProfile, recordUserActivityEvent } from '../utils/userLearning';
-import { normalizeLead, inferVertical, findDuplicateInLeads } from '../utils/leadHelpers';
+import { normalizeLead, inferVertical, findDuplicateInLeads, normalizeState, normalizeZip } from '../utils/leadHelpers';
 import TutorialOverlay from '../components/TutorialOverlay';
 import { annotateLeadForReview, expandCandidatesFromOcrSummary, buildDuplicateBadge } from '../utils/captureIntelligence';
-import { storageBridge as AsyncStorage } from '../utils/storage';
+import CameraModal from '../components/CameraModal';
+import ScanCameraModal from '../components/ScanCameraModal';
+import { storage as AsyncStorage } from '../utils/storage';
 import { LEADS_STORAGE_KEY } from '../constants';
 import { playCaptureSound, playErrorSound, playSuccessSound } from '../utils/soundManager';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -26,8 +31,45 @@ import { ThemedAlertHost, showThemedAlert } from '../components/ThemedAlert';
 import { processQueue } from '../utils/taskRunner';
 import { enqueueTask, TASK_TYPES } from '../utils/taskQueue';
 import BetaTracker from '../../utils/betaTracker';
+import { initScanDb } from '../features/cardScan/storage/scanDb';
+import {
+  createScanSession,
+  getActiveScanSessions,
+  getScanSessionById,
+  updateScanSessionStatus,
+  incrementSessionCounts,
+} from '../features/cardScan/storage/scanSessions';
+import {
+  createScanCard,
+  getQueueCardsForSession,
+  updateScanCardStatus,
+  getCardsForSession,
+} from '../features/cardScan/storage/scanCards';
+import { SCAN_SOURCES, SCAN_SESSION_STATUS, SCAN_CARD_STATUS } from '../features/cardScan/constants/scanStatuses';
+import { processScanSessionQueue, startSessionEnrichmentQueue } from '../features/cardScan/processing/scanQueueProcessor';
+import {
+  SCAN_RECOVERY_ENABLED,
+  SCAN_QUEUE_PROCESSING_ENABLED,
+  SCAN_ENRICHMENT_QUEUE_ENABLED,
+} from '../config/featureFlags';
 
 const SAFE_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+// Detects API credit / quota exhaustion errors from Claude or Supabase edge functions
+function isAiCreditError(err) {
+  if (!err) return false;
+  const msg = (err.message || String(err)).toLowerCase();
+  return (
+    msg.includes('credit') ||
+    msg.includes('quota') ||
+    msg.includes('billing') ||
+    msg.includes('overloaded') ||
+    msg.includes('529') ||
+    msg.includes('402') ||
+    (err.status === 402) ||
+    (err.status === 529)
+  );
+}
 
 const normalizeHeader = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const HEADER_ALIASES = {
@@ -234,9 +276,401 @@ export default function CaptureScreen({ navigation, route }) {
     BetaTracker.screen('CaptureScreen');
   }, []);
 
+  useEffect(() => {
+    initScanDb().catch((err) => {
+      console.warn('[Capture] Failed to initialize scan DB:', err);
+    });
+  }, []);
+
   const { user } = route.params;
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
+  const [cameraModalVisible, setCameraModalVisible] = useState(false);
+  const [cameraModalConfig, setCameraModalConfig] = useState({ mode: 'portrait', title: '', subtitle: '' });
+  const cameraModalCallback = useRef(null);
+  const [scanCameraOpen, setScanCameraOpen] = useState(false);
+  const scanCameraResolve = useRef(null);
+
+  // Open custom camera modal with bounding box overlay
+  // Prevent concurrent scan executions
+  const scanInProgress = useRef(false);
+  const currentCardScanSessionId = useRef(null);
+
+  // ─── Leave-navigation guard state ───────────────────────────────────────
+  const [leaveModalVisible, setLeaveModalVisible] = useState(false);
+  const [discardStep, setDiscardStep] = useState(false);
+  const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
+  const [recoverySession, setRecoverySession] = useState(null);
+  const [recoveryCards, setRecoveryCards] = useState([]);
+  const [recoveryReviewVisible, setRecoveryReviewVisible] = useState(false);
+  const [recoveryReviewSummary, setRecoveryReviewSummary] = useState(null);
+  const pendingLeaveEvent = useRef(null);
+  const isBlockingRef = useRef(false);
+  isBlockingRef.current = processing || scanInProgress.current;
+
+  const refreshUnfinishedSessions = useCallback(async () => {
+    if (!SCAN_RECOVERY_ENABLED) {
+      setRecoverySession(null);
+      setRecoveryCards([]);
+      setRecoveryModalVisible(false);
+      return;
+    }
+    try {
+      const activeSessions = await getActiveScanSessions();
+      if (!activeSessions?.length) {
+        setRecoverySession(null);
+        setRecoveryCards([]);
+        setRecoveryModalVisible(false);
+        return;
+      }
+      const session = activeSessions[0];
+      const cards = await getCardsForSession(session.id);
+      setRecoverySession(session);
+      setRecoveryCards(cards || []);
+      setRecoveryModalVisible(true);
+    } catch (err) {
+      console.warn('[Capture] Failed to load unfinished scan sessions:', err);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnfinishedSessions();
+    }, [refreshUnfinishedSessions])
+  );
+
+  useEffect(() => {
+    if (!SCAN_RECOVERY_ENABLED) return undefined;
+    if (!recoveryModalVisible) return undefined;
+    const timer = setInterval(() => {
+      refreshUnfinishedSessions();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [recoveryModalVisible, refreshUnfinishedSessions]);
+
+  // ─── BackHandler for Android hardware back button ──────────────────────
+  useEffect(() => {
+    const onBackPress = () => {
+      if (leaveModalVisible) {
+        if (discardStep) {
+          setDiscardStep(false);
+        } else {
+          setLeaveModalVisible(false);
+          pendingLeaveEvent.current = null;
+        }
+        return true;
+      }
+      if (isBlockingRef.current) {
+        setLeaveModalVisible(true);
+        return true;
+      }
+      return false;
+    };
+    BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
+  }, [leaveModalVisible, discardStep]);
+
+  // ─── Prevent navigation-stack removal while scan/process is active ────
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (!isBlockingRef.current) return;
+      e.preventDefault();
+      pendingLeaveEvent.current = e;
+      setLeaveModalVisible(true);
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const logScanSessionSnapshot = useCallback(async (sessionId, reason = 'snapshot') => {
+    if (!sessionId) return;
+    try {
+      const [session, cards] = await Promise.all([
+        getScanSessionById(sessionId),
+        getCardsForSession(sessionId),
+      ]);
+      const cardSummary = (cards || []).map((card) => ({
+        id: card.id,
+        card_index: card.card_index,
+        status: card.status,
+        original_image_uri: card.original_image_uri,
+        updated_at: card.updated_at,
+      }));
+      console.log(`[Capture][ScanSessionDebug] ${reason} session:`, session);
+      console.log(`[Capture][ScanSessionDebug] ${reason} cards(${cardSummary.length}):`, cardSummary);
+    } catch (err) {
+      console.warn('[Capture] Could not log scan session snapshot:', err);
+    }
+  }, []);
+
+  const handleRecoveryDiscardBatch = useCallback(() => {
+    if (!recoverySession?.id) return;
+    Alert.alert(
+      'Discard Unfinished Batch',
+      'Are you sure you want to discard this unfinished batch? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await updateScanSessionStatus(recoverySession.id, SCAN_SESSION_STATUS.DISCARDED);
+              setRecoveryModalVisible(false);
+              setRecoveryReviewVisible(false);
+              setRecoverySession(null);
+              setRecoveryCards([]);
+            } catch (err) {
+              console.warn('[Capture] Failed discarding recovery batch:', err);
+            }
+          },
+        },
+      ]
+    );
+  }, [recoverySession]);
+
+  const handleRecoveryReviewCompleted = useCallback(() => {
+    const cards = recoveryCards || [];
+    const ocrComplete = cards.filter((card) => {
+      if (
+        card.status === SCAN_CARD_STATUS.OCR_COMPLETE
+        || card.status === SCAN_CARD_STATUS.READY_FOR_REVIEW
+        || card.status === SCAN_CARD_STATUS.PARSE_COMPLETE
+        || card.status === SCAN_CARD_STATUS.NEEDS_REVIEW
+        || card.status === SCAN_CARD_STATUS.ENRICHMENT_PENDING
+        || card.status === SCAN_CARD_STATUS.ENRICHED
+        || card.status === SCAN_CARD_STATUS.FAILED_ENRICHMENT
+        || card.status === SCAN_CARD_STATUS.COMPLETED
+      ) return true;
+      return !!card.raw_ocr_text || !!card.parsed_json;
+    }).length;
+    const parseComplete = cards.filter((card) => (
+      card.status === SCAN_CARD_STATUS.READY_FOR_REVIEW
+      || card.status === SCAN_CARD_STATUS.PARSE_COMPLETE
+      || card.status === SCAN_CARD_STATUS.ENRICHMENT_PENDING
+      || card.status === SCAN_CARD_STATUS.ENRICHED
+      || (card.status === SCAN_CARD_STATUS.COMPLETED && !!card.parsed_json)
+    )).length;
+    const readyForReview = cards.filter((card) => (
+      card.status === SCAN_CARD_STATUS.READY_FOR_REVIEW
+      || card.status === SCAN_CARD_STATUS.ENRICHMENT_PENDING
+      || card.status === SCAN_CARD_STATUS.ENRICHED
+    )).length;
+    const needsReview = cards.filter((card) => (
+      card.status === SCAN_CARD_STATUS.NEEDS_REVIEW
+      || card.status === SCAN_CARD_STATUS.FAILED_ENRICHMENT
+      || card.status === SCAN_CARD_STATUS.FAILED
+      || (!card.parsed_json && card.status !== SCAN_CARD_STATUS.OCR_PROCESSING)
+    )).length;
+    setRecoveryReviewSummary({
+      total: cards.length,
+      ocrComplete,
+      parseComplete,
+      readyForReview,
+      needsReview,
+    });
+    setRecoveryReviewVisible(true);
+  }, [recoveryCards]);
+
+  const handleRecoveryResumeProcessing = useCallback(async () => {
+    if (!recoverySession?.id) return;
+    try {
+      setRecoveryModalVisible(false);
+      setProcessing(true);
+      setProcessingMsg('Resuming unfinished cards...');
+      let leads = [];
+      const recoveryCaptureMethod = recoverySession?.source === SCAN_SOURCES.BUSINESS_CARD_BATCH
+        ? 'business-card'
+        : 'image';
+
+      if (SCAN_QUEUE_PROCESSING_ENABLED) {
+        const queueResult = await processScanSessionQueue({
+          sessionId: recoverySession.id,
+          includeFailed: true,
+          retryFailed: true,
+          captureMethod: recoveryCaptureMethod,
+          concurrency: 1,
+          onProgress: ({ total, remaining }) => {
+            const done = Math.max(0, total - remaining);
+            setProcessingMsg(`Resuming card ${done} of ${total}...`);
+          },
+        });
+        leads = Array.isArray(queueResult?.leads) ? queueResult.leads : [];
+      } else {
+        const resumableCards = await getQueueCardsForSession(recoverySession.id, { includeFailed: true });
+        const cardsWithUri = (resumableCards || [])
+          .filter((card) => !!card.original_image_uri);
+        const assets = cardsWithUri
+          .map((card) => ({
+            uri: card.original_image_uri,
+            mimeType: 'image/jpeg',
+          }));
+        const cardRecordIds = cardsWithUri.map((card) => card.id);
+        if (assets.length) {
+          setProcessingMsg(`Resuming card queue (${assets.length} card${assets.length === 1 ? '' : 's'})...`);
+          leads = await processAssets(assets, null, recoveryCaptureMethod, {
+            scanSessionId: recoverySession.id,
+            cardRecordIds,
+            returnLeadsOnly: true,
+          });
+        }
+      }
+
+      if (!leads.length) {
+        await refreshUnfinishedSessions();
+        showThemedAlert('Nothing to Resume', 'No recoverable card output was found after processing.');
+        return;
+      }
+
+      if (SCAN_ENRICHMENT_QUEUE_ENABLED) {
+        startSessionEnrichmentQueue({ sessionId: recoverySession.id });
+      }
+
+      navigation.push('BatchReview', {
+        user,
+        leads,
+        sourceLabel: `Recovered Batch — ${leads.length} prospect${leads.length === 1 ? '' : 's'} ready`,
+      });
+    } catch (err) {
+      console.warn('[Capture] Failed resuming recovery batch:', err);
+      await updateScanSessionStatus(recoverySession.id, SCAN_SESSION_STATUS.FAILED).catch(() => {});
+      setRecoveryModalVisible(true);
+    } finally {
+      setProcessing(false);
+    }
+  }, [navigation, recoverySession, refreshUnfinishedSessions, user]);
+
+  // Opens in-app camera (CameraView) — returns a URI via promise
+  const openScanCamera = () => new Promise((resolve) => {
+    scanCameraResolve.current = resolve;
+    setScanCameraOpen(true);
+  });
+
+  // ─── Single unified scan handler ───────────────────────────────────────────
+  const handleScan = async () => {
+    if (scanInProgress.current) return;
+    // Clear any stuck state
+    if (processing) { setProcessing(false); setProcessingMsg(''); }
+    scanInProgress.current = true;
+    console.log('[Capture] handleScan triggered');
+
+    // GPS runs in parallel while user takes photo — ready by processing time
+    const coordsPromise = getCurrentCoords().catch(() => null);
+
+    const assets = [];
+    let keepScanning = true;
+
+    while (keepScanning) {
+      console.log(`[Capture] Opening scan camera for photo ${assets.length + 1}`);
+
+      // Use in-app CameraView — no external intent, no Android activity issues
+      const capture = await openScanCamera();
+
+      if (!capture) {
+        console.log('[Capture] Scan camera closed without capture');
+        if (!assets.length) { scanInProgress.current = false; return; }
+        break;
+      }
+
+      // capture is { uri, base64 } — store both so processAssets can skip file reading
+      assets.push(capture);
+      console.log(`[Capture] Photo ${assets.length} captured`);
+
+      // Wait for ScanCameraModal to fully close before showing Alert
+      // Android drops Alerts fired while a Modal is still animating out
+      await new Promise(r => setTimeout(r, 450));
+
+      await new Promise((resolve) => {
+        Alert.alert(
+          `Photo ${assets.length} captured`,
+          'Add another photo?',
+          [
+            { text: 'Yes, add another', onPress: () => { keepScanning = true; resolve(); } },
+            { text: 'No, process now', style: 'cancel', onPress: () => { keepScanning = false; resolve(); } },
+          ]
+        );
+      });
+
+      if (!keepScanning) break;
+    }
+
+    if (!assets.length) { scanInProgress.current = false; return; }
+
+    console.log('[Capture] Processing', assets.length, 'asset(s), base64 available:', assets.map(a => !!a.base64));
+
+    // Race GPS against a 4s timeout — never let GPS block processing
+    const coords = await Promise.race([
+      coordsPromise,
+      new Promise(r => setTimeout(() => r(null), 4000)),
+    ]);
+    console.log('[Capture] GPS coords:', coords ? 'obtained' : 'timed out');
+
+    setProcessing(true);
+    setProcessingMsg(assets.length > 1
+      ? `Reading ${assets.length} photos with AI...`
+      : 'AI is reading your photo...');
+
+    try {
+      await processAssets(assets, coords, 'ai-scan');
+    } catch (err) {
+      console.error('[Capture] handleScan error:', err);
+      BetaTracker.crash('CaptureScreen', err);
+      Alert.alert('Scan Error', err.message || 'Could not process photos.');
+      setProcessing(false);
+    } finally {
+      scanInProgress.current = false;
+    }
+  };
+  const handleCameraCapture = async (photo) => {
+    try {
+      // Safety check: ensure callback exists and only call once
+      if (!cameraModalCallback.current) {
+        console.warn('[Capture] No camera modal callback registered');
+        return;
+      }
+      
+      const callback = cameraModalCallback.current;
+      cameraModalCallback.current = null; // Clear immediately to prevent double-call
+      
+      console.log('[Capture] Camera capture received, invoking callback');
+      if (callback && typeof callback === 'function') {
+        await callback(photo);
+      } else {
+        console.error('[Capture] Callback is not a function:', typeof callback);
+      }
+    } catch (err) {
+      console.error('[Capture] Camera capture error:', err);
+    }
+  };
+
+  // Promise-based camera opener using CameraModal instead of ImagePicker
+  const openCameraWithModal = (config) => {
+    return new Promise((resolve) => {
+      // Set the callback BEFORE opening the modal, and do NOT pass it through
+      // openCustomCamera (which would overwrite it with an empty function).
+      cameraModalCallback.current = async (photo) => {
+        if (!photo) { resolve(null); return; }
+        try {
+          const filename = `leadlens_${config.mode}_${Date.now()}.jpg`;
+          const dest = `${FileSystem.documentDirectory}camera_captures/${filename}`;
+          await FileSystem.makeDirectoryAsync(
+            `${FileSystem.documentDirectory}camera_captures/`,
+            { intermediates: true }
+          );
+          await FileSystem.writeAsStringAsync(dest, photo.base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          resolve({ uri: dest });
+        } catch (err) {
+          console.error('[Capture] Error in openCameraWithModal:', err);
+          resolve(null);
+        }
+      };
+      // Open the modal directly — do NOT call openCustomCamera here or it
+      // will overwrite cameraModalCallback.current with an empty function.
+      setCameraModalConfig(config);
+      setCameraModalVisible(true);
+    });
+  };
 
   const openCamera = async (quality = 0.75, skipPermissionRequest = false) => {
     try {
@@ -246,7 +680,10 @@ export default function CaptureScreen({ navigation, route }) {
       try {
         let status = 'granted';
         if (!skipPermissionRequest) {
-          const permResult = await ImagePicker.requestCameraPermissionsAsync();
+          let permResult = await ImagePicker.getCameraPermissionsAsync();
+          if (permResult?.status !== 'granted') {
+            permResult = await ImagePicker.requestCameraPermissionsAsync();
+          }
           status = permResult.status;
           console.log('[Capture] Permission response received!');
           console.log('[Capture] Camera permission status:', status, 'canAskAgain:', permResult.canAskAgain);
@@ -319,7 +756,12 @@ export default function CaptureScreen({ navigation, route }) {
     }
   };
 
-  const readAsset = async (uri, mimeType) => {
+  const readAsset = async (uri, mimeType, precomputedBase64 = null) => {
+    // Use pre-computed base64 if available (e.g. from ScanCameraModal)
+    // This avoids re-reading temp files that may have been cleaned up
+    if (precomputedBase64) {
+      return { b64: precomputedBase64, mime: mimeType || 'image/jpeg' };
+    }
     try {
       const b64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
@@ -331,12 +773,16 @@ export default function CaptureScreen({ navigation, route }) {
     }
   };
 
-  const processAssets = async (assets, coords, captureMethod) => {
+  const processAssets = async (assets, coords, captureMethod, options = null) => {
     console.log('[Capture] processAssets called with', assets?.length || 0, 'assets');
     if (!assets?.length) {
       showThemedAlert('No photos', 'Please capture at least one photo.');
+      if (options?.returnLeadsOnly) return [];
       return;
     }
+
+    const captureMethodKey = String(captureMethod || '').toLowerCase();
+    const isBusinessCardCapture = captureMethodKey.includes('business-card') || captureMethodKey.includes('business_card');
 
     setProcessing(true);
     setProcessingMsg('Reading photos...');
@@ -344,17 +790,52 @@ export default function CaptureScreen({ navigation, route }) {
       const leads = [];
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
+        const cardRecordId = options?.cardRecordIds?.[i] || null;
         setProcessingMsg(`Processing photo ${i + 1} of ${assets.length}...`);
         await new Promise((r) => setTimeout(r, 0));
 
+        if (cardRecordId) {
+          try {
+            await updateScanCardStatus(cardRecordId, SCAN_CARD_STATUS.OCR_PENDING);
+          } catch (cardStatusErr) {
+            console.warn('[Capture] Failed to set card OCR_PENDING:', cardStatusErr);
+          }
+        }
+
         const permanentUri = await persistImage(asset.uri);
-        const { b64, mime } = await readAsset(permanentUri, asset.mimeType);
+        const { b64, mime } = await readAsset(permanentUri, asset.mimeType, asset.base64);
+
+        // Resolve photo location from EXIF GPS if available, or fall back to live coords
+        let resolvedLocation = null;
+        try {
+          resolvedLocation = await resolveZipFromLeadLockPhoto({
+            liveGps: coords ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy, timestamp: Date.now() } : null,
+            photoExif: asset.exif || null,
+            businessAddressZip: null,
+            allowDeviceFallback: captureMethod === 'image',
+          });
+          console.log('[Capture] Resolved location for asset', i, ':', resolvedLocation?.source, resolvedLocation?.zip);
+        } catch (locErr) {
+          console.warn('[Capture] Location resolution failed for asset', i, ':', locErr);
+        }
 
         try {
-          const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime);
-          const extractedLeads = (debugExtraction.leads?.length
+          const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime, { coords, captureMethod });
+          let extractedLeads = (debugExtraction.leads?.length
             ? debugExtraction.leads
-            : expandCandidatesFromOcrSummary(debugExtraction.ocrSummary, 'storefront')) || [];
+            : expandCandidatesFromOcrSummary(debugExtraction.ocrSummary, isBusinessCardCapture ? 'business_card' : 'storefront')) || [];
+
+          if ((!Array.isArray(extractedLeads) || extractedLeads.length === 0) && String(debugExtraction?.ocrSummary || '').trim()) {
+            const firstLine = String(debugExtraction.ocrSummary)
+              .split(/\n|\||•|·/)
+              .map((line) => String(line || '').trim())
+              .find(Boolean) || 'Business Card Lead';
+            extractedLeads = [{
+              businessName: firstLine,
+              notes: 'OCR fallback candidate',
+              confidence: 'low',
+            }];
+          }
 
           if (extractedLeads.length) {
             setProcessingMsg(`Found ${extractedLeads.length} prospect${extractedLeads.length !== 1 ? 's' : ''} in photo ${i + 1}`);
@@ -366,6 +847,19 @@ export default function CaptureScreen({ navigation, route }) {
               if (coords) {
                 lead.latitude = coords.latitude;
                 lead.longitude = coords.longitude;
+              }
+
+              // Attach resolved location data
+              if (resolvedLocation) {
+                lead.zip = resolvedLocation.zip || lead.zip || null;
+                lead.photo_zip = resolvedLocation.zip || null;
+                lead.latitude = resolvedLocation.latitude || lead.latitude || null;
+                lead.longitude = resolvedLocation.longitude || lead.longitude || null;
+                lead.location_source = resolvedLocation.source || 'unknown';
+                lead.location_confidence = resolvedLocation.confidence ?? null;
+                lead.location_warning = resolvedLocation.warning || null;
+                lead.gps_accuracy_meters = resolvedLocation.gpsAccuracyMeters || null;
+                lead.captured_at = resolvedLocation.capturedAt || new Date().toISOString();
               }
 
               const duplicateResult = findDuplicateInLeads(lead, leads);
@@ -382,32 +876,130 @@ export default function CaptureScreen({ navigation, route }) {
               }
             }
           }
+          if (cardRecordId) {
+            try {
+              await updateScanCardStatus(cardRecordId, SCAN_CARD_STATUS.COMPLETED);
+            } catch (cardStatusErr) {
+              console.warn('[Capture] Failed to set card COMPLETED:', cardStatusErr);
+            }
+          }
         } catch (extractErr) {
           console.warn('[Capture] Extraction error for asset', i, ':', extractErr);
+          if (cardRecordId) {
+            try {
+              await updateScanCardStatus(cardRecordId, SCAN_CARD_STATUS.FAILED);
+            } catch (cardStatusErr) {
+              console.warn('[Capture] Failed to set card FAILED:', cardStatusErr);
+            }
+          }
+          // ── AI credit / quota exhaustion — route to manual entry ──────────
+          if (isAiCreditError(extractErr)) {
+            setProcessing(false);
+            scanInProgress.current = false;
+            showThemedAlert(
+              'AI assist unavailable',
+              'Fill in what you can — your photo has been saved and you can re-scan later.',
+              [
+                { text: 'Enter Manually', onPress: () => {
+                  navigation.navigate('ManualEntry', {
+                    user,
+                    prefill: { imageUri: permanentUri },
+                    sourceLabel: 'Manual entry',
+                  });
+                }},
+                { text: 'Cancel', style: 'cancel' },
+              ]
+            );
+            if (options?.returnLeadsOnly) return [];
+            return;
+          }
         }
       }
 
       if (!leads.length) {
         showThemedAlert('No prospects found', 'Could not extract any prospect data from the photos.');
+        if (options?.returnLeadsOnly) return [];
         return;
       }
 
       setProcessingMsg(`${leads.length} prospects ready`);
       await new Promise((r) => setTimeout(r, 120));
 
-      navigation.navigate('BatchReview', {
+      if (options?.returnLeadsOnly) {
+        return leads;
+      }
+
+      navigation.push('BatchReview', {
         user,
         leads,
-        sourceLabel: captureMethod === 'image' ? 'Photo import' : 'Business card scan',
+        sourceLabel: captureMethod === 'gallery' ? 'Gallery import' : `AI Scan — ${leads.length} prospect${leads.length !== 1 ? 's' : ''} found`,
       });
     } catch (err) {
       BetaTracker.crash('CaptureScreen', err);
       playErrorSound().catch(() => {});
-      showThemedAlert('Extraction error', err.message || 'Could not read image.');
+      if (isAiCreditError(err)) {
+        showThemedAlert(
+          'AI assist unavailable',
+          'Fill in what you can — enter prospect details manually.',
+          [
+            { text: 'Enter Manually', onPress: () => {
+              navigation.navigate('ManualEntry', {
+                user,
+                prefill: {},
+                sourceLabel: 'Manual entry',
+              });
+            }},
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        showThemedAlert('Extraction error', err.message || 'Could not read image.');
+      }
+      if (options?.returnLeadsOnly) return [];
     } finally {
       setProcessing(false);
     }
   };
+
+  // ─── Leave-navigation guard handlers ───────────────────────────────────
+  const handleContinueScanning = useCallback(() => {
+    pendingLeaveEvent.current = null;
+    setLeaveModalVisible(false);
+  }, []);
+
+  const handlePauseResume = useCallback(() => {
+    if (!SCAN_RECOVERY_ENABLED) {
+      pendingLeaveEvent.current = null;
+      setLeaveModalVisible(false);
+      showThemedAlert('Paused', 'Scan recovery is currently disabled by feature flag. Continue scanning or discard this batch.');
+      return;
+    }
+    const sessionId = currentCardScanSessionId.current;
+    if (sessionId) {
+      updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.PAUSED).catch((err) => {
+        console.warn('[Capture] Failed to pause active scan session:', err);
+      });
+    }
+    pendingLeaveEvent.current = null;
+    setLeaveModalVisible(false);
+    showThemedAlert('Paused', sessionId
+      ? 'This scan batch was marked as paused. You can resume it from recovery.'
+      : 'No active persistent session was found. Resume support for this scan type is coming in the next phase.');
+  }, []);
+
+  const handleConfirmDiscard = useCallback(() => {
+    scanInProgress.current = false;
+    isBlockingRef.current = false;
+    setProcessing(false);
+    setProcessingMsg('');
+    setDiscardStep(false);
+    setLeaveModalVisible(false);
+    const event = pendingLeaveEvent.current;
+    pendingLeaveEvent.current = null;
+    if (event) {
+      navigation.dispatch(event.data.action);
+    }
+  }, [navigation]);
 
   const handleIntelliVisionCapture = async () => {
     setProcessingMsg('Getting your location and heading...');
@@ -486,21 +1078,62 @@ export default function CaptureScreen({ navigation, route }) {
   const handleSingleCapture = async (isStorefront = false) => {
     console.log('[Capture] handleSingleCapture started, isStorefront:', isStorefront);
     let coords = null;
-    setProcessing(true);
-    setProcessingMsg('Opening camera...');
+    if (isStorefront) {
+      console.log('[Capture] Getting location for storefront scan');
+      coords = await getCurrentCoords();
+      console.log('[Capture] Coords received:', !!coords);
+    }
+    
     try {
-      if (isStorefront) {
-        setProcessingMsg('Getting your location...');
-        coords = await getCurrentCoords();
-        console.log('[Capture] Coords received:', !!coords);
+      
+      // Use modal-based camera with multi-capture support
+      const assets = [];
+      let keepCapturing = true;
+      let captureCount = 0;
+      
+      while (keepCapturing) {
+        captureCount++;
+        await new Promise(r => setTimeout(r, 300));
+        
+        const asset = await openCameraWithModal({
+          mode: 'portrait',
+          title: 'General Photo Scan',
+          subtitle: captureCount === 1 ? 'Capture a photo' : `Capture photo ${captureCount}`
+        });
+        
+        if (!asset) {
+          if (captureCount === 1) {
+            // User cancelled on first capture
+            setProcessing(false);
+            return;
+          }
+          break;
+        }
+        
+        assets.push(asset);
+        
+        // Ask after EVERY capture whether to add another
+        await new Promise((resolve) => {
+          showThemedAlert(
+            `Photo ${captureCount} captured`,
+            'Do you have more photos to add?',
+            [
+              { text: 'Yes, add another', onPress: () => { keepCapturing = true; resolve(); } },
+              { text: 'No, process now', style: 'cancel', onPress: () => { keepCapturing = false; resolve(); } },
+            ]
+          );
+        });
+        if (!keepCapturing) break;
+        await new Promise(r => setTimeout(r, 500));
       }
-      setProcessingMsg('Ready to capture...');
-      const assets = await captureMultiplePhotos(isStorefront ? 0.8 : 0.7);
-      console.log('[Capture] Assets captured:', assets?.length || 0);
-      if (!assets?.length) {
-        setProcessing(false);
+      
+      if (!assets.length) {
+        console.log('[Capture] No assets captured');
         return;
       }
+      
+      setProcessing(true);
+      setProcessingMsg('Processing photos...');
       await processAssets(assets, coords, isStorefront ? 'storefront' : 'image');
     } catch (err) {
       console.error('[Capture] handleSingleCapture error:', err);
@@ -518,7 +1151,11 @@ export default function CaptureScreen({ navigation, route }) {
     // still dismissing causes the permission dialog to hang silently.
     console.log('[Capture] Requesting camera permissions upfront...');
     try {
-      const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
+      let permResult = await ImagePicker.getCameraPermissionsAsync();
+      if (permResult?.status !== 'granted') {
+        permResult = await ImagePicker.requestCameraPermissionsAsync();
+      }
+      const { status, canAskAgain } = permResult;
       console.log('[Capture] Camera permission status:', status);
       if (status !== 'granted') {
         if (!canAskAgain) {
@@ -545,25 +1182,122 @@ export default function CaptureScreen({ navigation, route }) {
         text: 'Single-Sided',
         onPress: async () => {
           console.log('[Capture] Single-Sided option selected');
-          setProcessing(true);
-          setProcessingMsg('Opening camera...');
+          scanInProgress.current = true;
+          let sessionId = null;
           try {
-            // Wait for the alert modal to fully dismiss before opening camera
             await new Promise(r => setTimeout(r, 500));
-            const assets = await captureMultiplePhotos(0.65, 'card', true);
-            console.log('[Capture] Single-sided assets:', assets?.length || 0);
+            try {
+              sessionId = await createScanSession({ source: SCAN_SOURCES.BUSINESS_CARD_BATCH });
+              currentCardScanSessionId.current = sessionId;
+            } catch (sessionErr) {
+              console.warn('[Capture] Could not create scan session:', sessionErr);
+            }
+            const assets = [];
+            let keepScanning = true;
+
+            while (keepScanning) {
+              const asset = await openCameraWithModal({
+                mode: 'portrait',
+                title: assets.length === 0 ? 'Business Card' : `Business Card ${assets.length + 1}`,
+                subtitle: 'Position card in frame'
+              });
+
+              if (!asset) break;
+              assets.push(asset);
+              if (sessionId) {
+                const cardIndex = assets.length - 1;
+                try {
+                  const cardId = await createScanCard({
+                    sessionId,
+                    cardIndex,
+                    originalImageUri: asset.uri,
+                    ocrImageUri: null,
+                    status: SCAN_CARD_STATUS.CAPTURED,
+                  });
+                  await updateScanCardStatus(cardId, SCAN_CARD_STATUS.OCR_PENDING);
+                  await incrementSessionCounts(sessionId, {
+                    total_cards: 1,
+                    last_processed_index: cardIndex,
+                  });
+                  await logScanSessionSnapshot(sessionId, `single-sided captured card ${cardIndex + 1}`);
+                } catch (cardSaveErr) {
+                  console.warn('[Capture] Failed to persist captured card:', cardSaveErr);
+                }
+              }
+
+              // Ask after each card if there are more to scan
+              await new Promise((resolve) => {
+                showThemedAlert(
+                  `Card ${assets.length} captured`,
+                  'Scan another card?',
+                  [
+                    { text: 'Yes, scan another', onPress: () => { keepScanning = true; resolve(); } },
+                    { text: 'No, process now', style: 'cancel', onPress: () => { keepScanning = false; resolve(); } },
+                  ]
+                );
+              });
+              if (!keepScanning) break;
+              await new Promise(r => setTimeout(r, 500));
+            }
+
             if (!assets.length) {
-              console.log('[Capture] No assets returned, returning early');
-              setProcessing(false);
+              console.log('[Capture] No cards captured');
+              if (sessionId) {
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.DISCARDED);
+                await logScanSessionSnapshot(sessionId, 'single-sided discarded before processing');
+                currentCardScanSessionId.current = null;
+              }
               return;
             }
-            console.log('[Capture] Processing single-sided assets');
-            await processAssets(assets, null, 'image');
+            console.log(`[Capture] Processing ${assets.length} card(s)`);
+            setProcessing(true);
+            setProcessingMsg(assets.length > 1 ? `Reading ${assets.length} cards...` : 'Reading card...');
+            if (!sessionId || !SCAN_QUEUE_PROCESSING_ENABLED) {
+              await processAssets(assets, null, 'business-card');
+              if (sessionId) {
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
+              }
+              return;
+            }
+            const queueResult = await processScanSessionQueue({
+              sessionId,
+              includeFailed: false,
+              captureMethod: 'business-card',
+              concurrency: 1,
+              onProgress: ({ total, remaining }) => {
+                const done = Math.max(0, total - remaining);
+                setProcessingMsg(`Processing card ${done} of ${total}...`);
+              },
+            });
+            const leads = queueResult?.leads || [];
+            if (!leads.length) {
+              showThemedAlert('No prospects found', 'Could not extract any prospect data from the cards.');
+            } else {
+              if (SCAN_ENRICHMENT_QUEUE_ENABLED) {
+                startSessionEnrichmentQueue({ sessionId });
+              }
+              navigation.push('BatchReview', {
+                user,
+                leads,
+                sourceLabel: `Business Card Batch — ${leads.length} prospect${leads.length === 1 ? '' : 's'} found`,
+              });
+            }
+            if (sessionId) {
+              await logScanSessionSnapshot(sessionId, 'single-sided completed');
+              currentCardScanSessionId.current = null;
+            }
           } catch (err) {
             console.error('[Capture] Single-sided capture error:', err);
             BetaTracker.crash('CaptureScreen', err);
             showThemedAlert('Capture Error', err.message || 'Could not capture business card.');
+            if (sessionId) {
+              await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.FAILED);
+              await logScanSessionSnapshot(sessionId, 'single-sided failed');
+              currentCardScanSessionId.current = null;
+            }
+          } finally {
             setProcessing(false);
+            scanInProgress.current = false;
           }
         },
       },
@@ -571,10 +1305,15 @@ export default function CaptureScreen({ navigation, route }) {
         text: 'Front & Back',
         onPress: async () => {
           console.log('[Capture] Front & Back option selected');
-          setProcessing(true);
-          setProcessingMsg('Step 1 of 2: Preparing...');
+          scanInProgress.current = true;
+          let sessionId = null;
           try {
-            // Permission already granted above — no need to re-request
+            try {
+              sessionId = await createScanSession({ source: SCAN_SOURCES.BUSINESS_CARD_BATCH });
+              currentCardScanSessionId.current = sessionId;
+            } catch (sessionErr) {
+              console.warn('[Capture] Could not create front/back scan session:', sessionErr);
+            }
             
             await new Promise((resolve) => {
               showThemedAlert('Step 1 of 2', 'Take a photo of the FRONT of the card', [
@@ -584,12 +1323,40 @@ export default function CaptureScreen({ navigation, route }) {
             // Give the modal time to fully close
             await new Promise(r => setTimeout(r, 500));
             console.log('[Capture] Opening camera for front side');
-            setProcessingMsg('Taking front photo...');
-            const front = await openCamera(0.65, true);
+            
+            const front = await openCameraWithModal({
+              mode: 'portrait',
+              title: 'Business Card - Front',
+              subtitle: 'Position front of card in frame'
+            });
+            
             if (!front) {
               console.log('[Capture] Front photo not taken, returning early');
-              setProcessing(false);
+              if (sessionId) {
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.DISCARDED);
+                await logScanSessionSnapshot(sessionId, 'front-back discarded before front capture');
+                currentCardScanSessionId.current = null;
+              }
               return;
+            }
+            if (sessionId) {
+              try {
+                const frontCardId = await createScanCard({
+                  sessionId,
+                  cardIndex: 0,
+                  originalImageUri: front.uri,
+                  ocrImageUri: null,
+                  status: SCAN_CARD_STATUS.CAPTURED,
+                });
+                await updateScanCardStatus(frontCardId, SCAN_CARD_STATUS.OCR_PENDING);
+                await incrementSessionCounts(sessionId, {
+                  total_cards: 1,
+                  last_processed_index: 0,
+                });
+                await logScanSessionSnapshot(sessionId, 'front-back captured front card');
+              } catch (cardSaveErr) {
+                console.warn('[Capture] Failed to persist front card:', cardSaveErr);
+              }
             }
             console.log('[Capture] Front photo taken, showing step 2');
 
@@ -601,22 +1368,91 @@ export default function CaptureScreen({ navigation, route }) {
             // Give the modal time to fully close
             await new Promise(r => setTimeout(r, 500));
             console.log('[Capture] Opening camera for back side');
-            setProcessingMsg('Taking back photo...');
-            const back = await openCamera(0.65, true);
+            
+            const back = await openCameraWithModal({
+              mode: 'portrait',
+              title: 'Business Card - Back',
+              subtitle: 'Position back of card in frame'
+            });
+            
             if (!back) {
               console.log('[Capture] Back photo not taken, returning early');
-              setProcessing(false);
+              if (sessionId) {
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.DISCARDED);
+                await logScanSessionSnapshot(sessionId, 'front-back discarded before back capture');
+                currentCardScanSessionId.current = null;
+              }
               return;
+            }
+            if (sessionId) {
+              try {
+                const backCardId = await createScanCard({
+                  sessionId,
+                  cardIndex: 1,
+                  originalImageUri: back.uri,
+                  ocrImageUri: null,
+                  status: SCAN_CARD_STATUS.CAPTURED,
+                });
+                await updateScanCardStatus(backCardId, SCAN_CARD_STATUS.OCR_PENDING);
+                await incrementSessionCounts(sessionId, {
+                  total_cards: 1,
+                  last_processed_index: 1,
+                });
+                await logScanSessionSnapshot(sessionId, 'front-back captured back card');
+              } catch (cardSaveErr) {
+                console.warn('[Capture] Failed to persist back card:', cardSaveErr);
+              }
             }
             console.log('[Capture] Back photo taken, processing both');
 
+            setProcessing(true);
             setProcessingMsg('Processing both sides...');
-            await processAssets([front, back], null, 'business-card-2-sided');
+            if (!sessionId || !SCAN_QUEUE_PROCESSING_ENABLED) {
+              await processAssets([front, back], null, 'business-card-2-sided');
+              if (sessionId) {
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
+              }
+              return;
+            }
+            const queueResult = await processScanSessionQueue({
+              sessionId,
+              includeFailed: false,
+              captureMethod: 'business-card-2-sided',
+              concurrency: 1,
+              onProgress: ({ total, remaining }) => {
+                const done = Math.max(0, total - remaining);
+                setProcessingMsg(`Processing card ${done} of ${total}...`);
+              },
+            });
+            const leads = queueResult?.leads || [];
+            if (!leads.length) {
+              showThemedAlert('No prospects found', 'Could not extract any prospect data from the cards.');
+            } else {
+              if (SCAN_ENRICHMENT_QUEUE_ENABLED) {
+                startSessionEnrichmentQueue({ sessionId });
+              }
+              navigation.push('BatchReview', {
+                user,
+                leads,
+                sourceLabel: `Business Card Batch — ${leads.length} prospect${leads.length === 1 ? '' : 's'} found`,
+              });
+            }
+            if (sessionId) {
+              await logScanSessionSnapshot(sessionId, 'front-back completed');
+              currentCardScanSessionId.current = null;
+            }
           } catch (err) {
             console.error('[Capture] Front & Back capture error:', err);
             BetaTracker.crash('CaptureScreen', err);
             showThemedAlert('Capture Error', err.message || 'Could not capture business card.');
+            if (sessionId) {
+              await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.FAILED);
+              await logScanSessionSnapshot(sessionId, 'front-back failed');
+              currentCardScanSessionId.current = null;
+            }
+          } finally {
             setProcessing(false);
+            scanInProgress.current = false;
           }
         },
       },
@@ -627,7 +1463,11 @@ export default function CaptureScreen({ navigation, route }) {
   const openGallery = async () => {
     try {
       console.log('[Capture] Checking gallery permissions...');
-      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      let permResult = await ImagePicker.getMediaLibraryPermissionsAsync();
+      if (permResult?.status !== 'granted') {
+        permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      }
+      const { status, canAskAgain } = permResult;
       console.log('[Capture] Gallery permission status:', status, 'canAskAgain:', canAskAgain);
 
       if (status !== 'granted') {
@@ -654,10 +1494,17 @@ export default function CaptureScreen({ navigation, route }) {
         allowsMultipleSelection: true,
         selectionLimit: 10,
         base64: false,
+        exif: true,
       });
 
       console.log('[Capture] Gallery result canceled:', result.canceled);
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        // Extract EXIF GPS data from gallery images for location resolution
+        for (const asset of result.assets) {
+          if (asset.exif) {
+            console.log('[Capture] Asset has EXIF:', !!asset.exif.GPSLatitude, !!asset.exif.GPSLongitude);
+          }
+        }
         await processAssets(result.assets, null, 'image');
       }
     } catch (err) {
@@ -748,8 +1595,8 @@ export default function CaptureScreen({ navigation, route }) {
             streetName,
             addressLine2,
             city: getIndexedValue(row, colIndex, 'city'),
-            state: getIndexedValue(row, colIndex, 'state'),
-            zip: getIndexedValue(row, colIndex, 'zip'),
+            state: normalizeState(getIndexedValue(row, colIndex, 'state')),
+            zip: normalizeZip(getIndexedValue(row, colIndex, 'zip')),
             propertyType: getIndexedValue(row, colIndex, 'propertyType') || 'Commercial',
             captureMethod: 'spreadsheet-import',
             reviewed: false,
@@ -767,7 +1614,7 @@ export default function CaptureScreen({ navigation, route }) {
       setProcessingMsg(`${leads.length} prospects ready`);
       await new Promise((r) => setTimeout(r, 120));
 
-      navigation.navigate('BatchReview', {
+      navigation.push('BatchReview', {
         user,
         leads,
         sourceLabel: 'Excel import',
@@ -783,6 +1630,60 @@ export default function CaptureScreen({ navigation, route }) {
     }
   };
 
+  const recoveryTotalCards = recoverySession?.total_cards ?? recoveryCards.length ?? 0;
+  const recoveryProcessedCards = recoverySession?.processed_count ?? recoveryCards.filter((c) => (
+    c.status === SCAN_CARD_STATUS.READY_FOR_REVIEW
+    || c.status === SCAN_CARD_STATUS.PARSE_COMPLETE
+    || c.status === SCAN_CARD_STATUS.NEEDS_REVIEW
+    || c.status === SCAN_CARD_STATUS.ENRICHMENT_PENDING
+    || c.status === SCAN_CARD_STATUS.ENRICHED
+    || c.status === SCAN_CARD_STATUS.FAILED_ENRICHMENT
+    || c.status === SCAN_CARD_STATUS.COMPLETED
+  )).length;
+  const recoveryFailedCards = recoverySession?.failed_count ?? recoveryCards.filter((c) => (
+    c.status === SCAN_CARD_STATUS.FAILED
+    || c.status === SCAN_CARD_STATUS.FAILED_ENRICHMENT
+  )).length;
+  const recoveryRemainingCards = Math.max(0, recoveryTotalCards - recoveryProcessedCards - recoveryFailedCards);
+  const recoveryQueueCounts = recoveryCards.reduce((acc, card) => {
+    const key = String(card?.status || 'unknown');
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const recoveryQueueRows = [
+    { key: SCAN_CARD_STATUS.CAPTURED, label: 'Captured' },
+    { key: SCAN_CARD_STATUS.OCR_PENDING, label: 'OCR Pending' },
+    { key: SCAN_CARD_STATUS.OCR_PROCESSING, label: 'OCR Processing' },
+    { key: SCAN_CARD_STATUS.OCR_COMPLETE, label: 'OCR Complete' },
+    { key: SCAN_CARD_STATUS.READY_FOR_REVIEW, label: 'Ready for Review' },
+    { key: SCAN_CARD_STATUS.NEEDS_REVIEW, label: 'Needs Review' },
+    { key: SCAN_CARD_STATUS.ENRICHMENT_PENDING, label: 'Enrichment Pending' },
+    { key: SCAN_CARD_STATUS.ENRICHED, label: 'Enriched' },
+    { key: SCAN_CARD_STATUS.FAILED_ENRICHMENT, label: 'Failed Enrichment' },
+    { key: SCAN_CARD_STATUS.PARSE_COMPLETE, label: 'Parse Complete (Legacy)' },
+    { key: SCAN_CARD_STATUS.FAILED, label: 'Failed' },
+    { key: SCAN_CARD_STATUS.COMPLETED, label: 'Completed (Legacy)' },
+  ];
+  const recoveryQueueColorMap = {
+    [SCAN_CARD_STATUS.CAPTURED]: COLORS.chrome,
+    [SCAN_CARD_STATUS.OCR_PENDING]: COLORS.warning,
+    [SCAN_CARD_STATUS.OCR_PROCESSING]: COLORS.accent,
+    [SCAN_CARD_STATUS.OCR_COMPLETE]: COLORS.success,
+    [SCAN_CARD_STATUS.READY_FOR_REVIEW]: COLORS.success,
+    [SCAN_CARD_STATUS.PARSE_COMPLETE]: COLORS.success,
+    [SCAN_CARD_STATUS.NEEDS_REVIEW]: COLORS.warning,
+    [SCAN_CARD_STATUS.ENRICHMENT_PENDING]: COLORS.accent,
+    [SCAN_CARD_STATUS.ENRICHED]: COLORS.success,
+    [SCAN_CARD_STATUS.FAILED_ENRICHMENT]: COLORS.danger,
+    [SCAN_CARD_STATUS.FAILED]: COLORS.danger,
+    [SCAN_CARD_STATUS.COMPLETED]: COLORS.label,
+  };
+  const recoveryQueueRowsWithColor = recoveryQueueRows.map((row) => ({
+    ...row,
+    count: recoveryQueueCounts[row.key] || 0,
+    color: recoveryQueueColorMap[row.key] || COLORS.textDim,
+  }));
+
   return (
     <View style={s.root}>
       <ThemedAlertHost />
@@ -790,24 +1691,33 @@ export default function CaptureScreen({ navigation, route }) {
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 36 }}>
         <SectionLabel>Fast Capture</SectionLabel>
         <Card>
+          <TouchableOpacity style={[s.actionBtn, s.scanBtn]} onPress={() => navigation.navigate('PhotoIngest', { user })}>
+            <View style={s.intellivisionHeader}>
+              <Text style={s.intellivisionIcon}>📷</Text>
+              <View>
+                <Text style={[s.actionTitle, { color: COLORS.accent }]}>AI Scan</Text>
+                <Text style={s.intellivisionBadge}>All-Around Prospect Capture</Text>
+              </View>
+            </View>
+            <Text style={s.actionSub}>Point at anything — business cards, storefronts, signage, or a strip mall. AI identifies what it is, extracts all contact info, and fills in missing details automatically. Add multiple photos in one scan.</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={s.actionBtn} onPress={handleCardCapture}>
+            <Text style={s.actionTitle}>📇 Business Card Batch</Text>
+            <Text style={s.actionSub}>Capture cards now, then process from persistent queue</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={[s.actionBtn, s.intellivisionBtn]} onPress={() => navigation.navigate('LeadLockCamera', { user })}>
             <View style={s.intellivisionHeader}>
               <Text style={s.intellivisionIcon}>⚡</Text>
               <View>
                 <Text style={[s.actionTitle, { color: COLORS.accent }]}>LeadLock™</Text>
-                <Text style={s.intellivisionBadge}>GPS · Compass · AI · Zoom Offset</Text>
+                <Text style={s.intellivisionBadge}> Long-Range AI Assisted Capture</Text>
               </View>
             </View>
-            <Text style={s.actionSub}>Live camera with crosshair targeting. Captures GPS + compass heading + zoom distance offset for precise storefront and remote business identification.</Text>
+            <Text style={s.actionSub}>Precision targeting mode. Use when you can't get close — captures GPS, compass heading, and zoom offset to identify distant storefronts and businesses across a parking lot.</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.actionBtn} onPress={handleCardCapture}>
-            <Text style={s.actionTitle}>📇 Business Card Scan</Text>
-            <Text style={s.actionSub}>Single card or front/back capture</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.actionBtn} onPress={() => handleSingleCapture(false)}>
-            <Text style={s.actionTitle}>📷 General Photo Scan</Text>
-            <Text style={s.actionSub}>Supports one or more prospects in a single image</Text>
-          </TouchableOpacity>
+
           <TouchableOpacity style={s.actionBtn} onPress={openGallery}>
             <Text style={s.actionTitle}>🖼️ Choose From Gallery</Text>
             <Text style={s.actionSub}>Import an existing photo or screenshot</Text>
@@ -824,12 +1734,193 @@ export default function CaptureScreen({ navigation, route }) {
       </ScrollView>
 
       {processing && (
-        <View style={s.loaderOverlay}>
+        <View style={s.loaderOverlay} pointerEvents="none">
           <AILoader />
           <ActivityIndicator size="large" color={COLORS.accent} style={{ marginTop: 14 }} />
           <Text style={s.loaderText}>{processingMsg || 'Working...'}</Text>
         </View>
       )}
+
+      {/* In-app scan camera — uses CameraView, no Android intent issues */}
+      <ScanCameraModal
+        visible={scanCameraOpen}
+        onCapture={(capture) => {
+          setScanCameraOpen(false);
+          if (scanCameraResolve.current) {
+            const resolve = scanCameraResolve.current;
+            scanCameraResolve.current = null;
+            resolve(capture); // { uri, base64 }
+          }
+        }}
+        onClose={() => {
+          setScanCameraOpen(false);
+          if (scanCameraResolve.current) {
+            const resolve = scanCameraResolve.current;
+            scanCameraResolve.current = null;
+            resolve(null);
+          }
+        }}
+      />
+
+      <CameraModal
+        visible={cameraModalVisible}
+        onClose={() => setCameraModalVisible(false)}
+        onCapture={handleCameraCapture}
+        title={cameraModalConfig.title}
+        subtitle={cameraModalConfig.subtitle}
+        mode={cameraModalConfig.mode}
+        quality={0.85}
+      />
+
+      <Modal
+        visible={SCAN_RECOVERY_ENABLED && recoveryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRecoveryModalVisible(false)}
+      >
+        <View style={s.leaveOverlay}>
+          <View style={s.leaveModal}>
+            <Text style={s.leaveTitle}>Unfinished Scan Found</Text>
+            <Text style={s.leaveBody}>
+              Resume your previous business-card batch or review what was already processed.
+            </Text>
+
+            <View style={s.recoveryStatsWrap}>
+              <Text style={s.recoveryStatLine}>Total Cards: {recoveryTotalCards}</Text>
+              <Text style={s.recoveryStatLine}>Processed Cards: {recoveryProcessedCards}</Text>
+              <Text style={s.recoveryStatLine}>Failed Cards: {recoveryFailedCards}</Text>
+              <Text style={s.recoveryStatLine}>Remaining Cards: {recoveryRemainingCards}</Text>
+            </View>
+
+            <View style={s.recoveryQueuePanel}>
+              <Text style={s.recoveryQueueTitle}>Queue Status (Live)</Text>
+              {recoveryQueueRowsWithColor.map((row) => (
+                <Text key={row.key} style={[s.recoveryQueueLine, { color: row.count > 0 ? row.color : COLORS.muted }]}>
+                  {row.label}: {row.count}
+                </Text>
+              ))}
+              <TouchableOpacity
+                style={s.recoveryRefreshBtn}
+                onPress={refreshUnfinishedSessions}
+              >
+                <Text style={s.recoveryRefreshBtnText}>Refresh Queue Snapshot</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.leaveActions}>
+              <TouchableOpacity
+                style={[s.leaveBtn, s.leaveBtnPrimary]}
+                onPress={handleRecoveryResumeProcessing}
+              >
+                <Text style={s.leaveBtnTextPrimary}>Resume Processing</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.leaveBtn, s.leaveBtnSecondary]}
+                onPress={handleRecoveryReviewCompleted}
+              >
+                <Text style={s.leaveBtnTextSecondary}>Review Completed Cards</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.leaveBtn, s.leaveBtnDanger]}
+                onPress={handleRecoveryDiscardBatch}
+              >
+                <Text style={s.leaveBtnTextDanger}>Discard Batch</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={SCAN_RECOVERY_ENABLED && recoveryReviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRecoveryReviewVisible(false)}
+      >
+        <View style={s.leaveOverlay}>
+          <View style={s.leaveModal}>
+            <Text style={s.leaveTitle}>Completed Card Review</Text>
+            <Text style={s.leaveBody}>Current OCR/parse readiness breakdown for this unfinished batch.</Text>
+            <View style={s.recoveryStatsWrap}>
+              <Text style={s.recoveryStatLine}>OCR Complete: {recoveryReviewSummary?.ocrComplete ?? 0}</Text>
+              <Text style={s.recoveryStatLine}>Parse Complete: {recoveryReviewSummary?.parseComplete ?? 0}</Text>
+              <Text style={s.recoveryStatLine}>Ready for Review: {recoveryReviewSummary?.readyForReview ?? 0}</Text>
+              <Text style={s.recoveryStatLine}>Needs Review: {recoveryReviewSummary?.needsReview ?? 0}</Text>
+            </View>
+            <TouchableOpacity
+              style={[s.leaveBtn, s.leaveBtnSecondary]}
+              onPress={() => setRecoveryReviewVisible(false)}
+            >
+              <Text style={s.leaveBtnTextSecondary}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Leave-navigation confirmation modal ──────────────────────── */}
+      <Modal
+        visible={leaveModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (discardStep) {
+            setDiscardStep(false);
+          } else {
+            setLeaveModalVisible(false);
+            pendingLeaveEvent.current = null;
+          }
+        }}
+      >
+        <View style={s.leaveOverlay}>
+          <View style={s.leaveModal}>
+            {discardStep ? (
+              <>
+                <Text style={s.leaveTitle}>Discard Batch?</Text>
+                <Text style={s.leaveBody}>All captured data will be lost. This cannot be undone.</Text>
+                <View style={s.leaveActions}>
+                  <TouchableOpacity
+                    style={[s.leaveBtn, s.leaveBtnSecondary]}
+                    onPress={() => setDiscardStep(false)}
+                  >
+                    <Text style={s.leaveBtnTextSecondary}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.leaveBtn, s.leaveBtnDanger]}
+                    onPress={handleConfirmDiscard}
+                  >
+                    <Text style={s.leaveBtnTextDanger}>Discard</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={s.leaveTitle}>Leave Scanner?</Text>
+                <Text style={s.leaveBody}>You have an active scan or processing batch.</Text>
+                <View style={s.leaveActions}>
+                  <TouchableOpacity
+                    style={[s.leaveBtn, s.leaveBtnPrimary]}
+                    onPress={handleContinueScanning}
+                  >
+                    <Text style={s.leaveBtnTextPrimary}>Continue Scanning</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.leaveBtn, s.leaveBtnSecondary]}
+                    onPress={handlePauseResume}
+                  >
+                    <Text style={s.leaveBtnTextSecondary}>Pause and Resume Later</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.leaveBtn, s.leaveBtnDanger]}
+                    onPress={() => setDiscardStep(true)}
+                  >
+                    <Text style={s.leaveBtnTextDanger}>Discard Batch</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -852,6 +1943,10 @@ const s = StyleSheet.create({
     borderColor: 'rgba(0,201,255,0.45)',
     backgroundColor: 'rgba(0,201,255,0.05)',
   },
+  scanBtn: {
+    borderColor: 'rgba(0,201,255,0.3)',
+    backgroundColor: 'rgba(0,201,255,0.03)',
+  },
   intellivisionHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
   intellivisionIcon: { fontSize: 28 },
   intellivisionBadge: {
@@ -871,5 +1966,120 @@ const s = StyleSheet.create({
   loaderText: {
     color: COLORS.textDim, marginTop: 14,
     textAlign: 'center', fontSize: 13, lineHeight: 20,
+  },
+
+  // ─── Leave-navigation modal ──────────────────────────────────────────
+  leaveOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  leaveModal: {
+    backgroundColor: COLORS.surface2,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  leaveTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  leaveBody: {
+    color: COLORS.textDim,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 20,
+  },
+  recoveryStatsWrap: {
+    backgroundColor: COLORS.surface3,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    gap: 4,
+  },
+  recoveryStatLine: {
+    color: COLORS.text,
+    fontSize: 12,
+  },
+  recoveryQueuePanel: {
+    backgroundColor: 'rgba(0,201,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,201,255,0.25)',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    gap: 4,
+  },
+  recoveryQueueTitle: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  recoveryQueueLine: {
+    color: COLORS.text,
+    fontSize: 12,
+  },
+  recoveryRefreshBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: COLORS.borderLit,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    backgroundColor: COLORS.surface2,
+  },
+  recoveryRefreshBtnText: {
+    color: COLORS.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  leaveActions: {
+    gap: 10,
+  },
+  leaveBtn: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  leaveBtnPrimary: {
+    backgroundColor: COLORS.accentDim,
+  },
+  leaveBtnTextPrimary: {
+    color: COLORS.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  leaveBtnSecondary: {
+    backgroundColor: COLORS.chromeDim,
+  },
+  leaveBtnTextSecondary: {
+    color: COLORS.chrome,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  leaveBtnDanger: {
+    backgroundColor: COLORS.accent2Dim,
+  },
+  leaveBtnTextDanger: {
+    color: COLORS.accent2,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

@@ -6,6 +6,7 @@
 
 import { enrichProspectProfile } from './dataEnrichmentOrchestrator';
 import { extractLocationFromBusinessCard } from './addressGeocoder';
+import { enrichBusinessWithPublicSources } from './enrichmentNormalizer';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -64,6 +65,8 @@ export async function detectMultipleBusinessesInPhoto(base64Image, context = {})
  * @private
  */
 async function detectBusinessesWithVision(base64Image, context) {
+  // Guard against null context — GPS may not be available
+  const safeContext = context || {};
   try {
     if (!ANTHROPIC_API_KEY) {
       throw new Error('EXPO_PUBLIC_ANTHROPIC_API_KEY is not set');
@@ -119,7 +122,7 @@ If no businesses are clearly identifiable, return:
               },
               {
                 type: 'text',
-                text: `Analyze this photo taken near ${context.city || 'Houston'}, ${context.county ? context.county + ' County,' : ''} TX. Identify every visible business and storefront. Focus on signage, storefronts, and any commercial activity. This is for pest control sales prospecting — note any food service, waste areas, or conditions that indicate pest risk.`,
+                text: `Analyze this photo taken near ${safeContext.city || 'Houston'}, ${safeContext.county ? safeContext.county + ' County,' : ''} TX. Identify every visible business and storefront. Focus on signage, storefronts, and any commercial activity. This is for pest control sales prospecting — note any food service, waste areas, or conditions that indicate pest risk.`,
               },
             ],
           },
@@ -172,11 +175,11 @@ If no businesses are clearly identifiable, return:
  * @private
  */
 async function enrichBusinessDetection(business, context) {
+  const safeContext = context || {};
   try {
-    // Build full address upfront so it's accessible throughout the function
     const fullAddress = business.address
-      ? `${business.address}, ${context.city || 'Houston'}, TX`
-      : `${context.city || 'Houston'}, TX`;
+      ? `${business.address}, ${safeContext.city || 'Houston'}, TX`
+      : `${safeContext.city || 'Houston'}, TX`;
 
     // Geocode the address
     let location = null;
@@ -187,16 +190,39 @@ async function enrichBusinessDetection(business, context) {
     }
 
     // If no geocoding, use context coordinates
-    const latitude = location?.latitude || context.latitude;
-    const longitude = location?.longitude || context.longitude;
+    const latitude = location?.latitude || safeContext.latitude;
+    const longitude = location?.longitude || safeContext.longitude;
 
-    // Enrich with prospect intelligence
+    // STEP 1: Enrich with Google Places + Comptroller + POC (PUBLIC SOURCES)
+    // This is the PRIMARY enrichment source for LeadLock
+    let publicSources = null;
+    if (business.name && (latitude || safeContext.city)) {
+      const enrichmentContext = {
+        photoZip: safeContext.zip || null,
+        locationSource: 'photo_detection',
+        locationConfidence: business.confidence || 0.8,
+      };
+
+      publicSources = await enrichBusinessWithPublicSources({
+        businessName: business.name,
+        address: business.address || fullAddress,
+        city: safeContext.city || 'Houston',
+        state: 'TX',
+        latitude,
+        longitude,
+      }, enrichmentContext).catch((err) => {
+        console.warn('[LeadLock] Public sources enrichment failed:', err.message);
+        return null;
+      });
+    }
+
+    // STEP 2: Enrich with prospect intelligence (health violations, permits, property data)
     let intelligence = null;
     if (business.name && latitude && longitude) {
       intelligence = await enrichProspectProfile({
         businessName: business.name,
         address: business.address || fullAddress,
-        city: context.city || 'Houston',
+        city: safeContext.city || 'Houston',
         latitude,
         longitude,
       }).catch(() => null);
@@ -255,12 +281,15 @@ async function enrichBusinessDetection(business, context) {
         formatted: location.formatted,
         verified: true,
       } : {
-        latitude: context.latitude,
-        longitude: context.longitude,
+        latitude: safeContext.latitude,
+        longitude: safeContext.longitude,
         verified: false,
       },
 
-      // Intelligence data
+      // Public sources enrichment (Google Places, Comptroller, POC)
+      publicSources: publicSources || {},
+
+      // Intelligence data (health violations, permits, property)
       intelligence: intelligence ? {
         riskScore: intelligence.riskScores?.composite,
         healthViolations: intelligence.enrichmentData?.healthViolations?.count || 0,
@@ -280,7 +309,7 @@ async function enrichBusinessDetection(business, context) {
     console.error('Business enrichment error:', error);
     return {
       detection: business,
-      location: { latitude: context.latitude, longitude: context.longitude },
+      location: { latitude: safeContext.latitude, longitude: safeContext.longitude },
       riskScore: 50,
       riskLevel: 'UNKNOWN',
       selectable: true,
@@ -309,20 +338,39 @@ function calculateRiskLevel(score) {
 export function formatMultiBusinessesForDisplay(detectionResult) {
   if (!detectionResult.success) return [];
 
-  return detectionResult.businesses.map(business => ({
-    id: `${business.detection.name}-${Date.now()}`,
-    name: business.detection.name || 'Unknown Business',
-    address: business.detection.address,
-    businessType: business.detection.businessType,
-    riskScore: business.riskScore,
-    riskLevel: business.riskLevel,
-    badges: generateBusinessBadges(business),
-    pestIndicators: business.detection.pestIndicators,
-    confidence: business.detection.confidence,
-    position: business.detection.position,
-    selected: business.selected,
-    fullData: business,
-  }));
+  return detectionResult.businesses.map(business => {
+    // Extract contact data from public sources enrichment
+    const publicSources = business.publicSources || {};
+    const phone = publicSources.formatted_phone_number || 
+                  publicSources.internationalPhoneNumber || 
+                  publicSources.nationalPhoneNumber || 
+                  publicSources.phone || '';
+    
+    const website = publicSources.website || 
+                    publicSources.websiteUri || 
+                    publicSources.url || '';
+    
+    const address = publicSources.formatted_address ||
+                    publicSources.address ||
+                    business.detection.address || '';
+
+    return {
+      id: `${business.detection.name}-${Date.now()}`,
+      name: business.detection.name || 'Unknown Business',
+      address: address,
+      businessType: business.detection.businessType,
+      phone: phone,
+      website: website,
+      riskScore: business.riskScore,
+      riskLevel: business.riskLevel,
+      badges: generateBusinessBadges(business),
+      pestIndicators: business.detection.pestIndicators,
+      confidence: business.detection.confidence,
+      position: business.detection.position,
+      selected: business.selected,
+      fullData: business,
+    };
+  });
 }
 
 /**
@@ -377,39 +425,188 @@ function generateBusinessBadges(business) {
  * @param {array} selectedBusinesses - From formatMultiBusinessesForDisplay with selected: true
  * @returns {array} Prospect objects ready for queue
  */
-export function convertSelectedBusinessesToProspects(selectedBusinesses) {
+export function convertSelectedBusinessesToProspects(selectedBusinesses, resolvedLocation = null) {
   if (!Array.isArray(selectedBusinesses)) return [];
 
   return selectedBusinesses
     .filter(b => b.selected)
-    .map(business => ({
-      id: `leadlock_${business.id}_${Date.now()}`,
-      type: 'LEADLOCK_PHOTO_CAPTURE',
+    .map(business => {
+      const publicSources = business.fullData?.publicSources || {};
       
-      // Core data
-      businessName: business.name,
-      address: business.address,
-      businessType: business.businessType,
-      latitude: business.fullData.location.latitude,
-      longitude: business.fullData.location.longitude,
-      
-      // Risk data
-      riskScore: business.riskScore,
-      pestIndicators: business.pestIndicators,
-      
-      // Intelligence
-      healthViolations: business.fullData.intelligence?.healthViolations || 0,
-      recentPermits: business.fullData.intelligence?.recentPermits || 0,
-      
-      // Metadata
-      captureMethod: 'LEADLOCK_PHOTO',
-      detectionConfidence: business.confidence,
-      detectionPosition: business.position,
-      capturedAt: new Date().toISOString(),
-      
-      // Raw detection data
-      rawDetection: business.fullData.detection,
-    }));
+      return {
+        id: `leadlock_${business.id}_${Date.now()}`,
+        type: 'LEADLOCK_PHOTO_CAPTURE',
+        
+        // Core data
+        businessName: business.name,
+        address: publicSources.formatted_address || business.address,
+        businessType: business.businessType,
+        latitude: (resolvedLocation && resolvedLocation.latitude) || business.fullData.location.latitude,
+        longitude: (resolvedLocation && resolvedLocation.longitude) || business.fullData.location.longitude,
+        
+        // Contact data from Google Places enrichment
+        phone: publicSources.formatted_phone_number || 
+               publicSources.internationalPhoneNumber || 
+               publicSources.nationalPhoneNumber || 
+               publicSources.phone || '',
+        website: publicSources.website || 
+                 publicSources.websiteUri || 
+                 publicSources.url || '',
+        email: publicSources.email || '',
+        
+        // Address components from enrichment
+        streetNumber: publicSources.streetNumber || '',
+        streetName: publicSources.streetName || '',
+        city: publicSources.city || (resolvedLocation && resolvedLocation.city) || '',
+        state: publicSources.state || 'TX',
+        zip: publicSources.zip || (resolvedLocation && resolvedLocation.zip) || '',
+        
+        // POC candidates (from Comptroller, website, etc)
+        pocCandidates: publicSources.pocCandidates || publicSources.contacts || [],
+        
+        // Risk data
+        riskScore: business.riskScore,
+        pestIndicators: business.pestIndicators,
+        
+        // Intelligence
+        healthViolations: business.fullData.intelligence?.healthViolations || 0,
+        recentPermits: business.fullData.intelligence?.recentPermits || 0,
+        
+        // Metadata
+        captureMethod: 'LEADLOCK_PHOTO',
+        detectionConfidence: business.confidence,
+        detectionPosition: business.position,
+        capturedAt: (resolvedLocation && resolvedLocation.capturedAt) || new Date().toISOString(),
+        // Location resolution (photo-based)
+        photo_zip: (resolvedLocation && resolvedLocation.zip) || null,
+        location_source: (resolvedLocation && resolvedLocation.source) || 'photo_detection',
+        location_confidence: (resolvedLocation && resolvedLocation.confidence) || null,
+        location_warning: (resolvedLocation && resolvedLocation.warning) || null,
+        gps_accuracy_meters: (resolvedLocation && resolvedLocation.gpsAccuracyMeters) || business.fullData.location?.accuracy || null,
+        
+        // Raw detection data
+        rawDetection: business.fullData.detection,
+        
+        // Enrichment metadata
+        enrichmentSource: 'photo_detection_multi_business',
+        enrichedAt: new Date().toISOString(),
+      };
+    });
+}
+
+/**
+ * Detect multiple business cards laid out in a single photo
+ * @param {string} base64Image - Base64 encoded image
+ * @param {object} context - { latitude, longitude, city }
+ * @returns {promise} { success, cards[], totalDetected, analysisNotes, detectedAt }
+ */
+export async function detectBusinessCardsInPhoto(base64Image, context = {}) {
+  if (!base64Image) {
+    return { success: false, error: 'No image provided', cards: [] };
+  }
+
+  const safeContext = context || {};
+
+  try {
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('EXPO_PUBLIC_ANTHROPIC_API_KEY is not set');
+    }
+
+    const systemPrompt = `You are a business card OCR system for a field sales app. The user has photographed one or more business cards laid on a flat surface.
+
+Extract every business card visible in the photo. For each card return all readable contact information.
+
+Respond ONLY with valid JSON — no markdown, no explanation:
+{
+  "cards": [
+    {
+      "name": "Full name on card or null",
+      "title": "Job title or null",
+      "company": "Company/business name or null",
+      "phone": "Primary phone number or null",
+      "mobile": "Mobile/cell number if separate or null",
+      "email": "Email address or null",
+      "website": "Website URL or null",
+      "address": "Street address or null",
+      "city": "City or null",
+      "state": "State abbreviation or null",
+      "zip": "ZIP code or null",
+      "confidence": 0.92,
+      "cardNotes": "Any other text on the card worth capturing"
+    }
+  ],
+  "totalDetected": 1,
+  "analysisNotes": "brief description of what was seen"
+}
+
+If no business cards are found return:
+{"cards": [], "totalDetected": 0, "analysisNotes": "no cards detected"}`;
+
+    const response = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: 'image/jpeg', data: base64Image },
+              },
+              {
+                type: 'text',
+                text: `Extract all business cards visible in this photo. Capture every readable field. This is for pest control sales prospecting near ${safeContext.city || 'Houston'}, TX.`,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Claude API ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    const rawText = data.content?.[0]?.text || '';
+    const clean = rawText.replace(/```json|```/g, '').trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (e) {
+      console.error('[CardScan] JSON parse failed:', e, 'raw:', rawText);
+      throw new Error('Claude returned non-JSON response');
+    }
+
+    const cards = parsed.cards || [];
+    console.log(`[CardScan] Detected ${cards.length} business cards`);
+
+    return {
+      success: cards.length > 0,
+      cards,
+      totalDetected: parsed.totalDetected || cards.length,
+      analysisNotes: parsed.analysisNotes || '',
+      detectedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error('[CardScan] Detection error:', error);
+    return {
+      success: false,
+      error: error.message,
+      cards: [],
+      detectedAt: new Date().toISOString(),
+    };
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import GeoTargetProjectionBadge from '../components/GeoTargetProjectionBadge';
-import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, Linking, ActivityIndicator, Animated, Dimensions, PanResponder } from 'react-native';
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, Linking, ActivityIndicator, Animated, useWindowDimensions, PanResponder } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -170,9 +170,8 @@ function getAverageDailyExports(leads) {
   return (totalExports / daysWithExports).toFixed(1);
 }
 
-const { width: SW } = Dimensions.get('window');
-
 export default function DashboardScreen({ navigation, route }) {
+  const { width: windowWidth } = useWindowDimensions();
   const user = route?.params?.user || {};
   const displayName = user.repName || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email || user.repEmail || 'LeadLens User';
   const displayRole = user.role || 'Rep';
@@ -199,10 +198,12 @@ export default function DashboardScreen({ navigation, route }) {
 
   // Tutorial state
   const [activeTutorial, setActiveTutorial] = useState(null);
+  // Prevent tutorial auto-trigger from firing on every focus (useFocusEffect runs on every return)
+  const tutorialChecked = useRef(false);
 
   const showTutorial = (id) => setActiveTutorial(id);
-  const closeTutorial = () => {
-    if (activeTutorial) markTutorialSeen(activeTutorial);
+  const closeTutorial = async () => {
+    if (activeTutorial) await markTutorialSeen(activeTutorial);
     setActiveTutorial(null);
   };
 
@@ -293,8 +294,15 @@ export default function DashboardScreen({ navigation, route }) {
 
     (async () => {
       try {
-        // Use sync API for instant dashboard data load
-        const rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
+        // Load leads — try MMKV first, fall back to raw AsyncStorage
+        let rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, null);
+        if (!rawLeads) {
+          try {
+            const RawStorage = require('@react-native-async-storage/async-storage').default;
+            const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+            rawLeads = raw ? JSON.parse(raw) : [];
+          } catch { rawLeads = []; }
+        }
         const myZips = await loadMyZips().catch(() => []);
         const rawGoals = AsyncStorage.getJSONSync(GOALS_STORAGE_KEY, {});
 
@@ -334,10 +342,14 @@ export default function DashboardScreen({ navigation, route }) {
           }
         }
 
-        // Auto-trigger scan tutorial on very first visit
-        const scanSeen = await hasTutorialBeenSeen(TUTORIALS.SCAN).catch(() => true);
-        if (!scanSeen && active) {
-          setTimeout(() => setActiveTutorial(TUTORIALS.SCAN), 800);
+        // Auto-trigger scan tutorial on very first visit only.
+        // Guard with ref so useFocusEffect re-runs don't retrigger it.
+        if (!tutorialChecked.current) {
+          tutorialChecked.current = true;
+          const scanSeen = await hasTutorialBeenSeen(TUTORIALS.SCAN).catch(() => true);
+          if (!scanSeen && active) {
+            setTimeout(() => setActiveTutorial(TUTORIALS.SCAN), 800);
+          }
         }
 
         // Load AI welcome card async — non-blocking and only once per day.
@@ -779,7 +791,7 @@ export default function DashboardScreen({ navigation, route }) {
           <View>
             <Image
               source={require('../../assets/leadlens/LeadLens_header_logo_v4.png')}
-              style={s.topLogo}
+              style={{ width: Math.min(windowWidth * 0.36, 150), height: Math.min(windowWidth * 0.36, 150) * (54 / 150), marginBottom: 4 }}
               resizeMode="contain"
             />
             <Text style={s.topSub}>{displayName} · {displayRole}</Text>
@@ -1080,8 +1092,9 @@ function SwipeableQueueCard({
   onCall, onText, onEmail, onMaps, onWebsite, onEnrich,
   enrichingId, getGeoTargetSummary, safeText,
 }) {
+  const { width: cardWindowWidth } = useWindowDimensions();
   const swipeOffset = useRef(new Animated.Value(0)).current;
-  const SWIPE_THRESHOLD = SW * 0.38;
+  const SWIPE_THRESHOLD = cardWindowWidth * 0.38;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -1093,7 +1106,7 @@ function SwipeableQueueCard({
       onPanResponderRelease: (_, g) => {
         if (g.dx < -SWIPE_THRESHOLD) {
           Animated.timing(swipeOffset, {
-            toValue: -SW, duration: 220, useNativeDriver: true,
+            toValue: -cardWindowWidth, duration: 220, useNativeDriver: true,
           }).start(() => onDelete());
         } else {
           Animated.spring(swipeOffset, {

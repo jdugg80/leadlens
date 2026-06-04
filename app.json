@@ -7,6 +7,12 @@
     "icon": "./assets/leadlens/LeadLens_app_icon_v3.png",
     "userInterfaceStyle": "dark",
     "scheme": "leadlens",
+    "updates": {
+      "url": "https://u.expo.dev/a479ffad-128e-455c-8148-7504f53b83e4",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "runtimeVersion": "2.0.50",
     "splash": {
       "image": "./assets/leadlens/LeadLens_splash_static_v3.png",
       "resizeMode": "contain",

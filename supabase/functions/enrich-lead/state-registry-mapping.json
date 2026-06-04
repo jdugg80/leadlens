@@ -1,0 +1,657 @@
+{
+  "registries": {
+    "AL": {
+      "name": "Alabama",
+      "source": "https://arc-sos.alabama.gov/cgi-bin/corpdb.pl",
+      "type": "web_scrape",
+      "api": null,
+      "searchParam": "search_crit",
+      "businessTypes": ["LLC", "Corporation", "Partnership"],
+      "parsingRules": {
+        "name": ["Business Name:", "Entity Name:"],
+        "address": ["Principal Office Address:", "Mailing Address:"],
+        "owner": ["Registered Agent Name:", "President:", "Manager:"],
+        "fileNumber": ["File Number:"]
+      },
+      "rateLimit": 1000
+    },
+    "AK": {
+      "name": "Alaska",
+      "source": "https://www.commerce.alaska.gov/web/cbpl/BusinessEntitySearch.aspx",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Business Name"],
+        "address": ["Address"],
+        "owner": ["Manager", "President"]
+      },
+      "rateLimit": 1000
+    },
+    "AZ": {
+      "name": "Arizona",
+      "source": "https://apps.azcc.gov/business/query/",
+      "type": "web_scrape",
+      "api": "https://apps.azcc.gov/business/query/api",
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Legal Name"],
+        "address": ["Street Address"],
+        "owner": ["Organizer"]
+      },
+      "rateLimit": 500
+    },
+    "AR": {
+      "name": "Arkansas",
+      "source": "https://www.sos.arkansas.gov/corporations/entity-search",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "CA": {
+      "name": "California",
+      "source": "https://onlineservices.sos.ca.gov/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Street Address"],
+        "owner": ["Agent for Service"]
+      },
+      "rateLimit": 500
+    },
+    "CO": {
+      "name": "Colorado",
+      "source": "https://www.sos.state.co.us/pls/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "CT": {
+      "name": "Connecticut",
+      "source": "https://portal.ct.gov/SOTS/Division-of-Corporations/Corporation-Search",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Registered Office"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "DE": {
+      "name": "Delaware",
+      "source": "https://delaware.gov/sos/",
+      "type": "web_scrape",
+      "api": "https://api.delaware.gov/v1/business/entity",
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 500
+    },
+    "FL": {
+      "name": "Florida",
+      "source": "https://dos.myflorida.com/businesses/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Principal Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 500
+    },
+    "GA": {
+      "name": "Georgia",
+      "source": "https://sos.ga.gov/cgi-bin/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "HI": {
+      "name": "Hawaii",
+      "source": "https://businessregistration.hawaii.gov/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "ID": {
+      "name": "Idaho",
+      "source": "https://sos.idaho.gov/business-entity-search/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Resident Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "IL": {
+      "name": "Illinois",
+      "source": "https://cyberdriveillinois.com/departments/index/business/default.html",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "IN": {
+      "name": "Indiana",
+      "source": "https://sos.in.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Business Name"],
+        "address": ["Principal Office"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "IA": {
+      "name": "Iowa",
+      "source": "https://sos.iowa.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "KS": {
+      "name": "Kansas",
+      "source": "https://sos.kansas.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "KY": {
+      "name": "Kentucky",
+      "source": "https://sos.ky.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "LA": {
+      "name": "Louisiana",
+      "source": "https://www.sos.louisiana.gov/tabid/136/default.aspx",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Business Name"],
+        "address": ["Principal Place of Business"],
+        "owner": ["Manager", "President"]
+      },
+      "rateLimit": 1000
+    },
+    "ME": {
+      "name": "Maine",
+      "source": "https://maine.gov/sos/corporate/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Street Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MD": {
+      "name": "Maryland",
+      "source": "https://www.sos.maryland.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MA": {
+      "name": "Massachusetts",
+      "source": "https://www.sec.state.ma.us/cis/cislistserv.html",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Street Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MI": {
+      "name": "Michigan",
+      "source": "https://www.michigan.gov/sos/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MN": {
+      "name": "Minnesota",
+      "source": "https://mblsportal.sos.state.mn.us/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MS": {
+      "name": "Mississippi",
+      "source": "https://www.sos.ms.gov/business-services/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MO": {
+      "name": "Missouri",
+      "source": "https://www.sos.mo.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "MT": {
+      "name": "Montana",
+      "source": "https://sos.mt.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "NE": {
+      "name": "Nebraska",
+      "source": "https://sos.nebraska.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "NV": {
+      "name": "Nevada",
+      "source": "https://sos.nv.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 500
+    },
+    "NH": {
+      "name": "New Hampshire",
+      "source": "https://www.sos.nh.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "NJ": {
+      "name": "New Jersey",
+      "source": "https://www.nj.gov/state/sos/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "NM": {
+      "name": "New Mexico",
+      "source": "https://www.sos.state.nm.us/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "NY": {
+      "name": "New York",
+      "source": "https://dos.ny.gov/business-services/",
+      "type": "web_scrape",
+      "api": "https://data.ny.gov/api/views/n8mn6gdp/rows.json",
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Street Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 500
+    },
+    "NC": {
+      "name": "North Carolina",
+      "source": "https://www.sosnc.gov/divisions/business/business_registration_divisions",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "ND": {
+      "name": "North Dakota",
+      "source": "https://sos.nd.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "OH": {
+      "name": "Ohio",
+      "source": "https://www.sos.state.oh.us/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "OK": {
+      "name": "Oklahoma",
+      "source": "https://www.sos.ok.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "OR": {
+      "name": "Oregon",
+      "source": "https://www.oregon.gov/sos/business/Pages/default.aspx",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "PA": {
+      "name": "Pennsylvania",
+      "source": "https://www.sos.pa.gov/business-services/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "RI": {
+      "name": "Rhode Island",
+      "source": "https://sos.ri.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "SC": {
+      "name": "South Carolina",
+      "source": "https://www.sos.sc.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "SD": {
+      "name": "South Dakota",
+      "source": "https://sdsos.gov/business-services/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "TN": {
+      "name": "Tennessee",
+      "source": "https://www.sos.tn.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "TX": {
+      "name": "Texas",
+      "source": "https://www.sos.state.tx.us/cgi-bin/corp_forms_search.pl",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Name"],
+        "address": ["Address", "Street Address"],
+        "owner": ["Manager", "President", "Owner"],
+        "fileNumber": ["File Number"]
+      },
+      "rateLimit": 1000
+    },
+    "UT": {
+      "name": "Utah",
+      "source": "https://www.utah.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "VT": {
+      "name": "Vermont",
+      "source": "https://sos.vermont.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "VA": {
+      "name": "Virginia",
+      "source": "https://www.scc.virginia.gov/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "WA": {
+      "name": "Washington",
+      "source": "https://www.sos.wa.gov/business/",
+      "type": "web_scrape",
+      "api": "https://data.wa.gov/api/views/n77-ushq/rows.json",
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 500
+    },
+    "WV": {
+      "name": "West Virginia",
+      "source": "https://sos.wv.gov/business-licensing/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "WI": {
+      "name": "Wisconsin",
+      "source": "https://www.sos.state.wi.us/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    },
+    "WY": {
+      "name": "Wyoming",
+      "source": "https://sos.wyo.gov/business/",
+      "type": "web_scrape",
+      "api": null,
+      "businessTypes": ["LLC", "Corporation"],
+      "parsingRules": {
+        "name": ["Entity Name"],
+        "address": ["Address"],
+        "owner": ["Registered Agent"]
+      },
+      "rateLimit": 1000
+    }
+  }
+}

@@ -229,12 +229,30 @@ export function getLeadFingerprint(lead = {}) {
   ].filter(Boolean).join('|');
 }
 
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function normalizeDomain(website) {
+  if (!website) return '';
+  const w = String(website).toLowerCase().trim();
+  return w.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim();
+}
+
 export function findDuplicateInLeads(candidate, leads = []) {
   const normalizedCandidate = normalizeLead(candidate);
   const candidatePhone = String(normalizedCandidate.phone || '').replace(/\D/g, '');
   const candidateEmail = normalizeEmail(normalizedCandidate.email);
   const candidateBusiness = normalizedComparable(normalizedCandidate.businessName);
   const candidateAddress = normalizedComparable(`${normalizedCandidate.streetNumber} ${normalizedCandidate.streetName} ${normalizedCandidate.addressLine2} ${normalizedCandidate.city} ${normalizedCandidate.state} ${normalizedCandidate.zip}`);
+  const candidateWebsite = normalizeDomain(normalizedCandidate.website);
+  const candidateLat = normalizedCandidate.latitude;
+  const candidateLon = normalizedCandidate.longitude;
 
   for (let i = 0; i < leads.length; i += 1) {
     const existing = normalizeLead(leads[i]);
@@ -242,6 +260,9 @@ export function findDuplicateInLeads(candidate, leads = []) {
     const existingEmail = normalizeEmail(existing.email);
     const existingBusiness = normalizedComparable(existing.businessName);
     const existingAddress = normalizedComparable(`${existing.streetNumber} ${existing.streetName} ${existing.addressLine2} ${existing.city} ${existing.state} ${existing.zip}`);
+    const existingWebsite = normalizeDomain(existing.website);
+    const existingLat = existing.latitude;
+    const existingLon = existing.longitude;
 
     let score = 0;
     const reasons = [];
@@ -253,6 +274,10 @@ export function findDuplicateInLeads(candidate, leads = []) {
     if (candidateEmail && existingEmail && candidateEmail === existingEmail) {
       score += 70;
       reasons.push('same email');
+    }
+    if (candidateWebsite && existingWebsite && candidateWebsite === existingWebsite) {
+      score += 50;
+      reasons.push('same website');
     }
     if (candidateBusiness && existingBusiness && candidateBusiness === existingBusiness) {
       score += 35;
@@ -276,8 +301,28 @@ export function findDuplicateInLeads(candidate, leads = []) {
       score += 10;
       reasons.push('same suite');
     }
+    if (normalizedCandidate.zip && existing.zip && normalizedCandidate.zip === existing.zip && candidateBusiness && existingBusiness) {
+      score += 10;
+      if (!reasons.includes('same business')) reasons.push('same zip + business');
+    }
+    // GPS distance — soft signal only, never triggers duplicate on its own.
+    // A field rep scans multiple businesses from the same location so GPS proximity
+    // must not contribute unless a hard identifier (phone/email/exact name) already matched.
+    const hasHardMatch = score >= 60; // phone=60, email=70 — hard identifiers already hit threshold
+    if (candidateLat && candidateLon && existingLat && existingLon) {
+      const dist = haversineDistance(candidateLat, candidateLon, existingLat, existingLon);
+      if (hasHardMatch) {
+        if (dist <= 46) {
+          score += 10;
+          reasons.push(`GPS within ${Math.round(dist)}m`);
+        } else if (dist <= 150) {
+          score += 5;
+          reasons.push(`GPS nearby ${Math.round(dist)}m`);
+        }
+      }
+    }
 
-    if (score >= 65) {
+    if (score >= 80) {
       return {
         index: i,
         existing,

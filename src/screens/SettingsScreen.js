@@ -82,6 +82,16 @@ import { resetUserLearningData, recordUserActivityEvent, upsertUserLearningProfi
 import { showThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
 import TargetLensProfileSelector from '../components/TargetLensProfileSelector';
 import BetaTracker from '../../utils/betaTracker';
+import {
+  OCR_IMAGE_OPTIMIZATION_ENABLED,
+  SCAN_ENRICHMENT_QUEUE_ENABLED,
+  SCAN_QUEUE_PROCESSING_ENABLED,
+  SCAN_RECOVERY_ENABLED,
+} from '../config/featureFlags';
+import {
+  openBatteryOptimizationSettings,
+  WORKDAY_PERSIST_MS,
+} from '../utils/backgroundStability';
 
 const DAYS = [
   { value: 1, label: 'Mon' },
@@ -426,7 +436,15 @@ export default function SettingsScreen({ navigation, route }) {
         } catch {}
       }
 
-      const parsedQueue = rawQueue ? JSON.parse(rawQueue) : [];
+      // If MMKV returned nothing, check raw AsyncStorage backup
+      let finalRawQueue = rawQueue;
+      if (!finalRawQueue) {
+        try {
+          const RawStorage = require('@react-native-async-storage/async-storage').default;
+          finalRawQueue = await RawStorage.getItem(LEADS_STORAGE_KEY).catch(() => null);
+        } catch {}
+      }
+      const parsedQueue = finalRawQueue ? JSON.parse(finalRawQueue) : [];
       setQueueCount(Array.isArray(parsedQueue) ? parsedQueue.length : 0);
     })();
 
@@ -671,13 +689,29 @@ await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            await AsyncStorage.removeItem(LEADS_STORAGE_KEY);
+            // Clear from MMKV (sync wrapper)
+            AsyncStorage.removeSync(LEADS_STORAGE_KEY);
+            // Also clear raw AsyncStorage backup written by BatchReviewScreen
+            const RawStorage = require('@react-native-async-storage/async-storage').default;
+            await RawStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
             setQueueCount(0);
             showThemedAlert('Queue cleared');
           },
         },
       ]
     );
+  };
+
+  const handleOpenBatteryStabilitySettings = async () => {
+    if (Platform.OS !== 'android') {
+      showThemedAlert('iOS Notice', 'iOS background behavior is system-managed. Keep Background App Refresh enabled for best results.');
+      return;
+    }
+
+    const opened = await openBatteryOptimizationSettings();
+    if (!opened) {
+      showThemedAlert('Could Not Open Battery Settings', 'Please open Android Settings manually and disable battery optimization for LeadLens.');
+    }
   };
 
   const renderProfileTab = () => (
@@ -1472,6 +1506,29 @@ await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
         <PrimaryButton title="Queue Export Job Now" onPress={handleQueueJob} style={{ marginTop: 10, backgroundColor: '#ff8b3d' }} />
         <PrimaryButton title="Clear Queue" onPress={handleClearQueue} style={{ marginTop: 10, backgroundColor: '#7a2031' }} />
       </Card>
+
+      <SectionLabel>Background Stability</SectionLabel>
+      <Card>
+        <Text style={s.help}>
+          Android may close apps in the background to save battery. For field use, disable battery optimization so LeadLens stays warm during the work day.
+        </Text>
+        <Text style={s.help}>
+          Warm resume window: ~{Math.round(WORKDAY_PERSIST_MS / (60 * 60 * 1000))} hours. If the OS still kills the app, LeadLens will fast-restore your last active screen and scan context.
+        </Text>
+        <PrimaryButton
+          title="Open Battery Optimization Settings"
+          onPress={handleOpenBatteryStabilitySettings}
+          style={{ marginTop: 10, backgroundColor: '#6e7bff' }}
+        />
+        <PrimaryButton
+          title="Open App Settings"
+          onPress={() => Linking.openSettings().catch(() => {})}
+          style={{ marginTop: 10, backgroundColor: '#374151' }}
+        />
+        <Text style={s.help}>
+          OEM tips: Samsung (Device Care), Pixel (Adaptive Battery), OnePlus/Xiaomi/Huawei (Auto-launch + Background restrictions). Set LeadLens to unrestricted/background allowed.
+        </Text>
+      </Card>
     </>
   );
 
@@ -1495,6 +1552,24 @@ await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
           <Text style={s.infoLabel}>Developer</Text>
           <Text style={s.infoValue}>Joseph Dugger</Text>
         </View>
+      </Card>
+
+      <SectionLabel>Feature Flags</SectionLabel>
+      <Card>
+        {[
+          { key: 'SCAN_RECOVERY_ENABLED', enabled: SCAN_RECOVERY_ENABLED },
+          { key: 'SCAN_QUEUE_PROCESSING_ENABLED', enabled: SCAN_QUEUE_PROCESSING_ENABLED },
+          { key: 'OCR_IMAGE_OPTIMIZATION_ENABLED', enabled: OCR_IMAGE_OPTIMIZATION_ENABLED },
+          { key: 'SCAN_ENRICHMENT_QUEUE_ENABLED', enabled: SCAN_ENRICHMENT_QUEUE_ENABLED },
+        ].map((flag, idx, arr) => (
+          <View key={flag.key} style={[s.infoRow, idx === arr.length - 1 && s.infoRowNoBorder]}>
+            <Text style={s.infoLabel}>{flag.key}</Text>
+            <Text style={[s.infoValue, { color: flag.enabled ? COLORS.success : COLORS.muted }]}>
+              {flag.enabled ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+        ))}
+        <Text style={s.help}>Edit `src/config/featureFlags.js` to quickly roll back beta scan features.</Text>
       </Card>
 
       <SectionLabel>Contact & Support</SectionLabel>
@@ -1903,6 +1978,9 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+  },
+  infoRowNoBorder: {
+    borderBottomWidth: 0,
   },
   infoLabel: {
     color: COLORS.textDim,

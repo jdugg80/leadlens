@@ -24,15 +24,31 @@ export async function setAIWelcomeEnabled(enabled) {
   await AsyncStorage.setItem(AI_WELCOME_ENABLED_KEY, String(enabled));
 }
 
+const getRawStorage = () => require('@react-native-async-storage/async-storage').default;
+
 export async function hasAIWelcomeBeenShownToday(user) {
   try {
-    const date = await AsyncStorage.getItem(`${AI_WELCOME_SHOWN_DATE_KEY}_${user?.id || 'anon'}`);
-    return date === new Date().toISOString().slice(0, 10);
+    const key = `${AI_WELCOME_SHOWN_DATE_KEY}_${user?.id || 'anon'}`;
+    const today = new Date().toISOString().slice(0, 10);
+    // Check MMKV first (fast)
+    const mmkvVal = AsyncStorage.getSync(key);
+    if (mmkvVal === today) return true;
+    // Fall back to raw AsyncStorage (guaranteed persistence)
+    const rawVal = await getRawStorage().getItem(key);
+    return rawVal === today;
   } catch { return false; }
 }
 
 export async function markAIWelcomeShownToday(user) {
-  await AsyncStorage.setItem(`${AI_WELCOME_SHOWN_DATE_KEY}_${user?.id || 'anon'}`, new Date().toISOString().slice(0, 10));
+  try {
+    const key = `${AI_WELCOME_SHOWN_DATE_KEY}_${user?.id || 'anon'}`;
+    const today = new Date().toISOString().slice(0, 10);
+    // Write to MMKV sync
+    AsyncStorage.setSync(key, today);
+    // Write to raw AsyncStorage and AWAIT it — guarantees flag is on disk
+    // before Dashboard re-checks on next visit
+    await getRawStorage().setItem(key, today);
+  } catch {}
 }
 
 export async function clearAIWelcomeCache() {
