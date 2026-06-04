@@ -170,6 +170,11 @@ export default function LeadLensRoadmap() {
       });
   }, [activeProject]);
 
+  const showToast = (msg, color = "#00C9FF") => {
+    setToast({ msg, color });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -196,11 +201,6 @@ export default function LeadLensRoadmap() {
       setRawInput(transcript);
     };
     recognition.start();
-  };
-
-  const showToast = (msg, color = "#00C9FF") => {
-    setToast({ msg, color });
-    setTimeout(() => setToast(null), 3000);
   };
 
   const handleSubmit = async () => {
@@ -594,13 +594,13 @@ export default function LeadLensRoadmap() {
                   Features: {pkgItems.filter(i => i.type === "feature").length} ·
                   Est. effort: {pkgItems.filter(i => i.complexity === "high").length > 1 ? "Heavy" : pkgItems.filter(i => i.complexity === "medium").length > 2 ? "Moderate" : "Light"}
                 </div>
-                {/* Deploy banner — shows if any item needs a rebuild */}
-                {(() => {
+                {/* Deploy banner — only show if at least one item has deploy_type */}
+                {pkgItems.some(i => i.deploy_type) && (() => {
                   const needsRebuild = pkgItems.some(i => i.deploy_type === "rebuild");
-                  const allOta = pkgItems.every(i => i.deploy_type === "ota");
+                  const allOta = pkgItems.filter(i => i.deploy_type).every(i => i.deploy_type === "ota");
                   const deployCmd = needsRebuild
                     ? DEPLOY_TYPE.rebuild.cmd()
-                    : DEPLOY_TYPE.ota.cmd(pkg);
+                    : DEPLOY_TYPE.ota.cmd(pkg || "update");
                   const d = needsRebuild ? DEPLOY_TYPE.rebuild : DEPLOY_TYPE.ota;
                   return (
                     <div style={{
@@ -615,7 +615,7 @@ export default function LeadLensRoadmap() {
                       </span>
                       <button
                         onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(deployCmd); }}
-                        style={{ ...styles.copyBtn, position: "static", fontSize: 9, padding: "4px 10px" }}
+                        style={{ ...styles.copyBtn, position: "relative", fontSize: 9, padding: "4px 10px" }}
                         title="Copy deploy command"
                       >
                         COPY CMD
@@ -728,7 +728,7 @@ export default function LeadLensRoadmap() {
                       </code>
                       <button
                         onClick={() => { navigator.clipboard.writeText(deployCmd); showToast("✓ Deploy command copied"); }}
-                        style={{ ...styles.copyBtn, position: "static", fontSize: 9, padding: "6px 12px", flexShrink: 0 }}
+                        style={{ ...styles.copyBtn, position: "relative", fontSize: 9, padding: "6px 12px", flexShrink: 0 }}
                       >
                         COPY
                       </button>
@@ -749,7 +749,7 @@ export default function LeadLensRoadmap() {
               <div style={{ ...styles.sectionBlock, flex: 1, marginBottom: 0 }}>
                 <div style={styles.sectionLabel}>AFFECTED SCREENS</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {(selected.affected_screens || []).map((s) => (
+                  {(Array.isArray(selected.affected_screens) ? selected.affected_screens : (selected.affected_screens ? String(selected.affected_screens).split(",").map(s => s.trim()) : [])).map((s) => (
                     <span key={s} style={styles.chipSmall}>{s}</span>
                   ))}
                 </div>
@@ -757,7 +757,7 @@ export default function LeadLensRoadmap() {
               <div style={{ ...styles.sectionBlock, flex: 1, marginBottom: 0 }}>
                 <div style={styles.sectionLabel}>DEPENDENCIES</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {(selected.dependencies || []).map((d) => (
+                  {(Array.isArray(selected.dependencies) ? selected.dependencies : (selected.dependencies ? String(selected.dependencies).split(",").map(d => d.trim()) : [])).map((d) => (
                     <span key={d} style={{ ...styles.chipSmall, borderColor: "#7B3FBE55", color: "#b090e0" }}>{d}</span>
                   ))}
                 </div>
