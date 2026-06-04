@@ -60,7 +60,7 @@ export default function Dashboard() {
         safe(() => supabase.from('territories').select('*', { count: 'exact', head: true })),
         safe(() => supabase.from('support_tickets').select('*', { count: 'exact', head: true }).eq('status', 'open')),
         safe(() => supabase.from('feature_requests').select('*', { count: 'exact', head: true }).neq('status', 'done')),
-        safe(() => supabase.from('prospects').select('business_name, street_name, street_number, city, state, saved_at, status, rep_name').order('saved_at', { ascending: false }).limit(5)),
+        safe(() => supabase.from('prospects').select('business_name, street_name, street_number, city, state, collected_at, status, rep_name').order('collected_at', { ascending: false }).limit(5)),
         safe(() => supabase.from('support_tickets').select('subject, rep_name, status, created_at').order('created_at', { ascending: false }).limit(4)),
       ]);
 
@@ -197,7 +197,7 @@ export default function Dashboard() {
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.chrome }}>{p.business_name || 'Unknown'}</div>
                 <div style={{ fontSize: 11, color: C.textDim }}>{[p.street_number, p.street_name, p.city, p.state].filter(Boolean).join(' ') || '—'}</div>
               </div>
-              <div style={{ fontSize: 10, color: C.textMuted }}>{p.saved_at ? new Date(p.saved_at).toLocaleDateString() : '—'}</div>
+              <div style={{ fontSize: 10, color: C.textMuted }}>{p.collected_at ? new Date(p.collected_at).toLocaleDateString() : '—'}</div>
             </div>
           ))}
         </div>
