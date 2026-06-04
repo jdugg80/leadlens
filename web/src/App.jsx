@@ -14,24 +14,25 @@ import { supabase } from './lib/supabase';
 function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
     });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
-
-    return () => subscription.unsubscribe();
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => { subscription.unsubscribe(); window.removeEventListener('resize', handler); };
   }, []);
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#080A0F]">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#00C9FF] border-t-transparent"></div>
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#080A0F' }}>
+        <div style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid #00C9FF', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
       </div>
     );
   }
@@ -39,9 +40,14 @@ function App() {
   const protect = (el) => session ? el : <Navigate to="/login" />;
 
   return (
-    <div className="flex min-h-screen bg-[#080A0F] text-[#E8EAF2]">
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#080A0F', color: '#E8EAF2' }}>
       {session && <Sidebar />}
-      <main className="flex-1 overflow-auto">
+      <main style={{
+        flex: 1,
+        overflowX: 'hidden',
+        paddingTop: session && isMobile ? 56 : 0,
+        minWidth: 0,
+      }}>
         <Routes>
           <Route path="/"                element={protect(<Dashboard />)} />
           <Route path="/login"           element={!session ? <Login /> : <Navigate to="/" />} />
