@@ -1,109 +1,223 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, LineChart, Line, AreaChart, Area
 } from 'recharts';
+
+const C = {
+  bg: '#080A0F', surface: '#0E1219', card: '#121820',
+  border: '#1C2333', borderLit: '#252E42',
+  cyan: '#00C9FF', red: '#CC1040', purple: '#7B3FBE',
+  chrome: '#E8EAF2', text: '#C8D0E8', textDim: '#7A88AA', textMuted: '#4A5578',
+  green: '#22C55E', orange: '#FF6B35', yellow: '#F5C842',
+};
+
+const tooltipStyle = {
+  contentStyle: { backgroundColor: '#0E1219', borderColor: '#252E42', color: '#E8EAF2', borderRadius: 8, fontSize: 12 },
+  itemStyle: { color: '#00C9FF' },
+  labelStyle: { color: '#7A88AA', fontSize: 11 },
+};
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
-    totalLeads: 0,
-    newLeads: 0,
-    contacted: 0,
-    closed: 0,
+    totalProspects: 0,
+    newToday: 0,
+    activeReps: 0,
+    territories: 0,
+    openTickets: 0,
+    roadmapItems: 0,
   });
+  const [weeklyData, setWeeklyData] = useState([]);
+  const [recentProspects, setRecentProspects] = useState([]);
+  const [recentTickets, setRecentTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [chartReady, setChartReady] = useState(false);
 
-  useEffect(() => {
-    async function fetchStats() {
-      // Mock stats or fetch from Supabase
-      // For now, let's just count leads
-      const { count, error } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact', head: true });
+  useEffect(() => { fetchAll(); setTimeout(() => setChartReady(true), 100); }, []);
 
-      if (!error) {
-        setStats(prev => ({ ...prev, totalLeads: count || 0 }));
+  const fetchAll = async () => {
+    setLoading(true);
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const safe = async (fn) => { try { return await fn(); } catch { return { count: 0, data: [] }; } };
+
+      const [
+        { count: totalProspects },
+        { count: newToday },
+        { count: activeReps },
+        { count: territories },
+        { count: openTickets },
+        { count: roadmapItems },
+        { data: recentP },
+        { data: recentT },
+      ] = await Promise.all([
+        safe(() => supabase.from('prospects').select('*', { count: 'exact', head: true })),
+        safe(() => supabase.from('prospects').select('*', { count: 'exact', head: true }).gte('collected_at', today.toISOString())),
+        safe(() => supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'active')),
+        safe(() => supabase.from('territories').select('*', { count: 'exact', head: true })),
+        safe(() => supabase.from('support_tickets').select('*', { count: 'exact', head: true }).eq('status', 'open')),
+        safe(() => supabase.from('feature_requests').select('*', { count: 'exact', head: true }).neq('status', 'done')),
+        safe(() => supabase.from('prospects').select('business_name, street_name, street_number, city, state, saved_at, status, rep_name').order('saved_at', { ascending: false }).limit(5)),
+        safe(() => supabase.from('support_tickets').select('subject, rep_name, status, created_at').order('created_at', { ascending: false }).limit(4)),
+      ]);
+
+      setStats({
+        totalProspects: totalProspects || 0,
+        newToday: newToday || 0,
+        activeReps: activeReps || 0,
+        territories: territories || 0,
+        openTickets: openTickets || 0,
+        roadmapItems: roadmapItems || 0,
+      });
+      setRecentProspects(recentP || []);
+      setRecentTickets(recentT || []);
+
+      // Build last 7 days chart data
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        const next = new Date(d);
+        next.setDate(next.getDate() + 1);
+        const { count } = await safe(() => supabase
+          .from('prospects')
+          .select('*', { count: 'exact', head: true })
+          .gte('collected_at', d.toISOString())
+          .lt('collected_at', next.toISOString()));
+        days.push({
+          name: d.toLocaleDateString('en-US', { weekday: 'short' }),
+          prospects: count || 0,
+        });
       }
-      setLoading(false);
+      setWeeklyData(days);
+    } catch (e) {
+      console.error('Dashboard fetch error:', e);
     }
+    setLoading(false);
+  };
 
-    fetchStats();
-  }, []);
-
-  const data = [
-    { name: 'Mon', leads: 4 },
-    { name: 'Tue', leads: 7 },
-    { name: 'Wed', leads: 5 },
-    { name: 'Thu', leads: 12 },
-    { name: 'Fri', leads: 9 },
-    { name: 'Sat', leads: 2 },
-    { name: 'Sun', leads: 1 },
+  const statCards = [
+    { label: 'TOTAL PROSPECTS', value: stats.totalProspects, color: C.cyan,   sub: `+${stats.newToday} today` },
+    { label: 'ACTIVE REPS',     value: stats.activeReps,     color: C.green,  sub: 'In the field' },
+    { label: 'TERRITORIES',     value: stats.territories,    color: C.purple, sub: 'Managed zones' },
+    { label: 'OPEN TICKETS',    value: stats.openTickets,    color: C.orange, sub: 'Need attention' },
+    { label: 'NEW TODAY',       value: stats.newToday,       color: C.yellow, sub: 'Captured today' },
+    { label: 'ROADMAP ITEMS',   value: stats.roadmapItems,   color: C.red,    sub: 'Open backlog' },
   ];
 
   return (
-    <div className="p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-[#7A85A8]">Real-time prospecting intelligence overview</p>
-      </header>
+    <div style={{ background: C.bg, minHeight: '100vh', padding: 28, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: 3, fontWeight: 700, marginBottom: 4 }}>ADMIN · OVERVIEW</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: C.chrome, margin: 0 }}>Dashboard</h1>
+          <div style={{ fontSize: 11, color: C.textDim }}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: 'Total Prospects', value: stats.totalLeads, color: '#00C9FF' },
-          { label: 'New Today', value: 12, color: '#00E5A0' },
-          { label: 'Pending Review', value: 8, color: '#FFC800' },
-          { label: 'Closed Deals', value: 24, color: '#CC1040' },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-[#252A3A] bg-[#0E1018] p-6">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[#7A85A8]">{stat.label}</p>
-            <p className="mt-2 text-3xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
+      {/* Stat Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 28 }}>
+        {statCards.map(s => (
+          <div key={s.label} style={{ background: C.card, border: `1px solid ${C.borderLit}`, borderTop: `3px solid ${s.color}`, borderRadius: 12, padding: '18px 20px', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ fontSize: 9, color: C.textMuted, letterSpacing: 2, fontWeight: 700, marginBottom: 8 }}>{s.label}</div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: s.color, lineHeight: 1 }}>{loading ? '—' : s.value}</div>
+            <div style={{ fontSize: 11, color: C.textDim, marginTop: 6 }}>{s.sub}</div>
+            <div style={{ position: 'absolute', top: 0, right: 0, width: 60, height: 60, background: `${s.color}08`, borderRadius: '0 12px 0 60px' }} />
           </div>
         ))}
       </div>
 
-      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-[#252A3A] bg-[#0E1018] p-6">
-          <h3 className="mb-6 text-lg font-bold text-[#E8EAF2]">Weekly Activity</h3>
-          <div className="h-64 w-full">
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+        {/* Weekly prospects */}
+        <div style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderLeft: `3px solid ${C.cyan}`, borderRadius: 12, padding: 22 }}>
+          <div style={{ fontSize: 10, color: C.cyan, letterSpacing: 3, fontWeight: 700, marginBottom: 4 }}>WEEKLY CAPTURES</div>
+          <div style={{ fontSize: 13, color: C.textDim, marginBottom: 18 }}>Prospects captured last 7 days</div>
+          <div style={{ height: 200, minHeight: 200, width: "100%" }}>{chartReady && 
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1C2030" vertical={false} />
-                <XAxis dataKey="name" stroke="#5A6080" />
-                <YAxis stroke="#5A6080" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0E1018', borderColor: '#252A3A', color: '#E8EAF2' }}
-                  itemStyle={{ color: '#00C9FF' }}
-                />
-                <Bar dataKey="leads" fill="#00C9FF" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+              <AreaChart data={weeklyData}>
+                <defs>
+                  <linearGradient id="cyanGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={C.cyan} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={C.cyan} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                <XAxis dataKey="name" stroke={C.textMuted} tick={{ fontSize: 11, fill: C.textDim }} />
+                <YAxis stroke={C.textMuted} tick={{ fontSize: 11, fill: C.textDim }} allowDecimals={false} />
+                <Tooltip {...tooltipStyle} />
+                <Area type="monotone" dataKey="prospects" stroke={C.cyan} strokeWidth={2} fill="url(#cyanGrad)" dot={{ r: 4, fill: C.cyan }} />
+              </AreaChart>
+            </ResponsiveContainer>}
           </div>
         </div>
 
-        <div className="rounded-xl border border-[#252A3A] bg-[#0E1018] p-6">
-          <h3 className="mb-6 text-lg font-bold text-[#E8EAF2]">Conversion Trend</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1C2030" vertical={false} />
-                <XAxis dataKey="name" stroke="#5A6080" />
-                <YAxis stroke="#5A6080" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0E1018', borderColor: '#252A3A', color: '#E8EAF2' }}
-                  itemStyle={{ color: '#CC1040' }}
-                />
-                <Line type="monotone" dataKey="leads" stroke="#CC1040" strokeWidth={3} dot={{ r: 4, fill: '#CC1040' }} />
-              </LineChart>
-            </ResponsiveContainer>
+        {/* Status breakdown */}
+        <div style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 12, padding: 22 }}>
+          <div style={{ fontSize: 10, color: C.purple, letterSpacing: 3, fontWeight: 700, marginBottom: 4 }}>QUICK OVERVIEW</div>
+          <div style={{ fontSize: 13, color: C.textDim, marginBottom: 18 }}>System status at a glance</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
+            {[
+              { label: 'Prospect Capture', status: 'OPERATIONAL', color: C.green },
+              { label: 'LeadLock (AI Scan)', status: 'OPERATIONAL', color: C.green },
+              { label: 'LensSignals', status: 'OPERATIONAL', color: C.green },
+              { label: 'Territory Maps', status: 'OPERATIONAL', color: C.green },
+              { label: 'CRM Export', status: 'OPERATIONAL', color: C.green },
+              { label: 'Push Notifications', status: 'OPERATIONAL', color: C.green },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 13, color: C.text }}>{item.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: item.color }} />
+                  <span style={{ fontSize: 10, color: item.color, fontWeight: 700, letterSpacing: 1 }}>{item.status}</span>
+                </div>
+              </div>
+            ))}
           </div>
+        </div>
+      </div>
+
+      {/* Recent activity row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        {/* Recent prospects */}
+        <div style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderLeft: `3px solid ${C.green}`, borderRadius: 12, padding: 22 }}>
+          <div style={{ fontSize: 10, color: C.green, letterSpacing: 3, fontWeight: 700, marginBottom: 16 }}>RECENT PROSPECTS</div>
+          {recentProspects.length === 0 ? (
+            <div style={{ color: C.textMuted, fontSize: 13, padding: '20px 0', textAlign: 'center' }}>No prospects yet</div>
+          ) : recentProspects.map((p, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.chrome }}>{p.business_name || 'Unknown'}</div>
+                <div style={{ fontSize: 11, color: C.textDim }}>{[p.street_number, p.street_name, p.city, p.state].filter(Boolean).join(' ') || '—'}</div>
+              </div>
+              <div style={{ fontSize: 10, color: C.textMuted }}>{p.saved_at ? new Date(p.saved_at).toLocaleDateString() : '—'}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Recent tickets */}
+        <div style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderLeft: `3px solid ${C.orange}`, borderRadius: 12, padding: 22 }}>
+          <div style={{ fontSize: 10, color: C.orange, letterSpacing: 3, fontWeight: 700, marginBottom: 16 }}>RECENT SUPPORT TICKETS</div>
+          {recentTickets.length === 0 ? (
+            <div style={{ color: C.textMuted, fontSize: 13, padding: '20px 0', textAlign: 'center' }}>No tickets yet</div>
+          ) : recentTickets.map((t, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.chrome }}>{t.subject || '—'}</div>
+                <div style={{ fontSize: 11, color: C.textDim }}>{t.rep_name || '—'}</div>
+              </div>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1, padding: '3px 8px', borderRadius: 20, color: t.status === 'open' ? C.orange : C.green, background: t.status === 'open' ? `${C.orange}22` : `${C.green}22`, border: `1px solid ${t.status === 'open' ? C.orange : C.green}44` }}>
+                {(t.status || 'open').toUpperCase()}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
