@@ -42,7 +42,14 @@ export default function Dashboard() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const safe = async (fn) => { try { return await fn(); } catch { return { count: 0, data: [] }; } };
+      const safe = async (fn) => { 
+  try { 
+    return await fn(); 
+  } catch (e) { 
+    console.error('SAFE ERROR:', e); 
+    return { count: 0, data: [] }; 
+  } 
+};
 
       const [
         { count: totalProspects },
@@ -63,6 +70,8 @@ export default function Dashboard() {
         safe(() => supabase.from('prospects').select('id, business_name, street_number, street_name, city, state, zip, rep_name, status, collected_at, viability_label, queue_status').order('collected_at', { ascending: false }).limit(5)),
         safe(() => supabase.from('support_tickets').select('subject, rep_name, status, created_at').order('created_at', { ascending: false }).limit(4)),
       ]);
+
+      console.log('recentP:', recentP, 'totalProspects:', totalProspects);
 
       setStats({
         totalProspects: totalProspects || 0,
