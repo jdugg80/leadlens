@@ -60,7 +60,7 @@ export default function Dashboard() {
         safe(() => supabase.from('territories').select('*', { count: 'exact', head: true })),
         safe(() => supabase.from('support_tickets').select('*', { count: 'exact', head: true }).eq('status', 'open')),
         safe(() => supabase.from('feature_requests').select('*', { count: 'exact', head: true }).neq('status', 'done')),
-        safe(() => supabase.from('prospects').select('business_name, street_name, street_number, city, state, collected_at, status, rep_name').order('collected_at', { ascending: false }).limit(5)),
+        safe(() => supabase.from('prospects').select('id, business_name, street_number, street_name, city, state, zip, rep_name, status, collected_at, viability_label, queue_status').order('collected_at', { ascending: false }).limit(5)),
         safe(() => supabase.from('support_tickets').select('subject, rep_name, status, created_at').order('created_at', { ascending: false }).limit(4)),
       ]);
 
@@ -193,11 +193,15 @@ export default function Dashboard() {
             <div style={{ color: C.textMuted, fontSize: 13, padding: '20px 0', textAlign: 'center' }}>No prospects yet</div>
           ) : recentProspects.map((p, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.chrome }}>{p.business_name || 'Unknown'}</div>
-                <div style={{ fontSize: 11, color: C.textDim }}>{[p.street_number, p.street_name, p.city, p.state].filter(Boolean).join(' ') || '—'}</div>
+                <div style={{ fontSize: 11, color: C.textDim }}>{[p.street_number, p.street_name, p.city, p.state, p.zip].filter(Boolean).join(' ') || '—'}</div>
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>{p.rep_name || '—'}</div>
               </div>
-              <div style={{ fontSize: 10, color: C.textMuted }}>{p.collected_at ? new Date(p.collected_at).toLocaleDateString() : '—'}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                <div style={{ fontSize: 10, color: C.textMuted }}>{p.collected_at ? new Date(p.collected_at).toLocaleDateString() : '—'}</div>
+                {p.queue_status && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 1, padding: '2px 7px', borderRadius: 20, color: p.queue_status === 'approved' ? C.green : p.queue_status === 'pending' ? C.yellow : C.textDim, background: p.queue_status === 'approved' ? `${C.green}22` : p.queue_status === 'pending' ? `${C.yellow}22` : `${C.border}88`, border: `1px solid ${p.queue_status === 'approved' ? C.green : p.queue_status === 'pending' ? C.yellow : C.border}44` }}>{p.queue_status.toUpperCase()}</span>}
+              </div>
             </div>
           ))}
         </div>
