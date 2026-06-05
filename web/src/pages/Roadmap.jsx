@@ -85,8 +85,7 @@ JSON shape:
   "dependencies": ["any libs, APIs, or features required"],
   "effort_estimate": "e.g. 2-4 hours / 1-2 days / 3-5 days",
   "suggested_update": "e.g. Beta-49 or Beta-50",
-  "deploy_type": "ota|rebuild",
-  "deploy_reason": "one sentence explaining why this is OTA or requires a full native rebuild (e.g. new native module, permission change, SDK bump) vs just a JS bundle push",
+  "update_type": "ota|rebuild|config",
   "agent_prompt": "A complete copy-paste Claude prompt to implement this fix/feature. Include all project context, file references, and exact instructions needed.",
   "task_breakdown": [
     { "step": 1, "action": "description of step", "file": "filename if applicable" }
@@ -122,11 +121,6 @@ const PRIORITY = {
   high:     { label: "HIGH",     color: "#FF6B35", bg: "#2a1500", dot: "🟠" },
   medium:   { label: "MEDIUM",   color: "#F5C842", bg: "#2a2200", dot: "🟡" },
   low:      { label: "LOW",      color: "#00C9FF", bg: "#002a30", dot: "🟢" },
-};
-
-const DEPLOY_TYPE = {
-  ota:     { label: "OTA", color: "#22C55E", bg: "#052015", icon: "⚡", cmd: (pkg) => `eas update --branch production --message "${pkg}"` },
-  rebuild: { label: "REBUILD", color: "#F5C842", bg: "#1a1500", icon: "🔨", cmd: () => `npx expo run:android` },
 };
 
 const STATUS_COLORS = {
@@ -170,11 +164,6 @@ export default function LeadLensRoadmap() {
       });
   }, [activeProject]);
 
-  const showToast = (msg, color = "#00C9FF") => {
-    setToast({ msg, color });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -203,6 +192,11 @@ export default function LeadLensRoadmap() {
     recognition.start();
   };
 
+  const showToast = (msg, color = "#00C9FF") => {
+    setToast({ msg, color });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const handleSubmit = async () => {
     if (!rawInput.trim()) return;
     setAnalyzing(true);
@@ -229,8 +223,14 @@ export default function LeadLensRoadmap() {
       await supabaseInsert(newItem);
       setSyncing(false);
     } catch (e) {
-      showToast("AI analysis failed — check console", "#CC1040");
-      console.error(e);
+      console.error("Submit error:", e);
+      if (e.message?.includes("fetch")) {
+        showToast("Network error — check connection", "#CC1040");
+      } else if (e.message?.includes("JSON")) {
+        showToast("AI response error — try again", "#CC1040");
+      } else {
+        showToast("Failed: " + (e.message || "unknown error"), "#CC1040");
+      }
     }
     setAnalyzing(false);
   };
@@ -556,14 +556,15 @@ export default function LeadLensRoadmap() {
                     <span style={styles.metaChip}>{item.suggested_update || "?"}</span>
                     <span style={styles.metaChip}>{item.effort_estimate || "?"}</span>
                     <span style={styles.metaChip}>{item.complexity} complexity</span>
-                    {item.deploy_type && (() => {
-                      const d = DEPLOY_TYPE[item.deploy_type];
-                      return d ? (
-                        <span style={{ ...styles.metaChip, color: d.color, borderColor: d.color + "55", background: d.bg }}>
-                          {d.icon} {d.label}
-                        </span>
-                      ) : null;
-                    })()}
+                    {item.update_type && (
+                      <span style={{
+                        ...styles.metaChip,
+                        color: item.update_type === "ota" ? "#22C55E" : item.update_type === "config" ? "#00C9FF" : "#FF6B35",
+                        borderColor: item.update_type === "ota" ? "#22C55E44" : item.update_type === "config" ? "#00C9FF44" : "#FF6B3544",
+                      }}>
+                        {item.update_type === "ota" ? "⚡ OTA" : item.update_type === "config" ? "☁ CONFIG" : "🔨 REBUILD"}
+                      </span>
+                    )}
                   </div>
                   {item.source === "rep" && (
                     <div style={styles.repBadge}>👤 REP SUBMITTED</div>
@@ -594,38 +595,8 @@ export default function LeadLensRoadmap() {
                   Features: {pkgItems.filter(i => i.type === "feature").length} ·
                   Est. effort: {pkgItems.filter(i => i.complexity === "high").length > 1 ? "Heavy" : pkgItems.filter(i => i.complexity === "medium").length > 2 ? "Moderate" : "Light"}
                 </div>
-                {/* Deploy banner — only show if at least one item has deploy_type */}
-                {pkgItems.some(i => i.deploy_type) && (() => {
-                  const needsRebuild = pkgItems.some(i => i.deploy_type === "rebuild");
-                  const allOta = pkgItems.filter(i => i.deploy_type).every(i => i.deploy_type === "ota");
-                  const deployCmd = needsRebuild
-                    ? DEPLOY_TYPE.rebuild.cmd()
-                    : DEPLOY_TYPE.ota.cmd(pkg || "update");
-                  const d = needsRebuild ? DEPLOY_TYPE.rebuild : DEPLOY_TYPE.ota;
-                  return (
-                    <div style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      background: d.bg, border: `1px solid ${d.color}44`,
-                      borderRadius: 7, padding: "8px 12px", marginBottom: 10,
-                    }}>
-                      <span style={{ fontSize: 11, color: d.color, fontWeight: 700, letterSpacing: 1 }}>
-                        {d.icon} {needsRebuild ? "FULL REBUILD REQUIRED" : "OTA DEPLOYABLE"}
-                        {!needsRebuild && allOta && <span style={{ color: "#22C55E88", fontWeight: 400, marginLeft: 6 }}>— JS only, no APK needed</span>}
-                        {needsRebuild && <span style={{ color: "#F5C84288", fontWeight: 400, marginLeft: 6 }}>— native changes present</span>}
-                      </span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(deployCmd); }}
-                        style={{ ...styles.copyBtn, position: "relative", fontSize: 9, padding: "4px 10px" }}
-                        title="Copy deploy command"
-                      >
-                        COPY CMD
-                      </button>
-                    </div>
-                  );
-                })()}
                 {pkgItems.map((item) => {
                   const p = PRIORITY[item.priority] || PRIORITY.low;
-                  const d = item.deploy_type ? DEPLOY_TYPE[item.deploy_type] : null;
                   return (
                     <div
                       key={item.id}
@@ -643,11 +614,6 @@ export default function LeadLensRoadmap() {
                       }}>
                         {item.type === "bug" ? "🐛" : "💡"}
                       </span>
-                      {d && (
-                        <span style={{ fontSize: 9, color: d.color, fontWeight: 700, letterSpacing: 1 }}>
-                          {d.icon} {d.label}
-                        </span>
-                      )}
                       <span style={styles.metaChip}>{item.effort_estimate}</span>
                     </div>
                   );
@@ -693,6 +659,7 @@ export default function LeadLensRoadmap() {
                 ["UPDATE", selected.suggested_update],
                 ["EFFORT", selected.effort_estimate],
                 ["COMPLEXITY", selected.complexity],
+                ["DEPLOY TYPE", selected.update_type === "ota" ? "⚡ OTA" : selected.update_type === "config" ? "☁ CONFIG" : "🔨 REBUILD"],
                 ["SOURCE", selected.source],
               ].map(([label, val]) => (
                 <div key={label} style={styles.modalMetaChip}>
@@ -700,43 +667,7 @@ export default function LeadLensRoadmap() {
                   <div style={styles.modalMetaVal}>{val || "—"}</div>
                 </div>
               ))}
-              {selected.deploy_type && (() => {
-                const d = DEPLOY_TYPE[selected.deploy_type];
-                return d ? (
-                  <div style={{ ...styles.modalMetaChip, background: d.bg, border: `1px solid ${d.color}55` }}>
-                    <div style={{ ...styles.modalMetaLabel, color: d.color }}>DEPLOY</div>
-                    <div style={{ ...styles.modalMetaVal, color: d.color }}>{d.icon} {d.label}</div>
-                  </div>
-                ) : null;
-              })()}
             </div>
-
-            {/* Deploy reason */}
-            {selected.deploy_type && (() => {
-              const d = DEPLOY_TYPE[selected.deploy_type];
-              const deployCmd = d?.cmd(selected.suggested_update || "update");
-              return (
-                <div style={{ ...styles.sectionBlock, background: d?.bg, border: `1px solid ${d?.color}44` }}>
-                  <div style={{ ...styles.sectionLabel, color: d?.color }}>DEPLOY METHOD — {d?.label}</div>
-                  <div style={{ ...styles.sectionText, marginBottom: deployCmd ? 10 : 0 }}>
-                    {selected.deploy_reason || (selected.deploy_type === "ota" ? "JS-only changes — push via EAS Update, no APK required." : "Requires native rebuild — run a full EAS build or local compile.")}
-                  </div>
-                  {deployCmd && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                      <code style={{ flex: 1, fontSize: 11, color: d?.color, background: C.bg, border: `1px solid ${d?.color}33`, borderRadius: 6, padding: "7px 12px", fontFamily: "'Courier New', monospace" }}>
-                        {deployCmd}
-                      </code>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(deployCmd); showToast("✓ Deploy command copied"); }}
-                        style={{ ...styles.copyBtn, position: "relative", fontSize: 9, padding: "6px 12px", flexShrink: 0 }}
-                      >
-                        COPY
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
 
             {/* Priority reason */}
             <div style={styles.sectionBlock}>
@@ -749,7 +680,7 @@ export default function LeadLensRoadmap() {
               <div style={{ ...styles.sectionBlock, flex: 1, marginBottom: 0 }}>
                 <div style={styles.sectionLabel}>AFFECTED SCREENS</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {(Array.isArray(selected.affected_screens) ? selected.affected_screens : (selected.affected_screens ? String(selected.affected_screens).split(",").map(s => s.trim()) : [])).map((s) => (
+                  {(selected.affected_screens || []).map((s) => (
                     <span key={s} style={styles.chipSmall}>{s}</span>
                   ))}
                 </div>
@@ -757,7 +688,7 @@ export default function LeadLensRoadmap() {
               <div style={{ ...styles.sectionBlock, flex: 1, marginBottom: 0 }}>
                 <div style={styles.sectionLabel}>DEPENDENCIES</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {(Array.isArray(selected.dependencies) ? selected.dependencies : (selected.dependencies ? String(selected.dependencies).split(",").map(d => d.trim()) : [])).map((d) => (
+                  {(selected.dependencies || []).map((d) => (
                     <span key={d} style={{ ...styles.chipSmall, borderColor: "#7B3FBE55", color: "#b090e0" }}>{d}</span>
                   ))}
                 </div>
