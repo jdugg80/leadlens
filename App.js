@@ -126,11 +126,13 @@ async function updateGlobalLocation() {
     if (coords) {
       let city = 'Houston';
       let county = 'Harris';
+      let zip = null;
       try {
         const geoInfo = await reverseGeocodeCoords(coords);
         if (geoInfo) {
           city = geoInfo.city || geoInfo.town || geoInfo.village || 'Houston';
           county = geoInfo.county || 'Harris';
+          zip = geoInfo.zip || geoInfo.postcode || geoInfo.postal_code || null;
         }
       } catch (err) {
         console.warn('[GPS] Reverse geocoding failed:', err);
@@ -141,6 +143,7 @@ async function updateGlobalLocation() {
         longitude: coords.longitude,
         city,
         county,
+        zip,
         updatedAt: new Date().toISOString()
       };
 
