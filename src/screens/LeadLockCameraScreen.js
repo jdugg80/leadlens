@@ -130,11 +130,15 @@ export default function LeadLockCameraScreen({ navigation }) {
         let county = 'Harris';
 
         // Try to reverse geocode the actual live coordinates to get the city/county
+        let zip = null;
         try {
           const geoInfo = await reverseGeocodeCoords(liveCoords);
           if (geoInfo) {
             city = geoInfo.city || geoInfo.town || geoInfo.village || 'Houston';
             county = geoInfo.county || 'Harris';
+            // Fix: capture zip from reverse geocode — was being silently dropped
+            zip = geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null;
+            console.log('[LeadLockCamera] Zip from reverse geocode:', zip);
           }
         } catch (geoErr) {
           console.warn('[LeadLockCamera] Reverse geocode error, using coordinates with default city:', geoErr);
@@ -145,6 +149,7 @@ export default function LeadLockCameraScreen({ navigation }) {
           longitude: liveCoords.longitude,
           city,
           county,
+          zip,
         };
 
         setLocation(newLocationObj);
@@ -167,6 +172,7 @@ export default function LeadLockCameraScreen({ navigation }) {
           longitude: loc.longitude,
           city: loc.city || 'Houston',
           county: loc.county,
+          zip: loc.zip || null,
         });
       } else {
         // Fallback to defaults
@@ -252,7 +258,9 @@ export default function LeadLockCameraScreen({ navigation }) {
         base64: manipulated.base64,
       });
       setCameraActive(false);
-      handleDetectBusinesses(manipulated.base64);
+      // Fix: pass rawExif directly — setPhotoExifData is async so photoExifData
+      // would still be null if we read it from state here (race condition)
+      handleDetectBusinesses(manipulated.base64, rawExif);
     } catch (error) {
       console.error('[LeadLockCamera] Take photo/manipulation error:', error);
       Alert.alert('Photo Error', error.message);
@@ -260,7 +268,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   };
 
   // Detect businesses in photo
-  const handleDetectBusinesses = async (base64) => {
+  const handleDetectBusinesses = async (base64, exifData) => {
     setDetecting(true);
     try {
       const result = await detectMultipleBusinessesInPhoto(base64, location);
@@ -269,9 +277,10 @@ export default function LeadLockCameraScreen({ navigation }) {
       const firstBusinessZip = result?.businesses?.[0]?.detection?.address
         ? (result.businesses[0].detection.address.match(/\b(\d{5})(?:-\d{4})?\b/) || [])[1]
         : null;
+      // Fix: use exifData param (fresh, not stale photoExifData state)
       const resolved = await resolveZipFromLeadLockPhoto({
         liveGps: leadLockGps,
-        photoExif: photoExifData,
+        photoExif: exifData,
         businessAddressZip: firstBusinessZip || null,
         allowDeviceFallback: true,
       });
@@ -387,6 +396,13 @@ export default function LeadLockCameraScreen({ navigation }) {
             </TouchableOpacity>
             <Text style={s.headerTitle}>LeadLock Camera</Text>
             <Text style={s.headerSubtitle}>Multi-Business Detection</Text>
+            {/* Zip capture status — visible before shooting */}
+            <View style={s.zipIndicatorRow}>
+              <Text style={[s.zipIndicatorDot, { color: location?.zip ? '#51CF66' : '#FFA94D' }]}>●</Text>
+              <Text style={s.zipIndicatorText}>
+                {location?.zip ? `ZIP ${location.zip}` : 'Acquiring ZIP...'}
+              </Text>
+            </View>
           </View>
 
           {/* Capture button */}
@@ -407,11 +423,18 @@ export default function LeadLockCameraScreen({ navigation }) {
 
   // ── DETECTION LOADING
   if (detecting) {
+    const hasZip = location?.zip;
     return (
       <View style={[s.container, s.centerContent]}>
         <ActivityIndicator size="large" color={COLORS_THEME.accent} />
         <Text style={s.loadingText}>Analyzing location...</Text>
         <Text style={s.loadingSubtext}>Detecting businesses and fetching data</Text>
+        <View style={s.zipStatusRow}>
+          <Text style={[s.zipStatusDot, { color: hasZip ? '#51CF66' : '#FFA94D' }]}>●</Text>
+          <Text style={s.zipStatusText}>
+            {hasZip ? `ZIP ${location.zip} captured` : 'ZIP pending — enrichment will use GPS coords'}
+          </Text>
+        </View>
       </View>
     );
   }
@@ -859,5 +882,39 @@ const s = StyleSheet.create({
     color: COLORS_THEME.muted,
     fontSize: 14,
     marginTop: 4,
+  },
+  zipStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: COLORS_THEME.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS_THEME.borderLit,
+  },
+  zipStatusDot: {
+    fontSize: 12,
+    marginRight: 6,
+  },
+  zipStatusText: {
+    color: COLORS_THEME.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  zipIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  zipIndicatorDot: {
+    fontSize: 10,
+    marginRight: 4,
+  },
+  zipIndicatorText: {
+    color: COLORS_THEME.muted,
+    fontSize: 11,
+    fontWeight: '600',
   },
 });
