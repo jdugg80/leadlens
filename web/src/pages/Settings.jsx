@@ -27,6 +27,22 @@ const Row = ({ label, sub, children }) => (
   </div>
 );
 
+const Toggle = ({ value, onChange }) => (
+  <button onClick={() => onChange(!value)} style={{ width: 44, height: 24, borderRadius: 12, background: value ? C.cyan : C.border, border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s' }}>
+    <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: value ? 23 : 3, transition: 'left 0.2s' }} />
+  </button>
+);
+
+const Input = ({ value, onChange, placeholder, type = 'text', width = 240 }) => (
+  <input
+    type={type}
+    value={value || ''}
+    onChange={e => onChange(e.target.value)}
+    placeholder={placeholder}
+    style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width, outline: 'none', fontFamily: "'Inter','Segoe UI',sans-serif" }}
+  />
+);
+
 export default function Settings() {
   const [config, setConfig] = useState({});
   const [loading, setLoading] = useState(true);
@@ -34,6 +50,7 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -43,12 +60,34 @@ export default function Settings() {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const { data } = await supabase.from('app_config').select('*').single();
+      const { data } = await supabase.from('app_config').select('*').eq('id', 1).single();
       if (data) setConfig(data);
     } catch (e) {
       console.error(e);
     }
     setLoading(false);
+  };
+
+  const set = (key, value) => setConfig(prev => ({ ...prev, [key]: value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('app_config').update({
+        current_build: config.current_build,
+        apk_url: config.apk_url,
+        update_message: config.update_message,
+        force_update: config.force_update,
+        claude_api_key: config.claude_api_key,
+        updated_at: new Date().toISOString(),
+      }).eq('id', 1);
+      if (error) throw error;
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      alert('Save failed: ' + e.message);
+    }
+    setSaving(false);
   };
 
   const togglePush = async () => {
@@ -65,33 +104,15 @@ export default function Settings() {
     setPushLoading(false);
   };
 
-  const saveConfig = async (updates) => {
-    // Just update local state — user clicks Save to persist
-    setConfig(prev => ({ ...prev, ...updates }));
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await supabase.from('app_config').upsert({ id: config.id || 1, ...config });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (e) {
-      alert('Save failed: ' + e.message);
-    }
-    setSaving(false);
-  };
-
-  const Toggle = ({ value, onChange }) => (
-    <button onClick={() => onChange(!value)} style={{ width: 44, height: 24, borderRadius: 12, background: value ? C.cyan : C.border, border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s' }}>
-      <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: value ? 23 : 3, transition: 'left 0.2s' }} />
-    </button>
+  if (loading) return (
+    <div style={{ background: C.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted }}>
+      Loading...
+    </div>
   );
-
-  if (loading) return <div style={{ background: C.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted }}>Loading...</div>;
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: 28, fontFamily: "'Inter','Segoe UI',sans-serif", maxWidth: 780 }}>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
         <div>
           <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: 3, fontWeight: 700, marginBottom: 4 }}>ADMIN · SETTINGS</div>
@@ -99,126 +120,117 @@ export default function Settings() {
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {saved && <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: 1 }}>✓ SAVED</div>}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: '10px 24px',
-              background: `${C.cyan}18`,
-              border: `1px solid ${C.cyan}66`,
-              borderRadius: 8, color: C.cyan,
-              fontSize: 12, fontWeight: 700, letterSpacing: 2,
-              cursor: saving ? 'default' : 'pointer',
-              opacity: saving ? 0.5 : 1,
-              fontFamily: "'Inter','Segoe UI',sans-serif",
-            }}
-          >
+          <button onClick={handleSave} disabled={saving} style={{
+            padding: '10px 24px',
+            background: `${C.cyan}18`, border: `1px solid ${C.cyan}66`,
+            borderRadius: 8, color: C.cyan,
+            fontSize: 12, fontWeight: 700, letterSpacing: 2,
+            cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.5 : 1,
+            fontFamily: "'Inter','Segoe UI',sans-serif",
+          }}>
             {saving ? 'SAVING...' : 'SAVE CHANGES'}
           </button>
         </div>
       </div>
 
-      {/* App Info */}
-      <Section title="APP INFORMATION" color={C.cyan}>
-        <Row label="Current Version" sub="Displayed in app about screen">
-          <input value={config.app_version || ''} onChange={e => setConfig({ ...config, app_version: e.target.value })}
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 160, outline: 'none' }} />
+      {/* App Build */}
+      <Section title="APP BUILD" color={C.cyan}>
+        <Row label="Current Build Number" sub="Displayed in app and used for update checks">
+          <Input value={config.current_build} onChange={v => set('current_build', v)} placeholder="e.g. 16" width={120} />
         </Row>
-        <Row label="Minimum App Version" sub="Reps on older versions will see an update prompt">
-          <input value={config.min_version || ''} onChange={e => setConfig({ ...config, min_version: e.target.value })}
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 160, outline: 'none' }} />
+        <Row label="Force Update" sub="Forces all reps to update before using the app">
+          <Toggle value={!!config.force_update} onChange={v => set('force_update', v)} />
         </Row>
-        <Row label="Maintenance Mode" sub="Shows maintenance message to all users">
-          <Toggle value={!!config.maintenance_mode} onChange={v => saveConfig({ maintenance_mode: v })} />
+        <Row label="APK Download URL" sub="Direct link to the latest APK for beta testers">
+          <Input value={config.apk_url} onChange={v => set('apk_url', v)} placeholder="https://..." width={320} />
         </Row>
-      </Section>
-
-      {/* Beta Settings */}
-      <Section title="BETA PROGRAM" color={C.purple}>
-        <Row label="Beta Mode Active" sub="Enables beta-specific features and banners">
-          <Toggle value={!!config.beta_mode} onChange={v => saveConfig({ beta_mode: v })} />
-        </Row>
-        <Row label="Beta Build Label" sub="Shown in app header during beta">
-          <input value={config.beta_label || ''} onChange={e => setConfig({ ...config, beta_label: e.target.value })}
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 180, outline: 'none' }} />
-        </Row>
-        <Row label="Max Beta Testers" sub="Cap on active beta users">
-          <input type="number" value={config.max_beta_users || ''} onChange={e => setConfig({ ...config, max_beta_users: e.target.value })}
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 100, outline: 'none' }} />
-        </Row>
-      </Section>
-
-      {/* Feature Flags */}
-      <Section title="FEATURE FLAGS" color={C.orange}>
-        {[
-          { key: 'feature_lens_signals', label: 'LensSignals', sub: 'Nearby business monitoring' },
-          { key: 'feature_leadlock', label: 'LeadLock Camera', sub: 'AI business card + storefront scanning' },
-          { key: 'feature_territory_map', label: 'Territory Map', sub: 'ZIP polygon territory management' },
-          { key: 'feature_crm_export', label: 'CRM Export', sub: 'Export prospects to CSV/CRM' },
-          { key: 'feature_batch_review', label: 'Batch Review', sub: 'Bulk prospect review workflow' },
-        ].map(f => (
-          <Row key={f.key} label={f.label} sub={f.sub}>
-            <Toggle value={config[f.key] !== false} onChange={v => saveConfig({ [f.key]: v })} />
-          </Row>
-        ))}
-      </Section>
-
-      {/* Prospect Settings */}
-      <Section title="PROSPECT SETTINGS" color={C.green}>
-        <Row label="Prospect Purge (days)" sub="Automatically remove captured prospects after N days">
-          <input type="number" value={config.prospect_purge_days || 14} onChange={e => setConfig({ ...config, prospect_purge_days: e.target.value })}
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 100, outline: 'none' }} />
-        </Row>
-        <Row label="Max Queue Size" sub="Max prospects a rep can have in queue at once">
-          <input type="number" value={config.max_queue_size || 50} onChange={e => setConfig({ ...config, max_queue_size: e.target.value })}
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 100, outline: 'none' }} />
-        </Row>
+        <div style={{ paddingTop: 12 }}>
+          <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: 2, fontWeight: 700, marginBottom: 8 }}>UPDATE MESSAGE</div>
+          <textarea
+            value={config.update_message || ''}
+            onChange={e => set('update_message', e.target.value)}
+            placeholder="What's new in this build..."
+            rows={5}
+            style={{ width: '100%', background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 8, color: C.text, fontSize: 13, padding: '10px 14px', boxSizing: 'border-box', outline: 'none', resize: 'vertical', fontFamily: "'Inter','Segoe UI',sans-serif", lineHeight: 1.6 }}
+          />
+        </div>
       </Section>
 
       {/* Push Notifications */}
-      <Section title="PUSH NOTIFICATIONS" color={C.cyan}>
+      <Section title="PUSH NOTIFICATIONS" color={C.purple}>
         <Row label="Browser / Phone Push" sub="Get notified instantly when reps submit bugs or features">
-          <button
-            onClick={togglePush}
-            disabled={pushLoading}
-            style={{
-              padding: '8px 18px',
-              background: pushEnabled ? `${C.cyan}18` : 'transparent',
-              border: `1px solid ${pushEnabled ? C.cyan : C.borderLit}`,
-              borderRadius: 6, color: pushEnabled ? C.cyan : C.textDim,
-              fontSize: 11, fontWeight: 700, letterSpacing: 1,
-              cursor: 'pointer', opacity: pushLoading ? 0.5 : 1,
-            }}
-          >
+          <button onClick={togglePush} disabled={pushLoading} style={{
+            padding: '8px 18px',
+            background: pushEnabled ? `${C.cyan}18` : 'transparent',
+            border: `1px solid ${pushEnabled ? C.cyan : C.borderLit}`,
+            borderRadius: 6, color: pushEnabled ? C.cyan : C.textDim,
+            fontSize: 11, fontWeight: 700, letterSpacing: 1,
+            cursor: 'pointer', opacity: pushLoading ? 0.5 : 1,
+          }}>
             {pushLoading ? 'LOADING...' : pushEnabled ? '✓ ENABLED' : 'ENABLE PUSH'}
           </button>
         </Row>
         {pushEnabled && (
           <div style={{ padding: '10px 0', fontSize: 12, color: C.textDim }}>
-            ✓ You'll receive push notifications for all new submissions, even when the portal is closed.
+            ✓ Push notifications active on this device for all new rep submissions.
           </div>
         )}
       </Section>
 
-      {/* Notifications */}
-      <Section title="EMAIL NOTIFICATIONS" color={C.red}>
-        <Row label="Critical Bug Emails" sub="Email you when a critical bug is submitted">
-          <Toggle value={config.notify_critical !== false} onChange={v => saveConfig({ notify_critical: v })} />
+      {/* Beta Program */}
+      <Section title="BETA PROGRAM" color={C.orange}>
+        <Row label="Project Scarlett Dashboard" sub="Manage beta testers, invite codes, and app access">
+          <a href="https://dlntgyhfxxbcwwcxaorn.supabase.co" target="_blank" rel="noreferrer" style={{
+            padding: '8px 18px',
+            background: `${C.orange}18`, border: `1px solid ${C.orange}55`,
+            borderRadius: 6, color: C.orange,
+            fontSize: 11, fontWeight: 700, letterSpacing: 1,
+            textDecoration: 'none', display: 'inline-block',
+          }}>
+            OPEN SCARLETT →
+          </a>
         </Row>
-        <Row label="New Rep Signup Alerts" sub="Email you when a new rep joins">
-          <Toggle value={!!config.notify_new_rep} onChange={v => saveConfig({ notify_new_rep: v })} />
+        <Row label="Supabase Dashboard" sub="Database, auth, edge functions, storage">
+          <a href="https://supabase.com/dashboard/project/qkbvwryucaakkkqaqvka" target="_blank" rel="noreferrer" style={{
+            padding: '8px 18px',
+            background: `${C.green}18`, border: `1px solid ${C.green}55`,
+            borderRadius: 6, color: C.green,
+            fontSize: 11, fontWeight: 700, letterSpacing: 1,
+            textDecoration: 'none', display: 'inline-block',
+          }}>
+            OPEN SUPABASE →
+          </a>
         </Row>
-        <Row label="Notification Email" sub="Where admin alerts are sent">
-          <input value={config.admin_email || ''} onChange={e => setConfig({ ...config, admin_email: e.target.value })}
-            placeholder="you@okaymedia.com"
-            style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 220, outline: 'none' }} />
+      </Section>
+
+      {/* API Keys */}
+      <Section title="API CONFIGURATION" color={C.red}>
+        <Row label="Claude API Key" sub="Used for LeadLock AI scanning and enrichment">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={config.claude_api_key || ''}
+              onChange={e => set('claude_api_key', e.target.value)}
+              style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 12, padding: '6px 12px', width: 260, outline: 'none', fontFamily: "monospace" }}
+            />
+            <button onClick={() => setShowApiKey(!showApiKey)} style={{ background: 'transparent', border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.textDim, fontSize: 10, padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>
+              {showApiKey ? 'HIDE' : 'SHOW'}
+            </button>
+          </div>
         </Row>
+        <div style={{ padding: '10px 0', fontSize: 11, color: C.red }}>
+          ⚠ Storing API keys in the database is a security risk. Consider moving to Supabase Secrets before going to production.
+        </div>
       </Section>
 
       {/* Danger Zone */}
       <Section title="DANGER ZONE" color={C.red}>
         <Row label="Force All Reps to Logout" sub="Invalidates all active sessions immediately">
-          <button onClick={() => window.confirm('Force logout all reps?') && supabase.rpc('force_logout_all')} style={{ padding: '7px 16px', background: `${C.red}15`, border: `1px solid ${C.red}55`, borderRadius: 6, color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 1 }}>
+          <button onClick={() => window.confirm('Force logout all reps?') && supabase.rpc('force_logout_all')} style={{
+            padding: '7px 16px', background: `${C.red}15`,
+            border: `1px solid ${C.red}55`, borderRadius: 6, color: C.red,
+            fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
+          }}>
             FORCE LOGOUT
           </button>
         </Row>
