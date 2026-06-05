@@ -66,13 +66,16 @@ export default function Settings() {
   };
 
   const saveConfig = async (updates) => {
+    // Just update local state — user clicks Save to persist
+    setConfig(prev => ({ ...prev, ...updates }));
+  };
+
+  const handleSave = async () => {
     setSaving(true);
-    const merged = { ...config, ...updates };
-    setConfig(merged);
     try {
-      await supabase.from('app_config').upsert({ id: config.id || 1, ...merged });
+      await supabase.from('app_config').upsert({ id: config.id || 1, ...config });
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 3000);
     } catch (e) {
       alert('Save failed: ' + e.message);
     }
@@ -94,17 +97,35 @@ export default function Settings() {
           <div style={{ fontSize: 10, color: C.textMuted, letterSpacing: 3, fontWeight: 700, marginBottom: 4 }}>ADMIN · SETTINGS</div>
           <h1 style={{ fontSize: 26, fontWeight: 800, color: C.chrome, margin: 0 }}>App Settings</h1>
         </div>
-        {saved && <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: 1, padding: '8px 16px', background: `${C.green}15`, border: `1px solid ${C.green}44`, borderRadius: 6 }}>✓ SAVED</div>}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {saved && <div style={{ fontSize: 11, color: C.green, fontWeight: 700, letterSpacing: 1 }}>✓ SAVED</div>}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: '10px 24px',
+              background: `${C.cyan}18`,
+              border: `1px solid ${C.cyan}66`,
+              borderRadius: 8, color: C.cyan,
+              fontSize: 12, fontWeight: 700, letterSpacing: 2,
+              cursor: saving ? 'default' : 'pointer',
+              opacity: saving ? 0.5 : 1,
+              fontFamily: "'Inter','Segoe UI',sans-serif",
+            }}
+          >
+            {saving ? 'SAVING...' : 'SAVE CHANGES'}
+          </button>
+        </div>
       </div>
 
       {/* App Info */}
       <Section title="APP INFORMATION" color={C.cyan}>
         <Row label="Current Version" sub="Displayed in app about screen">
-          <input value={config.app_version || ''} onChange={e => setConfig({ ...config, app_version: e.target.value })} onBlur={e => saveConfig({ app_version: e.target.value })}
+          <input value={config.app_version || ''} onChange={e => setConfig({ ...config, app_version: e.target.value })}
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 160, outline: 'none' }} />
         </Row>
         <Row label="Minimum App Version" sub="Reps on older versions will see an update prompt">
-          <input value={config.min_version || ''} onChange={e => setConfig({ ...config, min_version: e.target.value })} onBlur={e => saveConfig({ min_version: e.target.value })}
+          <input value={config.min_version || ''} onChange={e => setConfig({ ...config, min_version: e.target.value })}
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 160, outline: 'none' }} />
         </Row>
         <Row label="Maintenance Mode" sub="Shows maintenance message to all users">
@@ -118,11 +139,11 @@ export default function Settings() {
           <Toggle value={!!config.beta_mode} onChange={v => saveConfig({ beta_mode: v })} />
         </Row>
         <Row label="Beta Build Label" sub="Shown in app header during beta">
-          <input value={config.beta_label || ''} onChange={e => setConfig({ ...config, beta_label: e.target.value })} onBlur={e => saveConfig({ beta_label: e.target.value })}
+          <input value={config.beta_label || ''} onChange={e => setConfig({ ...config, beta_label: e.target.value })}
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 180, outline: 'none' }} />
         </Row>
         <Row label="Max Beta Testers" sub="Cap on active beta users">
-          <input type="number" value={config.max_beta_users || ''} onChange={e => setConfig({ ...config, max_beta_users: e.target.value })} onBlur={e => saveConfig({ max_beta_users: e.target.value })}
+          <input type="number" value={config.max_beta_users || ''} onChange={e => setConfig({ ...config, max_beta_users: e.target.value })}
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 100, outline: 'none' }} />
         </Row>
       </Section>
@@ -145,11 +166,11 @@ export default function Settings() {
       {/* Prospect Settings */}
       <Section title="PROSPECT SETTINGS" color={C.green}>
         <Row label="Prospect Purge (days)" sub="Automatically remove captured prospects after N days">
-          <input type="number" value={config.prospect_purge_days || 14} onChange={e => setConfig({ ...config, prospect_purge_days: e.target.value })} onBlur={e => saveConfig({ prospect_purge_days: e.target.value })}
+          <input type="number" value={config.prospect_purge_days || 14} onChange={e => setConfig({ ...config, prospect_purge_days: e.target.value })}
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 100, outline: 'none' }} />
         </Row>
         <Row label="Max Queue Size" sub="Max prospects a rep can have in queue at once">
-          <input type="number" value={config.max_queue_size || 50} onChange={e => setConfig({ ...config, max_queue_size: e.target.value })} onBlur={e => saveConfig({ max_queue_size: e.target.value })}
+          <input type="number" value={config.max_queue_size || 50} onChange={e => setConfig({ ...config, max_queue_size: e.target.value })}
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 100, outline: 'none' }} />
         </Row>
       </Section>
@@ -188,7 +209,7 @@ export default function Settings() {
           <Toggle value={!!config.notify_new_rep} onChange={v => saveConfig({ notify_new_rep: v })} />
         </Row>
         <Row label="Notification Email" sub="Where admin alerts are sent">
-          <input value={config.admin_email || ''} onChange={e => setConfig({ ...config, admin_email: e.target.value })} onBlur={e => saveConfig({ admin_email: e.target.value })}
+          <input value={config.admin_email || ''} onChange={e => setConfig({ ...config, admin_email: e.target.value })}
             placeholder="you@okaymedia.com"
             style={{ background: C.surface, border: `1px solid ${C.borderLit}`, borderRadius: 6, color: C.text, fontSize: 13, padding: '6px 12px', width: 220, outline: 'none' }} />
         </Row>

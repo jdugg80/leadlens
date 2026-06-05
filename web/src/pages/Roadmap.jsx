@@ -242,12 +242,18 @@ export default function LeadLensRoadmap() {
     if (selected?.id === id) setSelected({ ...selected, status });
   };
 
-  const deleteItem = (id) => {
+  const deleteItem = async (id) => {
     const updated = items.filter((i) => i.id !== id);
     setItems(updated);
     saveLocal(updated);
     setSelected(null);
     showToast("Deleted", "#CC1040");
+    // Delete from Supabase
+    try {
+      await supabase.from("feature_requests").delete().eq("id", id);
+    } catch (e) {
+      console.warn("Supabase delete failed:", e.message);
+    }
   };
 
   // Group items into suggested update packages
