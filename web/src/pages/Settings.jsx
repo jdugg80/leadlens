@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { registerPush, unregisterPush, isPushEnabled } from '../hooks/usePushNotifications';
 
 const C = {
   bg: '#080A0F', surface: '#0E1219', card: '#121820',
@@ -31,8 +32,13 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
 
-  useEffect(() => { loadConfig(); }, []);
+  useEffect(() => {
+    loadConfig();
+    isPushEnabled().then(setPushEnabled);
+  }, []);
 
   const loadConfig = async () => {
     setLoading(true);
@@ -43,6 +49,20 @@ export default function Settings() {
       console.error(e);
     }
     setLoading(false);
+  };
+
+  const togglePush = async () => {
+    setPushLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const email = session?.user?.email;
+    if (pushEnabled) {
+      await unregisterPush(supabase, email);
+      setPushEnabled(false);
+    } else {
+      const ok = await registerPush(supabase, email);
+      setPushEnabled(ok);
+    }
+    setPushLoading(false);
   };
 
   const saveConfig = async (updates) => {
@@ -134,8 +154,33 @@ export default function Settings() {
         </Row>
       </Section>
 
+      {/* Push Notifications */}
+      <Section title="PUSH NOTIFICATIONS" color={C.cyan}>
+        <Row label="Browser / Phone Push" sub="Get notified instantly when reps submit bugs or features">
+          <button
+            onClick={togglePush}
+            disabled={pushLoading}
+            style={{
+              padding: '8px 18px',
+              background: pushEnabled ? `${C.cyan}18` : 'transparent',
+              border: `1px solid ${pushEnabled ? C.cyan : C.borderLit}`,
+              borderRadius: 6, color: pushEnabled ? C.cyan : C.textDim,
+              fontSize: 11, fontWeight: 700, letterSpacing: 1,
+              cursor: 'pointer', opacity: pushLoading ? 0.5 : 1,
+            }}
+          >
+            {pushLoading ? 'LOADING...' : pushEnabled ? '✓ ENABLED' : 'ENABLE PUSH'}
+          </button>
+        </Row>
+        {pushEnabled && (
+          <div style={{ padding: '10px 0', fontSize: 12, color: C.textDim }}>
+            ✓ You'll receive push notifications for all new submissions, even when the portal is closed.
+          </div>
+        )}
+      </Section>
+
       {/* Notifications */}
-      <Section title="NOTIFICATIONS" color={C.red}>
+      <Section title="EMAIL NOTIFICATIONS" color={C.red}>
         <Row label="Critical Bug Emails" sub="Email you when a critical bug is submitted">
           <Toggle value={config.notify_critical !== false} onChange={v => saveConfig({ notify_critical: v })} />
         </Row>
