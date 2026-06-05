@@ -686,7 +686,7 @@ export default function LeadLensRoadmap() {
               <div style={{ ...styles.sectionBlock, flex: 1, marginBottom: 0 }}>
                 <div style={styles.sectionLabel}>AFFECTED SCREENS</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {(selected.affected_screens || []).map((s) => (
+                  {(typeof selected.affected_screens === "string" ? JSON.parse(selected.affected_screens || "[]") : selected.affected_screens || []).map((s) => (
                     <span key={s} style={styles.chipSmall}>{s}</span>
                   ))}
                 </div>
@@ -694,7 +694,7 @@ export default function LeadLensRoadmap() {
               <div style={{ ...styles.sectionBlock, flex: 1, marginBottom: 0 }}>
                 <div style={styles.sectionLabel}>DEPENDENCIES</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                  {(selected.dependencies || []).map((d) => (
+                  {(typeof selected.dependencies === "string" ? JSON.parse(selected.dependencies || "[]") : selected.dependencies || []).map((d) => (
                     <span key={d} style={{ ...styles.chipSmall, borderColor: "#7B3FBE55", color: "#b090e0" }}>{d}</span>
                   ))}
                 </div>
@@ -757,7 +757,7 @@ export default function LeadLensRoadmap() {
 
               {agentTab === "steps" && (
                 <div style={styles.stepsList}>
-                  {(selected.task_breakdown || []).map((step) => (
+                  {(typeof selected.task_breakdown === "string" ? JSON.parse(selected.task_breakdown || "[]") : selected.task_breakdown || []).map((step) => (
                     <div key={step.step} style={styles.stepItem}>
                       <div style={styles.stepNum}>{step.step}</div>
                       <div style={{ flex: 1 }}>
