@@ -82,9 +82,9 @@ function PulsingZipTile({ item, colors, level }) {
       ]} />
       <Text style={[s.heatZip, { color: colors.text }]}>{item.zip}</Text>
       <Text style={[s.heatCount, { color: colors.text }]}>
-        {item.dailyAvg || 0}
+        {item.prospectCount90d || 0}
       </Text>
-      <Text style={s.heatLeadLabel}>/day avg</Text>
+      <Text style={s.heatLeadLabel}>prospects 90d</Text>
       <Text style={[s.heatWeekly, { color: colors.text }]}>
         {item.weeklyCount || 0} this wk
       </Text>
@@ -401,16 +401,16 @@ export default function TerritoryManagerScreen({ navigation, route }) {
           </View>
           <View style={s.summaryDivider} />
           <View style={s.summaryItem}>
-            <Text style={s.summaryNum}>{zipActivity.reduce((sum, z) => sum + (z.weeklyCount || 0), 0)}</Text>
-            <Text style={s.summaryLabel}>This week</Text>
+            <Text style={s.summaryNum}>{zipActivity.reduce((sum, z) => sum + (z.prospectCount90d || 0), 0)}</Text>
+            <Text style={s.summaryLabel}>Prospects 90d</Text>
           </View>
           <View style={s.summaryDivider} />
           <View style={s.summaryItem}>
-            <Text style={s.summaryNum}>{zipActivity.filter(z => (z.dailyAvg || 0) >= 10).length}</Text>
-            <Text style={s.summaryLabel}>On target</Text>
+            <Text style={s.summaryNum}>{zipActivity.filter(z => z.heatLevel === 'high').length}</Text>
+            <Text style={s.summaryLabel}>Hot ZIPs</Text>
           </View>
         </View>
-        <Text style={s.benchmarkNote}>30-day rolling avg · goal: {dailyGoal} prospects/day</Text>
+        <Text style={s.benchmarkNote}>90-day rolling count · {dailyGoal} prospects/day goal</Text>
       </Card>
 
       <TouchableOpacity
@@ -449,7 +449,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       ) : (
         <View style={s.heatGrid}>
           {zipActivity.map(item => {
-            const level = getHeatLevel(item.dailyAvg || 0, dailyGoal);
+            const level = item.heatLevel || getHeatLevel(item.prospectCount90d || 0);
             const colors = getHeatColor(level);
             return (
               <PulsingZipTile
@@ -505,14 +505,14 @@ export default function TerritoryManagerScreen({ navigation, route }) {
           <Text style={s.zipCount}>{myZips.length} ZIP{myZips.length !== 1 ? 's' : ''} in your territory</Text>
           {myZips.map(entry => {
             const activity = zipActivity.find(a => a.zip === entry.zip);
-            const level = getHeatLevel(activity?.leadCount || 0);
+            const level = activity?.heatLevel || 'none';
             const colors = getHeatColor(level);
             return (
               <View key={entry.zip} style={[s.zipRow, { borderLeftColor: colors.text, borderLeftWidth: 3 }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.zipRowCode}>{entry.zip}</Text>
                   {!!entry.notes && <Text style={s.zipRowNotes}>{entry.notes}</Text>}
-                  <Text style={s.zipRowMeta}>{activity?.weeklyCount || 0} this week · {activity?.dailyAvg || 0}/day avg · Added {new Date(entry.addedAt).toLocaleDateString()}</Text>
+                  <Text style={s.zipRowMeta}>{activity?.prospectCount90d || 0} prospects · {activity?.weeklyCount || 0} this wk · Added {new Date(entry.addedAt).toLocaleDateString()}</Text>
                 </View>
                 <TouchableOpacity onPress={() => handleRemoveZip(entry.zip)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={s.zipRemove}>✕</Text>

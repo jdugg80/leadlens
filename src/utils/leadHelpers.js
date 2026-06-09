@@ -468,3 +468,21 @@ export function sortQueueProspects(prospects) {
   });
 }
 
+export function getLeadId(lead = {}) {
+  return String(
+    lead?.id ||
+    lead?.leadId ||
+    lead?.queueId ||
+    lead?.createdAt ||
+    lead?.savedAt ||
+    lead?.capturedAt ||
+    lead?.businessName ||
+    ''
+  ).trim();
+}
+
+export function matchLeadByAnyId(leads = [], target = {}) {
+  const targetId = getLeadId(target);
+  return targetId ? leads.findIndex(l => getLeadId(l) === targetId) : -1;
+}
+

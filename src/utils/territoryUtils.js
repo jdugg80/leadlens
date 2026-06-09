@@ -306,7 +306,9 @@ export function buildZipActivity(myZips = [], leads = []) {
 
   // Count prospects in OLD format (weekly + daily avg)
   for (const lead of leads) {
-    const zip = String(lead.zip || '').replace(/\D/g, '').slice(0, 5);
+    if (!lead || typeof lead !== 'object') continue;
+    const rawZip = lead.zip ?? lead.zipCode ?? lead.postalCode ?? lead.ZIP ?? '';
+    const zip = String(rawZip).replace(/\D/g, '').slice(0, 5);
     if (!zip || !activity[zip]) continue;
 
     activity[zip].leadCount += 1;

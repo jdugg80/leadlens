@@ -53,7 +53,9 @@ import {
   inferVertical,
   normalizeLead,
   ensureLeadCreatedAt,
-  calculateLeadViability
+  calculateLeadViability,
+  matchLeadByAnyId,
+  getLeadId,
 } from '../utils/leadHelpers';
 import {
   applyTemplate,
@@ -488,20 +490,24 @@ const persistLead = async (ignoreDuplicate = false) => {
         queueSortGroup: 1,
       });
 
-      // Find actual position in raw storage array by unique ID
-      // Fallback to editIdx if ID match fails (safeguard for leads without IDs)
-      let storageIdx = leads.findIndex(l => l.id && l.id === lead.id);
-      if (storageIdx === -1 && editIdx !== null && editIdx < leads.length) {
-        storageIdx = editIdx;
+      // Find actual position in raw storage array by unique ID.
+      // Uses getLeadId() which checks id, leadId, queueId, createdAt, etc.
+      let storageIdx = matchLeadByAnyId(leads, lead);
+
+      // If ID match fails, try matching by business name + zip as a heuristic
+      if (storageIdx === -1 && lead.businessName) {
+        storageIdx = leads.findIndex(l =>
+          l.businessName &&
+          l.businessName.toLowerCase().trim() === String(lead.businessName).toLowerCase().trim() &&
+          (l.zip || '') === (lead.zip || '')
+        );
       }
 
       if (storageIdx !== -1) {
-        // Remove existing version from its old position
         leads.splice(storageIdx, 1);
       }
 
-      // Always push the updated lead to the end of the array.
-      // This ensures it moves to the "bottom" in terms of array order.
+      // Always push the updated lead to the end of the array so it moves to the "bottom"
       leads.push({ ...baseLead, ...calculateLeadViability(baseLead) });
     }
 
@@ -513,11 +519,18 @@ const persistLead = async (ignoreDuplicate = false) => {
     try {
       const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
       const settings = supaRaw ? JSON.parse(supaRaw) : {};
-      const savedLead = leads[leads.length - 1]; // The one we just pushed
-      await upsertProspect(savedLead, user, settings);
-      console.log('[Review] Auto-sync successful for:', savedLead.businessName);
+      const savedLead = leads[leads.length - 1];
+      const syncResult = await upsertProspect(savedLead, user, settings);
+      if (!syncResult?.ok) {
+        console.warn('[Review] Auto-sync issue (saved locally):', syncResult?.reason || 'unknown');
+        if (isEditing) {
+          showThemedAlert('Sync Issue', `Saved locally, but could not sync to the cloud: ${syncResult?.reason || 'unknown error'}. Your data is safe and will sync later.`);
+        }
+      } else {
+        console.log('[Review] Auto-sync successful for:', savedLead.businessName);
+      }
     } catch (err) {
-      console.warn('[Review] Auto-sync failed (saved locally):', err.message);
+      console.warn('[Review] Auto-sync error (saved locally):', err.message);
     }
 
     // Soft confirmation sound after a successful save

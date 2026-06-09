@@ -48,7 +48,7 @@ function buildRow(lead = {}, user = {}, authUserId = null) {
     created_at_client: lead.createdAt || lead.capturedAt || new Date().toISOString(),
     duplicate_warning: lead.duplicateWarning || '',
     raw_lead:          lead,
-    updated_at:        new Date().toISOString(),
+    updated_at:        lead.updatedAt || new Date().toISOString(),
 
     // New queue/viability fields
     collected_at:      lead.collectedAt || lead.createdAt || lead.capturedAt || new Date().toISOString(),

@@ -309,6 +309,32 @@ export default function TerritoryMapScreen({ navigation, route }) {
     }
   }, [moveMapTo]);
 
+  const refreshLeadData = useCallback(async () => {
+    if (!hasLoadedMapRef.current) return;
+    let rawLeads = [];
+    try {
+      const mmkvRaw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
+      if (mmkvRaw) rawLeads = JSON.parse(mmkvRaw);
+      else {
+        const RawStorage = require('@react-native-async-storage/async-storage').default;
+        const asyncRaw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+        if (asyncRaw) rawLeads = JSON.parse(asyncRaw);
+      }
+    } catch (e) { console.warn('[TerritoryMap] Leads reload error:', e); }
+
+    setLeads(rawLeads || []);
+    setLeadMarkers((rawLeads || []).map(l => { const c = getLeadCoords(l); return c ? { ...l, coords: c } : null; }).filter(Boolean));
+
+    setZipMarkers(prev => {
+      if (!prev?.length || !rawLeads?.length) return prev;
+      return prev.map(marker => {
+        const act = buildZipActivity([{ zip: marker.zip }], rawLeads)[0];
+        const level = act?.heatLevel || 'none';
+        return { ...marker, level, colors: getHeatColor(level), activity: act };
+      });
+    });
+  }, []);
+
   useFocusEffect(useCallback(() => {
     let cancelled = false;
 
@@ -316,26 +342,22 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const latestRevision = await getMyZipsRevision().catch(() => 0);
       const shouldReload = !hasLoadedMapRef.current || latestRevision !== territoryRevisionRef.current;
 
-      console.log(
-        shouldReload
-          ? '[TerritoryMap] Screen focused, territory changed - loading map...'
-          : '[TerritoryMap] Screen focused, keeping current map session.'
-      );
-
-      if (!shouldReload || cancelled) return;
-
-      loadingRef.current = false;
-      const didLoad = await loadMap();
-      if (!cancelled && didLoad !== false) {
-        hasLoadedMapRef.current = true;
-        territoryRevisionRef.current = latestRevision;
+      if (shouldReload) {
+        loadingRef.current = false;
+        const didLoad = await loadMap();
+        if (!cancelled && didLoad !== false) {
+          hasLoadedMapRef.current = true;
+          territoryRevisionRef.current = latestRevision;
+        }
+      } else if (!cancelled) {
+        await refreshLeadData();
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []));
+  }, [refreshLeadData]));
 
   useEffect(() => {
     if (isAppActive && !loading && region?.latitude && Math.abs(region.latitude) > 0.1) {
@@ -487,7 +509,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
           const bounds = boundsMap?.[zip] || null;
           if (!bounds?.center) continue;
           const act = buildZipActivity([normalizedEntry], rawLeads || [])[0];
-          const level = getHeatLevel(act?.dailyAvg || 0, goal);
+          const level = act?.heatLevel || 'none';
           markers.push({
             zip,
             coords: bounds.center,
