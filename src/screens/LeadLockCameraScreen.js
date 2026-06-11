@@ -310,6 +310,12 @@ export default function LeadLockCameraScreen({ navigation }) {
     setSelectedBusinesses(updated);
   };
 
+  // Remove business from list entirely
+  const removeBusiness = (index) => {
+    const updated = selectedBusinesses.filter((_, i) => i !== index);
+    setSelectedBusinesses(updated);
+  };
+
   // Add selected to queue
   const handleAddToQueue = async () => {
     const selected = selectedBusinesses.filter(b => b.selected);
@@ -476,61 +482,78 @@ export default function LeadLockCameraScreen({ navigation }) {
       )}
 
       {/* Business list */}
+      {selectedBusinesses.length > 0 && (
+        <Text style={s.selectionCount}>
+          {selectedBusinesses.filter(b => b.selected).length} of {selectedBusinesses.length} businesses selected
+        </Text>
+      )}
       <ScrollView style={s.businessList} showsVerticalScrollIndicator={false}>
         {selectedBusinesses.map((business, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[s.businessCard, business.selected && s.businessCardSelected]}
-            onPress={() => toggleBusinessSelection(index)}
-          >
-            {/* Risk indicator */}
-            <View
-              style={[
-                s.riskBadge,
-                {
-                  backgroundColor: getRiskColor(business.riskLevel),
-                },
-              ]}
+          <View key={index} style={s.cardWrapper}>
+            {business.selected && <View style={s.cardSelectedBar} />}
+            <TouchableOpacity
+              style={[s.businessCard, business.selected && s.businessCardSelected]}
+              onPress={() => toggleBusinessSelection(index)}
+              activeOpacity={0.7}
             >
-              <Text style={s.riskBadgeText}>{business.riskLevel}</Text>
-              <Text style={s.riskScore}>{business.riskScore}</Text>
-            </View>
-
-            {/* Business info */}
-            <View style={s.businessInfo}>
-              <Text style={s.businessName}>{business.name}</Text>
-              <Text style={s.businessType}>{business.businessType}</Text>
-              <Text style={s.businessAddress}>{business.address}</Text>
-
-              {/* Badges */}
-              <View style={s.badgesRow}>
-                {business.badges.map((badge, i) => (
-                  <View key={i} style={[s.badge, { borderColor: badge.color }]}>
-                    <Text style={[s.badgeText, { color: badge.color }]}>
-                      {badge.label} {badge.value}
-                    </Text>
-                  </View>
-                ))}
+              {/* Risk indicator */}
+              <View
+                style={[
+                  s.riskBadge,
+                  {
+                    backgroundColor: getRiskColor(business.riskLevel),
+                  },
+                ]}
+              >
+                <Text style={s.riskBadgeText}>{business.riskLevel}</Text>
+                <Text style={s.riskScore}>{business.riskScore}</Text>
               </View>
 
-              {/* Pest indicators */}
-              {business.pestIndicators.length > 0 && (
-                <Text style={s.pestIndicators}>
-                  ⚠️ {business.pestIndicators.join(', ')}
-                </Text>
-              )}
-            </View>
+              {/* Business info */}
+              <View style={s.businessInfo}>
+                <Text style={s.businessName}>{business.name}</Text>
+                <Text style={s.businessType}>{business.businessType}</Text>
+                <Text style={s.businessAddress}>{business.address}</Text>
 
-            {/* Checkbox */}
-            <View
-              style={[
-                s.checkbox,
-                business.selected && s.checkboxChecked,
-              ]}
-            >
-              {business.selected && <Text style={s.checkmark}>✓</Text>}
-            </View>
-          </TouchableOpacity>
+                {/* Badges */}
+                <View style={s.badgesRow}>
+                  {business.badges.map((badge, i) => (
+                    <View key={i} style={[s.badge, { borderColor: badge.color }]}>
+                      <Text style={[s.badgeText, { color: badge.color }]}>
+                        {badge.label} {badge.value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Pest indicators */}
+                {business.pestIndicators.length > 0 && (
+                  <Text style={s.pestIndicators}>
+                    ⚠️ {business.pestIndicators.join(', ')}
+                  </Text>
+                )}
+              </View>
+
+              {/* Right side: checkbox + remove */}
+              <View style={s.rightControls}>
+                <View
+                  style={[
+                    s.checkbox,
+                    business.selected && s.checkboxChecked,
+                  ]}
+                >
+                  {business.selected && <Text style={s.checkmark}>✓</Text>}
+                </View>
+                <TouchableOpacity
+                  style={s.removeBtn}
+                  onPress={() => removeBusiness(index)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={s.removeBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </View>
         ))}
       </ScrollView>
 
@@ -545,7 +568,7 @@ export default function LeadLockCameraScreen({ navigation }) {
           disabled={selectedBusinesses.filter(b => b.selected).length === 0}
         >
           <Text style={s.addBtnText}>
-            Add {selectedBusinesses.filter(b => b.selected).length} to Queue
+            Add Selected to Queue
           </Text>
         </TouchableOpacity>
       </View>
@@ -837,6 +860,49 @@ const s = StyleSheet.create({
     fontSize: 14,
   },
 
+  cardWrapper: {
+    position: 'relative',
+    marginBottom: 8,
+  },
+  cardSelectedBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: COLORS_THEME.accent,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+    zIndex: 1,
+  },
+  rightControls: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    paddingVertical: 2,
+  },
+  removeBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(204,16,64,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  removeBtnText: {
+    color: COLORS_THEME.accent2,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  selectionCount: {
+    color: COLORS_THEME.chrome,
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+    textAlign: 'center',
+  },
   actions: {
     flexDirection: 'row',
     gap: 12,
