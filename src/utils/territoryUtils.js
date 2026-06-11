@@ -314,7 +314,7 @@ export function buildZipActivity(myZips = [], leads = []) {
     activity[zip].leadCount += 1;
     activity[zip].leads.push(lead);
 
-    const ts = lead.capturedAt || lead.savedAt || '';
+    const ts = lead.capturedAt || lead.savedAt || lead.createdAt || lead.collectedAt || lead.created_at_client || '';
     const captureTime = ts ? new Date(ts).getTime() : 0;
 
     // Count in both weekly AND 90-day windows

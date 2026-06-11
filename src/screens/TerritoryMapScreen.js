@@ -327,8 +327,13 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
     setZipMarkers(prev => {
       if (!prev?.length || !rawLeads?.length) return prev;
+      const allActivity = buildZipActivity(prev.map(m => ({ zip: m.zip })), rawLeads);
+      const activityByZip = {};
+      for (const act of allActivity) {
+        if (act.zip) activityByZip[act.zip] = act;
+      }
       return prev.map(marker => {
-        const act = buildZipActivity([{ zip: marker.zip }], rawLeads)[0];
+        const act = activityByZip[marker.zip] || null;
         const level = act?.heatLevel || 'none';
         return { ...marker, level, colors: getHeatColor(level), activity: act };
       });
@@ -503,12 +508,18 @@ export default function TerritoryMapScreen({ navigation, route }) {
           .map((entry) => _toNormalizedZipEntry(entry))
           .filter(Boolean);
         const boundsMap = await getBulkZipBounds(normalizedEntries.map((entry) => entry.zip)).catch(() => ({}));
+        // Pre-compute activity for all zips in one pass instead of per-zip O(N*M)
+        const allActivity = buildZipActivity(normalizedEntries, rawLeads || []);
+        const activityByZip = {};
+        for (const act of allActivity) {
+          if (act.zip) activityByZip[act.zip] = act;
+        }
         const markers = [];
         for (const normalizedEntry of normalizedEntries) {
           const zip = normalizedEntry.zip;
           const bounds = boundsMap?.[zip] || null;
           if (!bounds?.center) continue;
-          const act = buildZipActivity([normalizedEntry], rawLeads || [])[0];
+          const act = activityByZip[zip] || null;
           const level = act?.heatLevel || 'none';
           markers.push({
             zip,
