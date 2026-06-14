@@ -1,4 +1,32 @@
-## BETA-50 | 2026-06-04
+## BETA-51 | 2026-06-14
+
+> Released via Project Scarlett — LeadLens_v2.0.51-BETA.51.apk
+
+### 🚀 New Features
+- ProspectQueue Import System: New import button (cyan) in ProspectQueueScreen header; import modal with 4 options — Photo Gallery (multi-select up to 10), Take New Photo, Documents/Files, Cloud Storage (placeholder)
+- AI Photo Import: `expo-image-picker` and `expo-document-picker` integration; Claude AI extracts leads, normalizes via `normalizeLead`, routes to `BatchReviewScreen` with processing overlay and progress messages
+- Source Badges: Imported prospects display purple source badge for visual differentiation
+- Skip-to-Bottom Button: Floating bottom-right button in `ProspectQueueScreen` with scroll lock, `scrollToEnd()`, momentum/drag end handlers, and 500ms safety fallback
+
+### 🔧 Core App
+- Navigator Registration: `ProspectQueueScreen` added to `App.js` navigation stack
+- Dashboard MANAGE Link: Added MANAGE link to Prospect Queue section header in `DashboardScreen.js`; restructured layout into two rows to fix flex pushing link off-screen
+- Global Error Boundary: `AppErrorBoundary` catches React render errors and shows recovery UI; `installGlobalErrorHandlers()` hooks into `ErrorUtils` and promise rejection tracking; `reportGlobalCrash()` logs to console and `BetaTracker.trackError`
+- Startup Hardening: All startup async calls in `App.js` wrapped in try/catch with `reportGlobalCrash`; AppState listener, MMKV writes in `updateGlobalLocation`, and `memoryWarning` cleanup all hardened
+- Memory Monitoring: `AppState` memoryWarning listener logs to BetaTracker; TerritoryMap low-memory mode hides markers, signals, polygons, and overlays to reduce Google Maps memory pressure
+
+### 🐛 Bug Fixes
+- LeadLock Camera Zip Crash: Removed duplicate `getLocation()` call competing with Nominatim rate limits; single GPS source with `mountedRef` guards, `resolvedZipRef` cache, and MMKV write guards; reactive GPS effect fills `location.zip` when GPS resolves after mount
+- Zip Resolution TTL Cache: 30-second in-memory cache in `resolveZipFromLeadLockPhoto.ts` keyed by rounded lat/lon prevents duplicate reverse-geocode calls
+- SupportScreen Version: Replaced hardcoded `v2.0.1-BETA-43` with dynamic read from `Constants.expoConfig.version`; now displays `v2.0.50 (runtime 2.0.50) BETA-50` correctly
+
+### 🏗️ Infrastructure
+- API Error Hardening: `claudeApi.js` — wrapped `extractLeadsFromImage`, `extractLeadsWithDebugFromImage`, and `extractRawOcrFromImage` with try/catch for resilient error handling
+
+
+---
+
+## BETA-50 | 2026-06-14
 
 > Released via Project Scarlett — LeadLens_v2.0.50-BETA.50.apk
 
