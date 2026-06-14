@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -57,6 +57,31 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
+  const scrollRef = useRef(null);
+  const scrollLockRef = useRef(false);
+  const scrollTimerRef = useRef(null);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollLockRef.current) return;
+    scrollLockRef.current = true;
+    try {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    } catch (e) {
+      console.warn('[ProspectQueue] scrollToEnd failed:', e.message);
+      scrollLockRef.current = false;
+    }
+    scrollTimerRef.current = setTimeout(() => {
+      scrollLockRef.current = false;
+    }, 500);
+  }, []);
+
+  const handleScrollEnd = useCallback(() => {
+    scrollLockRef.current = false;
+    if (scrollTimerRef.current) {
+      clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = null;
+    }
+  }, []);
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -361,7 +386,12 @@ export default function ProspectQueueScreen({ navigation, route }) {
   return (
     <AppScreenBackground>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          onMomentumScrollEnd={handleScrollEnd}
+          onScrollEndDrag={handleScrollEnd}
+        >
           <View style={styles.headerRow}>
             <Text style={styles.title}>Prospect Queue</Text>
             <TouchableOpacity style={styles.importBtn} onPress={() => setImportModalVisible(true)} activeOpacity={0.7}>
@@ -410,6 +440,17 @@ export default function ProspectQueueScreen({ navigation, route }) {
           ))}
         </ScrollView>
       </SafeAreaView>
+
+      {sortedLeads.length > 0 && (
+        <TouchableOpacity
+          style={[styles.skipToBottomBtn, scrollLockRef.current && styles.skipToBottomBtnDisabled]}
+          onPress={scrollToBottom}
+          disabled={scrollLockRef.current}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.skipToBottomText}>↓ Skip to Bottom</Text>
+        </TouchableOpacity>
+      )}
 
       <Modal visible={editModalVisible} animationType="slide" transparent onRequestClose={closeEdit}>
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -646,4 +687,19 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { color: '#000', fontWeight: '800', fontSize: 15 },
+  skipToBottomBtn: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    zIndex: 50,
+    elevation: 8,
+  },
+  skipToBottomBtnDisabled: { opacity: 0.4 },
+  skipToBottomText: { color: COLORS.accent, fontSize: 13, fontWeight: '700' },
 });
