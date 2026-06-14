@@ -989,17 +989,9 @@ export default function DashboardScreen({ navigation, route }) {
         </View>
 
         {/* ── QUEUE HEADER ── */}
-        <View style={s.queueHeader}>
-          <SectionLabel>Prospect Queue</SectionLabel>
-          <View style={s.queueActions}>
-            {prospects.length > 0 && !selectionMode && (
-              <TouchableOpacity style={s.sortBtn} onPress={handleSortPress}>
-                <Text style={s.sortBtnText}>SORT ▾</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={() => navigation.navigate('ProspectQueue', { user })}>
-              <Text style={s.exportLink}>MANAGE ›</Text>
-            </TouchableOpacity>
+        <View style={s.queueHeaderWrap}>
+          <View style={s.queueHeaderRow}>
+            <SectionLabel>Prospect Queue</SectionLabel>
             <TouchableOpacity
               style={s.queueHelpBtn}
               onPress={() => showTutorial(TUTORIALS.QUEUE)}
@@ -1007,6 +999,16 @@ export default function DashboardScreen({ navigation, route }) {
             >
               <Text style={s.queueHelpText}>?</Text>
             </TouchableOpacity>
+          </View>
+          <View style={s.queueActions}>
+            <TouchableOpacity onPress={() => navigation.navigate('ProspectQueue', { user })}>
+              <Text style={s.exportLink}>MANAGE ›</Text>
+            </TouchableOpacity>
+            {prospects.length > 0 && !selectionMode && (
+              <TouchableOpacity style={s.sortBtn} onPress={handleSortPress}>
+                <Text style={s.sortBtnText}>SORT ▾</Text>
+              </TouchableOpacity>
+            )}
             {prospects.length > 0 && (
               <>
                 <TouchableOpacity
@@ -1412,7 +1414,9 @@ const s = StyleSheet.create({
 
   // Queue header
   queueHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
-  queueActions: { flexDirection: 'row', gap: 8, marginTop: 16, alignItems: 'center' },
+  queueHeaderWrap: { marginBottom: 8 },
+  queueHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  queueActions: { flexDirection: 'row', gap: 8, marginTop: 4, alignItems: 'center' },
   sortBtn: {
     paddingVertical: 6, paddingHorizontal: 10,
     borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)',
