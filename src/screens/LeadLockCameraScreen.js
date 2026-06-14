@@ -117,6 +117,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   const { leadLockGps } = useLeadLockLocationSnapshot(true);
   const mountedRef = useRef(true);
   const resolvedZipRef = useRef(null);
+  const locationResolveKeyRef = useRef(null);
 
   // Fallback location default
   const FALLBACK_LOC = {
@@ -132,6 +133,49 @@ export default function LeadLockCameraScreen({ navigation }) {
     initLocation();
     return () => { mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    if (!leadLockGps?.latitude || !leadLockGps?.longitude || location?.zip) return;
+
+    const key = `${Number(leadLockGps.latitude).toFixed(4)},${Number(leadLockGps.longitude).toFixed(4)}`;
+    if (locationResolveKeyRef.current === key) return;
+    locationResolveKeyRef.current = key;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        console.log('[LeadLockCamera] Resolving ZIP from leadLockGps update:', key);
+        const geoInfo = await reverseGeocodeCoords({
+          latitude: leadLockGps.latitude,
+          longitude: leadLockGps.longitude,
+        });
+        if (cancelled || !mountedRef.current) return;
+        if (!geoInfo) {
+          locationResolveKeyRef.current = null;
+          return;
+        }
+
+        const loc = {
+          latitude: leadLockGps.latitude,
+          longitude: leadLockGps.longitude,
+          city: geoInfo.city || geoInfo.town || geoInfo.village || 'Houston',
+          county: geoInfo.county || 'Harris',
+          zip: geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null,
+        };
+        setLocation(loc);
+        if (loc.zip) {
+          resolvedZipRef.current = loc.zip;
+        } else {
+          locationResolveKeyRef.current = null;
+        }
+        await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+      } catch (err) {
+        console.warn('[LeadLockCamera] leadLockGps ZIP resolve failed:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [leadLockGps, location?.zip]);
 
   const initLocation = async () => {
     // Use hook's leadLockGps if available (avoids duplicate permission request)
