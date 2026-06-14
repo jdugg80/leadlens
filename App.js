@@ -2,8 +2,8 @@ import 'react-native-url-polyfill/auto';
 import { configurePushNotifications } from './src/utils/pushNotifications';
 configurePushNotifications();
 
-import { useEffect, useRef, useCallback } from 'react';
-import { View, Animated, StyleSheet, AppState, Alert, Linking } from 'react-native';
+import React, { Component, useEffect, useRef, useCallback } from 'react';
+import { View, Text, TouchableOpacity, Animated, StyleSheet, AppState, Alert, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -52,6 +52,76 @@ import ProspectQueueScreen        from './src/screens/ProspectQueueScreen';
 WebBrowser.maybeCompleteAuthSession();
 
 const Stack = createNativeStackNavigator();
+
+let globalHandlersInstalled = false;
+
+function reportGlobalCrash(source, error, fatal = false) {
+  const message = error instanceof Error ? error.message : String(error || 'Unknown error');
+  const stack = error instanceof Error && error.stack ? error.stack.slice(0, 1200) : '';
+  console.error(`[CrashGuard][${source}]`, message, stack);
+  BetaTracker.trackError(message, {
+    screen: source,
+    feature: fatal ? 'fatal_crash' : 'runtime_error',
+    metadata: { fatal, stack },
+  }).catch(() => {});
+}
+
+function installGlobalErrorHandlers() {
+  if (globalHandlersInstalled) return;
+  globalHandlersInstalled = true;
+
+  const errorUtils = global.ErrorUtils;
+  const previousHandler = errorUtils?.getGlobalHandler?.();
+  if (errorUtils?.setGlobalHandler) {
+    errorUtils.setGlobalHandler((error, isFatal) => {
+      reportGlobalCrash('global_js_error', error, !!isFatal);
+      if (previousHandler) previousHandler(error, isFatal);
+    });
+  }
+
+  try {
+    require('promise/setimmediate/rejection-tracking').enable({
+      allRejections: true,
+      onUnhandled: (id, error) => reportGlobalCrash('unhandled_promise_rejection', error, false),
+      onHandled: () => {},
+    });
+  } catch (err) {
+    console.warn('[CrashGuard] Promise rejection tracking unavailable:', err?.message || String(err));
+  }
+}
+
+class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    reportGlobalCrash('react_error_boundary', error, false);
+    BetaTracker.trackError(error?.message || 'React render error', {
+      screen: 'AppErrorBoundary',
+      feature: 'react_boundary',
+      metadata: { componentStack: info?.componentStack?.slice(0, 1200) || '' },
+    }).catch(() => {});
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <View style={styles.errorBoundary}>
+        <Text style={styles.errorTitle}>LeadLens hit a recoverable error.</Text>
+        <Text style={styles.errorText}>The issue was logged. Tap below to reload the app shell.</Text>
+        <TouchableOpacity style={styles.errorButton} onPress={() => this.setState({ error: null })}>
+          <Text style={styles.errorButtonText}>Reload</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+}
 
 // ── UPDATE CHECK ──────────────────────────────────────────────────────────────
 // Reads latest_build from Supabase app_config table.
@@ -148,8 +218,12 @@ async function updateGlobalLocation() {
         updatedAt: new Date().toISOString()
       };
 
-      // Use sync API for instant storage
-      AsyncStorage.setSync('currentLocation', JSON.stringify(locationObj));
+      // Use sync API for instant storage, but never let MMKV instability crash startup
+      try {
+        AsyncStorage.setSync('currentLocation', JSON.stringify(locationObj));
+      } catch (storageErr) {
+        console.warn('[GPS] currentLocation storage failed:', storageErr?.message || String(storageErr));
+      }
       console.log('[GPS] Global location updated successfully:', locationObj);
     }
   } catch (err) {
@@ -173,78 +247,98 @@ export default function App() {
   const navRef = useRef(null);
 
   useEffect(() => {
+    installGlobalErrorHandlers();
     (async () => {
-      // ── Existing startup tasks ──────────────────
-      processQueue().catch(() => {});
+      try {
+        // ── Existing startup tasks ──────────────────
+        processQueue().catch((err) => reportGlobalCrash('task_queue_startup', err, false));
 
-      // Use sync API for instant app startup
-      const rawUser = AsyncStorage.getSync(USER_STORAGE_KEY);
-      if (rawUser) {
-        try {
-          const user = JSON.parse(rawUser);
-          if (user && typeof user === 'object') {
-            bindAutoExportOnAppResume(user);
-            registerBackgroundAutoExport().catch(() => {});
+        // Use sync API for instant app startup
+        const rawUser = AsyncStorage.getSync(USER_STORAGE_KEY);
+        if (rawUser) {
+          try {
+            const user = JSON.parse(rawUser);
+            if (user && typeof user === 'object') {
+              bindAutoExportOnAppResume(user);
+              registerBackgroundAutoExport().catch((err) => reportGlobalCrash('background_auto_export', err, false));
 
-            // ── Beta tracking: start session with saved user email ──
-            if (user.email) {
-              await BetaTracker.init(user.email);
+              // ── Beta tracking: start session with saved user email ──
+              if (user.email) {
+                await BetaTracker.init(user.email);
+              }
             }
+          } catch (err) {
+            console.warn('[App] Could not read saved user profile:', err?.message || String(err));
           }
-        } catch (err) {
-          console.warn('[App] Could not read saved user profile:', err?.message || String(err));
+        } else {
+          // No user yet — init anyway (tracker will stay off until login)
+          await BetaTracker.init();
         }
-      } else {
-        // No user yet — init anyway (tracker will stay off until login)
-        await BetaTracker.init();
-      }
 
-      // ── Check for forced updates ──
-      checkForUpdate().catch(() => {});
+        // ── Check for forced updates ──
+        checkForUpdate().catch((err) => reportGlobalCrash('update_check', err, false));
 
-      // ── Update actual GPS on app launch ──
-      updateGlobalLocation().catch(() => {});
+        // ── Update actual GPS on app launch ──
+        updateGlobalLocation().catch((err) => reportGlobalCrash('global_location_startup', err, false));
 
       // ── One-time Android battery optimization prompt ──
-      if (shouldPromptBackgroundOptimization()) {
-        markBackgroundOptimizationPrompted();
-        Alert.alert(
-          'Keep LeadLens Active',
-          'To reduce shutdowns while in background, disable battery optimization for LeadLens. This helps keep scans and queue processing ready during the work day.',
-          [
-            { text: 'Not Now', style: 'cancel' },
-            {
-              text: 'Open Battery Settings',
-              onPress: () => {
-                openBatteryOptimizationSettings().catch(() => {});
+        if (shouldPromptBackgroundOptimization()) {
+          markBackgroundOptimizationPrompted();
+          Alert.alert(
+            'Keep LeadLens Active',
+            'To reduce shutdowns while in background, disable battery optimization for LeadLens. This helps keep scans and queue processing ready during the work day.',
+            [
+              { text: 'Not Now', style: 'cancel' },
+              {
+                text: 'Open Battery Settings',
+                onPress: () => {
+                  openBatteryOptimizationSettings().catch((err) => reportGlobalCrash('battery_settings', err, false));
+                },
               },
-            },
-          ]
-        );
+            ]
+          );
+        }
+      } catch (err) {
+        reportGlobalCrash('app_startup', err, false);
       }
     })();
 
     // ── AppState listener: task queue + beta session tracking ──
     const sub = AppState.addEventListener('change', async (nextState) => {
-      const prev = appState.current;
-      appState.current = nextState;
+      try {
+        const prev = appState.current;
+        appState.current = nextState;
 
-      if (nextState === 'active') {
-        recordLastActiveAt();
-        processQueue().catch(() => {});
-        updateGlobalLocation().catch(() => {});
-        await BetaTracker.init();
-      }
+        if (nextState === 'active') {
+          recordLastActiveAt();
+          processQueue().catch((err) => reportGlobalCrash('task_queue_resume', err, false));
+          updateGlobalLocation().catch((err) => reportGlobalCrash('global_location_resume', err, false));
+          await BetaTracker.init();
+        }
 
-      if (prev === 'active' && nextState.match(/inactive|background/)) {
-        const routeName = navRef.current?.getCurrentRoute?.()?.name;
-        recordLastActiveAt();
-        if (routeName) recordLastActiveRoute(routeName);
-        await BetaTracker.endSession();
+        if (prev === 'active' && nextState.match(/inactive|background/)) {
+          const routeName = navRef.current?.getCurrentRoute?.()?.name;
+          recordLastActiveAt();
+          if (routeName) recordLastActiveRoute(routeName);
+          await BetaTracker.endSession();
+        }
+      } catch (err) {
+        reportGlobalCrash('app_state_listener', err, false);
       }
     });
 
-    return () => sub.remove();
+    let memSub = null;
+    try {
+      memSub = AppState.addEventListener('memoryWarning', () => {
+        console.warn('[CrashGuard] memoryWarning received');
+        BetaTracker.track('memory_warning', { screen: navRef.current?.getCurrentRoute?.()?.name || 'unknown', feature: 'memory', severity: 'warning' }).catch(() => {});
+      });
+    } catch (_) {}
+
+    return () => {
+      sub.remove();
+      memSub?.remove?.();
+    };
   }, []);
 
   const triggerFlash = useCallback(() => {
@@ -261,6 +355,7 @@ export default function App() {
   }, [triggerFlash]);
 
   return (
+    <AppErrorBoundary>
     <SafeAreaProvider>
       <NavigationContainer
         ref={navRef}
@@ -311,6 +406,7 @@ export default function App() {
         <FlashOverlay flashAnim={flashAnim} />
       </NavigationContainer>
     </SafeAreaProvider>
+    </AppErrorBoundary>
   );
 }
 
@@ -320,6 +416,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     zIndex: 9999,
     pointerEvents: 'none',
+  },
+  errorBoundary: {
+    flex: 1,
+    backgroundColor: '#080A0F',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  errorTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  errorText: {
+    color: '#B8BDD0',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  errorButton: {
+    backgroundColor: '#00C9FF',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  errorButtonText: {
+    color: '#000000',
+    fontWeight: '800',
   },
 });
 

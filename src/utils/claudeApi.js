@@ -205,20 +205,24 @@ export async function enqueueEnrichLead(lead) {
 }
 
 export async function extractLeadsFromImage(base64Image, mimeType = 'image/jpeg') {
-  const result = await extractProspectAI({
-    imageBase64: base64Image,
-    mimeType,
-    mode: 'batch',
-    context: 'Analyze this image for one or more business leads/cards.'
-  });
+  try {
+    const result = await extractProspectAI({
+      imageBase64: base64Image,
+      mimeType,
+      mode: 'batch',
+      context: 'Analyze this image for one or more business leads/cards.'
+    });
 
-  if (result) {
-    const mapped = {
-      ...result,
-      pocFirst: result.firstName || '',
-      pocLast: result.lastName || ''
-    };
-    return [mapped];
+    if (result) {
+      const mapped = {
+        ...result,
+        pocFirst: result.firstName || '',
+        pocLast: result.lastName || ''
+      };
+      return [mapped];
+    }
+  } catch (err) {
+    console.warn('[extractLeadsFromImage] failed:', err?.message || String(err));
   }
   return [];
 }
@@ -241,7 +245,12 @@ export async function extractLeadsWithDebugFromImage(base64Image, mimeType = 'im
     || captureMethod === 'card';
 
   // Try robust direct extraction first
-  const robust = await extractProspectRobust(base64Image, mimeType, coords);
+  let robust = null;
+  try {
+    robust = await extractProspectRobust(base64Image, mimeType, coords);
+  } catch (err) {
+    console.warn('[extractLeadsWithDebugFromImage] robust extraction failed:', err?.message || String(err));
+  }
   if (robust) return robust;
 
   // Fallback: Supabase Edge Function
@@ -254,14 +263,19 @@ Keywords: ${activeProfile.searchKeywords?.join(', ') || ''}.
 `;
   }
 
-  const result = await extractProspectAI({
-    imageBase64: base64Image,
-    mimeType,
-    mode: isBusinessCardCapture ? 'card' : 'debug',
-    context: isBusinessCardCapture
-      ? `Business card analysis. Extract contact/person/company/address details printed on the card. ${industryGuidance}`
-      : `Signage/Storefront analysis. ${industryGuidance}`,
-  });
+  let result = null;
+  try {
+    result = await extractProspectAI({
+      imageBase64: base64Image,
+      mimeType,
+      mode: isBusinessCardCapture ? 'card' : 'debug',
+      context: isBusinessCardCapture
+        ? `Business card analysis. Extract contact/person/company/address details printed on the card. ${industryGuidance}`
+        : `Signage/Storefront analysis. ${industryGuidance}`,
+    });
+  } catch (err) {
+    console.warn('[extractLeadsWithDebugFromImage] edge extraction failed:', err?.message || String(err));
+  }
 
   return {
     leads: result ? [{ ...result, pocFirst: result.firstName, pocLast: result.lastName }] : [],
@@ -274,12 +288,17 @@ export async function enqueueExtractLeadsFromImage(imageUri, mimeType = 'image/j
 }
 
 export async function extractRawOcrFromImage(base64Image, mimeType = 'image/jpeg', context = {}) {
-  const result = await extractProspectAI({
-    imageBase64: base64Image,
-    mimeType,
-    mode: 'ocr',
-    context: context.guidance || ''
-  });
+  let result = null;
+  try {
+    result = await extractProspectAI({
+      imageBase64: base64Image,
+      mimeType,
+      mode: 'ocr',
+      context: context.guidance || ''
+    });
+  } catch (err) {
+    console.warn('[extractRawOcrFromImage] failed:', err?.message || String(err));
+  }
 
   if (!result) throw new Error('No result');
 

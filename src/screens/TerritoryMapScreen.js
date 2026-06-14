@@ -154,6 +154,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [showNearby, setShowNearby] = useState(false);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
+  const [lowMemoryMode, setLowMemoryMode] = useState(false);
 
   const DEFAULT_FILTERS = {
     businessType: 'All Businesses',
@@ -195,7 +196,20 @@ export default function TerritoryMapScreen({ navigation, route }) {
         if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current);
       }
     });
-    return () => sub.remove();
+    let memSub = null;
+    try {
+      memSub = AppState.addEventListener('memoryWarning', () => {
+        console.warn('[TerritoryMap] memoryWarning received — enabling low memory mode');
+        setLowMemoryMode(true);
+        setShowNearby(false);
+        setSelectedLead(null);
+        setSelectedLensSignalRecord(null);
+      });
+    } catch (_) {}
+    return () => {
+      sub.remove();
+      memSub?.remove?.();
+    };
   }, []);
 
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -1107,7 +1121,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
           onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
         >
           {/* ZIP Boundary Polygons */}
-          {zipBoundaryOverlays}
+          {!lowMemoryMode && zipBoundaryOverlays}
           {(clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;
@@ -1115,8 +1129,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
             const props = c.properties || {};
             if (props.cluster) return <MapClusterMarker key={`cluster-${c.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} count={props.point_count} onPress={() => { try { const z = Math.min(superclusterRef.current.getClusterExpansionZoom(c.id), 20); mapRef.current?.animateCamera({ center: { latitude: lat, longitude: lng }, zoom: z }); } catch(e) {} }} color={activeProfile?.themeColor || COLORS.accent} />;
             if (props.isLead) return <Marker key={`lead-${props.lead?.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => selectLeadSafe(props.lead)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}><View style={[s.poiPin, props.lead?.has_signals && s.poiPinSignal, activeProfile && { backgroundColor: activeProfile.themeColor }]}><Text style={s.poiPinText}>{props.lead?.has_signals ? ICON_SIGNAL : "\u2022"}</Text></View></Marker>;
-            if (props.isNearby && showNearby) return <Marker key={`near-${props.place?.placeId || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => handlePlaceTap(props.place)} tracksViewChanges={false}><View style={s.placePin}><Text style={{ fontSize: 12 }}>{ICON_BUILDING}</Text>{props.place?.signals?.contactSignal ? <View style={s.smallBadge}><LensSignalBadge type="contact" /></View> : null}</View></Marker>;
-            if (props.isLensSignal && filters?.signals?.lensSignal) return <LensSignalMapMarker key={`sig-${props.signal?.id || ''}-${lat}-${lng}-${i}`} signal={props.signal} onPress={async (s) => {
+            if (!lowMemoryMode && props.isNearby && showNearby) return <Marker key={`near-${props.place?.placeId || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => handlePlaceTap(props.place)} tracksViewChanges={false}><View style={s.placePin}><Text style={{ fontSize: 12 }}>{ICON_BUILDING}</Text>{props.place?.signals?.contactSignal ? <View style={s.smallBadge}><LensSignalBadge type="contact" /></View> : null}</View></Marker>;
+            if (!lowMemoryMode && props.isLensSignal && filters?.signals?.lensSignal) return <LensSignalMapMarker key={`sig-${props.signal?.id || ''}-${lat}-${lng}-${i}`} signal={props.signal} onPress={async (s) => {
               if (s) {
                 setSelectedLensSignalRecord({ ...s, loading: true });
                 try {
@@ -1129,7 +1143,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             }} activeProfile={activeProfile} />;
             return null;
           }).filter(Boolean) : []}
-          {(lensSignalDirectFallback || []).map((signal, idx) => (
+          {!lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
             <LensSignalMapMarker
               key={`sig-fallback-${signal?.id || idx}`}
               signal={signal}
@@ -1146,7 +1160,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               activeProfile={activeProfile}
             />
           ))}
-          {(!MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+          {(!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
         </MapView>
         {showMapActionButtons && (
           <View style={[s.bottomActions, { bottom: insets.bottom + 16 }]}>
