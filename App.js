@@ -47,6 +47,7 @@ import LeadLockCameraScreen       from './src/screens/LeadLockCameraScreen';
 import PhotoIngestScreen          from './src/screens/PhotoIngestScreen';
 import CardGalleryScreen          from './src/screens/CardGalleryScreen';
 import TargetMapAdjusterScreen    from './src/screens/TargetMapAdjusterScreen';
+import ProspectQueueScreen        from './src/screens/ProspectQueueScreen';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -299,6 +300,7 @@ export default function App() {
           <Stack.Screen name="LeadLockReview"      component={LeadLockReviewScreen} />
           <Stack.Screen name="LeadLockCamera"      component={LeadLockCameraScreen} />
           <Stack.Screen name="PhotoIngest"         component={PhotoIngestScreen} />
+          <Stack.Screen name="ProspectQueue"       component={ProspectQueueScreen} />
           <Stack.Screen name="CardGallery"         component={CardGalleryScreen} />
           <Stack.Screen
             name="TargetMapAdjuster"

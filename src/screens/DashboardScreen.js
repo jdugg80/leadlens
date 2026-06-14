@@ -997,6 +997,9 @@ export default function DashboardScreen({ navigation, route }) {
                 <Text style={s.sortBtnText}>SORT ▾</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity onPress={() => navigation.navigate('ProspectQueue', { user })}>
+              <Text style={s.exportLink}>MANAGE ›</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={s.queueHelpBtn}
               onPress={() => showTutorial(TUTORIALS.QUEUE)}

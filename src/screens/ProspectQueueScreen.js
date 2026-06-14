@@ -13,6 +13,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import AppScreenBackground from '../components/AppScreenBackground';
 import GlassCard from '../components/GlassCard';
 import { COLORS, LEADS_STORAGE_KEY } from '../constants';
@@ -20,7 +23,8 @@ import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { showThemedAlert } from '../components/ThemedAlert';
 import { upsertProspect } from '../utils/backendSync';
-import { matchLeadByAnyId, sortQueueProspects } from '../utils/leadHelpers';
+import { matchLeadByAnyId, normalizeLead, sortQueueProspects } from '../utils/leadHelpers';
+import { extractLeadsWithDebugFromImage } from '../utils/claudeApi';
 
 const emptyForm = {
   businessName: '',
@@ -34,6 +38,13 @@ const emptyForm = {
   notes: '',
 };
 
+const IMPORT_OPTIONS = [
+  { key: 'gallery', label: 'Photo Gallery', icon: '🖼', desc: 'Import from photo library' },
+  { key: 'camera', label: 'Take New Photo', icon: '📷', desc: 'Capture a new photo' },
+  { key: 'documents', label: 'Documents / Files', icon: '📄', desc: 'Import from PDFs, documents' },
+  { key: 'cloud', label: 'Cloud Storage', icon: '☁', desc: 'Connect to cloud drives' },
+];
+
 export default function ProspectQueueScreen({ navigation, route }) {
   const user = route?.params?.user || {};
   const [leads, setLeads] = useState([]);
@@ -43,6 +54,9 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [editingLead, setEditingLead] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [form, setForm] = useState({ ...emptyForm });
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [processingMsg, setProcessingMsg] = useState('');
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -179,6 +193,157 @@ export default function ProspectQueueScreen({ navigation, route }) {
     return !hasAddress || !hasPhone;
   };
 
+  const processAssets = async (assets, source) => {
+    if (!assets?.length) return;
+    setProcessing(true);
+    setProcessingMsg(`Processing ${assets.length} file(s)...`);
+    try {
+      const allLeads = [];
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        setProcessingMsg(`Processing file ${i + 1} of ${assets.length}...`);
+        await new Promise(r => setTimeout(r, 0));
+
+        let b64, mime;
+        try {
+          b64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          mime = asset.mimeType || 'image/jpeg';
+        } catch (readErr) {
+          console.warn('[ProspectQueue] Read asset failed:', readErr.message);
+          continue;
+        }
+
+        try {
+          const debugExtraction = await extractLeadsWithDebugFromImage(b64, mime, { captureMethod: `import_${source}` });
+          let extractedLeads = debugExtraction.leads?.length
+            ? debugExtraction.leads
+            : [];
+
+          if (!extractedLeads.length && String(debugExtraction?.ocrSummary || '').trim()) {
+            const firstLine = String(debugExtraction.ocrSummary)
+              .split(/\n|\||•|·/)
+              .map(l => String(l || '').trim())
+              .find(Boolean) || 'Imported Lead';
+            extractedLeads = [{
+              businessName: firstLine,
+              notes: 'OCR fallback candidate',
+              confidence: 'low',
+            }];
+          }
+
+          if (extractedLeads.length) {
+            setProcessingMsg(`Found ${extractedLeads.length} prospect(s) in file ${i + 1}`);
+            for (const lead of extractedLeads) {
+              allLeads.push({
+                ...normalizeLead(lead),
+                captureMethod: `import_${source}`,
+              });
+            }
+          }
+        } catch (extractErr) {
+          console.warn('[ProspectQueue] Extraction error:', extractErr.message);
+        }
+      }
+
+      if (!allLeads.length) {
+        showThemedAlert('No Prospects Found', 'Could not extract any prospect data from the selected files.');
+        return;
+      }
+
+      setProcessingMsg(`${allLeads.length} prospects ready`);
+      await new Promise(r => setTimeout(r, 120));
+
+      setImportModalVisible(false);
+      navigation.push('BatchReview', {
+        user,
+        leads: allLeads,
+        sourceLabel: `Import — ${source} (${allLeads.length} prospect${allLeads.length !== 1 ? 's' : ''})`,
+      });
+    } catch (err) {
+      console.error('[ProspectQueue] Process error:', err);
+      showThemedAlert('Processing Failed', err.message || 'An unexpected error occurred during import.');
+    } finally {
+      setProcessing(false);
+      setProcessingMsg('');
+    }
+  };
+
+  const handleImportOption = async (key) => {
+    setImportModalVisible(false);
+    if (key === 'cloud') {
+      showThemedAlert('Coming Soon', 'Cloud storage import will be available in a future update.');
+      return;
+    }
+
+    try {
+      if (key === 'gallery') {
+        let permResult = await ImagePicker.getMediaLibraryPermissionsAsync();
+        if (permResult?.status !== 'granted') {
+          permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (permResult?.status !== 'granted') {
+            showThemedAlert('Permission Denied', 'Photo library access is required to import images.');
+            return;
+          }
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.85,
+          allowsEditing: false,
+          allowsMultipleSelection: true,
+          selectionLimit: 10,
+          base64: false,
+        });
+        if (!result.canceled && result.assets?.length) {
+          await processAssets(result.assets, 'gallery');
+        }
+      } else if (key === 'camera') {
+        let permResult = await ImagePicker.getCameraPermissionsAsync();
+        if (permResult?.status !== 'granted') {
+          permResult = await ImagePicker.requestCameraPermissionsAsync();
+          if (permResult?.status !== 'granted') {
+            showThemedAlert('Permission Denied', 'Camera access is required to take photos.');
+            return;
+          }
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.85,
+          allowsEditing: false,
+          base64: false,
+        });
+        if (!result.canceled && result.assets?.length) {
+          await processAssets(result.assets, 'camera');
+        }
+      } else if (key === 'documents') {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: [
+            'image/*',
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel',
+          ],
+          copyToCacheDirectory: true,
+          multiple: true,
+        });
+        if (!result.canceled && result.assets?.length) {
+          const imageAssets = result.assets.filter(a =>
+            !a.mimeType || a.mimeType.startsWith('image/')
+          );
+          if (!imageAssets.length) {
+            showThemedAlert('No Images Found', 'Please select image files for AI prospect extraction. Spreadsheet import is available from the Capture screen.');
+            return;
+          }
+          await processAssets(imageAssets, 'documents');
+        }
+      }
+    } catch (err) {
+      console.error('[ProspectQueue] Import error:', err);
+      showThemedAlert('Import Error', err.message || 'Could not complete import.');
+    }
+  };
+
   const sortedLeads = sortQueueProspects(leads);
 
   if (loading) {
@@ -197,7 +362,13 @@ export default function ProspectQueueScreen({ navigation, route }) {
     <AppScreenBackground>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.title}>Prospect Queue</Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Prospect Queue</Text>
+            <TouchableOpacity style={styles.importBtn} onPress={() => setImportModalVisible(true)} activeOpacity={0.7}>
+              <Text style={styles.importBtnIcon}>↓</Text>
+              <Text style={styles.importBtnText}>Import</Text>
+            </TouchableOpacity>
+          </View>
 
           {sortedLeads.length === 0 && (
             <Text style={styles.emptyText}>No prospects in queue.</Text>
@@ -220,6 +391,13 @@ export default function ProspectQueueScreen({ navigation, route }) {
                   <Text style={styles.updatedText}>
                     Edited: {new Date(lead.updatedAt).toLocaleDateString()}
                   </Text>
+                )}
+                {lead.captureMethod && lead.captureMethod.startsWith('import_') && (
+                  <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceBadgeText}>
+                      {lead.captureMethod.replace('import_', 'Imported: ')}
+                    </Text>
+                  </View>
                 )}
                 {needsLookup(lead) && (
                   <TouchableOpacity style={styles.googleBtn} onPress={() => handleGoogleLookup(lead)} activeOpacity={0.7}>
@@ -287,6 +465,39 @@ export default function ProspectQueueScreen({ navigation, route }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={importModalVisible} animationType="slide" transparent onRequestClose={() => setImportModalVisible(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Import Prospects</Text>
+              {IMPORT_OPTIONS.map(opt => (
+                <TouchableOpacity key={opt.key} style={styles.importOption} onPress={() => handleImportOption(opt.key)} activeOpacity={0.7}>
+                  <Text style={styles.importOptionIcon}>{opt.icon}</Text>
+                  <View style={styles.importOptionTextWrap}>
+                    <Text style={styles.importOptionLabel}>{opt.label}</Text>
+                    <Text style={styles.importOptionDesc}>{opt.desc}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setImportModalVisible(false)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {processing && (
+        <View style={styles.processingOverlay}>
+          <View style={styles.processingBox}>
+            <ActivityIndicator size="large" color={COLORS.accent} />
+            <Text style={styles.processingText}>{processingMsg}</Text>
+          </View>
+        </View>
+      )}
     </AppScreenBackground>
   );
 }
@@ -295,12 +506,40 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 20, paddingBottom: 40 },
-  title: { color: '#FFFFFF', fontSize: 26, fontWeight: '800', marginBottom: 16 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  title: { color: '#FFFFFF', fontSize: 26, fontWeight: '800' },
+  importBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: COLORS.accent,
+    gap: 6,
+  },
+  importBtnIcon: { color: '#000', fontSize: 16, fontWeight: '900' },
+  importBtnText: { color: '#000', fontSize: 14, fontWeight: '800' },
   emptyText: { color: COLORS.muted, fontSize: 15, textAlign: 'center', marginTop: 40 },
   card: { marginBottom: 14 },
   cardTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginBottom: 6 },
   cardText: { color: 'rgba(255,255,255,0.80)', fontSize: 14, marginBottom: 3 },
   updatedText: { color: COLORS.muted, fontSize: 11, marginTop: 4 },
+  sourceBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: COLORS.purpleDim,
+    borderWidth: 1,
+    borderColor: COLORS.purple,
+  },
+  sourceBadgeText: { color: COLORS.purple, fontSize: 11, fontWeight: '600' },
   googleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -330,6 +569,44 @@ const styles = StyleSheet.create({
   },
   modalContent: { padding: 20, paddingBottom: 12 },
   modalTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 20 },
+  importOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  importOptionIcon: { fontSize: 24, marginRight: 14 },
+  importOptionTextWrap: { flex: 1 },
+  importOptionLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  importOptionDesc: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+  },
+  processingBox: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    minWidth: 200,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  processingText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
+  },
   fieldLabel: { color: COLORS.chrome, fontSize: 12, fontWeight: '700', marginBottom: 6, marginTop: 10 },
   input: {
     backgroundColor: COLORS.surface,
