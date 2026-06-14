@@ -112,57 +112,77 @@ export default function LeadLockCameraScreen({ navigation }) {
   const [detectionResult, setDetectionResult] = useState(null);
   const [selectedBusinesses, setSelectedBusinesses] = useState([]);
 
-  // Location context
+  // Location context — single source from hook, no duplicate getCurrentCoords call
   const [location, setLocation] = useState(null);
   const { leadLockGps } = useLeadLockLocationSnapshot(true);
+  const mountedRef = useRef(true);
+  const resolvedZipRef = useRef(null);
+
+  // Fallback location default
+  const FALLBACK_LOC = {
+    latitude: 29.7589,
+    longitude: -95.3677,
+    city: 'Houston',
+    county: 'Harris',
+    zip: null,
+  };
 
   useEffect(() => {
-    getLocation();
+    mountedRef.current = true;
+    initLocation();
+    return () => { mountedRef.current = false; };
   }, []);
 
-  // Get current location
-  const getLocation = async () => {
-    try {
-      // 1. Try to fetch live actual GPS coordinates from the device
-      const liveCoords = await getCurrentCoords();
-      if (liveCoords) {
-        let city = 'Houston';
-        let county = 'Harris';
-
-        // Try to reverse geocode the actual live coordinates to get the city/county
-        let zip = null;
-        try {
-          const geoInfo = await reverseGeocodeCoords(liveCoords);
-          if (geoInfo) {
-            city = geoInfo.city || geoInfo.town || geoInfo.village || 'Houston';
-            county = geoInfo.county || 'Harris';
-            // Fix: capture zip from reverse geocode — was being silently dropped
-            zip = geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null;
-            console.log('[LeadLockCamera] Zip from reverse geocode:', zip);
-          }
-        } catch (geoErr) {
-          console.warn('[LeadLockCamera] Reverse geocode error, using coordinates with default city:', geoErr);
-        }
-
-        const newLocationObj = {
-          latitude: liveCoords.latitude,
-          longitude: liveCoords.longitude,
-          city,
-          county,
-          zip,
+  const initLocation = async () => {
+    // Use hook's leadLockGps if available (avoids duplicate permission request)
+    if (leadLockGps && leadLockGps.latitude) {
+      const geoInfo = await reverseGeocodeCoords({
+        latitude: leadLockGps.latitude,
+        longitude: leadLockGps.longitude,
+      }).catch(() => null);
+      if (!mountedRef.current) return;
+      if (geoInfo) {
+        const loc = {
+          latitude: leadLockGps.latitude,
+          longitude: leadLockGps.longitude,
+          city: geoInfo.city || geoInfo.town || geoInfo.village || 'Houston',
+          county: geoInfo.county || 'Harris',
+          zip: geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null,
         };
-
-        setLocation(newLocationObj);
-
-        // Update storage so other screens can benefit from the newly retrieved actual location
-        await storageBridge.setItem('currentLocation', JSON.stringify(newLocationObj));
+        setLocation(loc);
+        if (loc.zip) resolvedZipRef.current = loc.zip;
+        await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
         return;
       }
-    } catch (gpsErr) {
-      console.warn('[LeadLockCamera] Live GPS acquisition failed, checking storage...', gpsErr);
     }
 
-    // 2. Fallback to stored location if live GPS fails or is disabled
+    // Fallback: try one-shot GPS
+    try {
+      const liveCoords = await getCurrentCoords();
+      if (!mountedRef.current) return;
+      if (liveCoords) {
+        const geoInfo = await reverseGeocodeCoords(liveCoords).catch(() => null);
+        if (!mountedRef.current) return;
+        if (geoInfo) {
+          const loc = {
+            latitude: liveCoords.latitude,
+            longitude: liveCoords.longitude,
+            city: geoInfo.city || geoInfo.town || geoInfo.village || 'Houston',
+            county: geoInfo.county || 'Harris',
+            zip: geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null,
+          };
+          setLocation(loc);
+          if (loc.zip) resolvedZipRef.current = loc.zip;
+          await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+          return;
+        }
+      }
+    } catch (gpsErr) {
+      console.warn('[LeadLockCamera] GPS failed:', gpsErr);
+    }
+
+    // Final fallback: stored or default
+    if (!mountedRef.current) return;
     try {
       const stored = await storageBridge.getItem('currentLocation');
       if (stored) {
@@ -174,24 +194,10 @@ export default function LeadLockCameraScreen({ navigation }) {
           county: loc.county,
           zip: loc.zip || null,
         });
-      } else {
-        // Fallback to defaults
-        setLocation({
-          latitude: 29.7589,
-          longitude: -95.3677,
-          city: 'Houston',
-          county: 'Harris',
-        });
+        return;
       }
-    } catch (error) {
-      console.error('Location storage fetch error:', error);
-      setLocation({
-        latitude: 29.7589,
-        longitude: -95.3677,
-        city: 'Houston',
-        county: 'Harris',
-      });
-    }
+    } catch (_) {}
+    setLocation(FALLBACK_LOC);
   };
 
   // Request camera permission
@@ -272,19 +278,32 @@ export default function LeadLockCameraScreen({ navigation }) {
     setDetecting(true);
     try {
       const result = await detectMultipleBusinessesInPhoto(base64, location);
+      if (!mountedRef.current) return;
 
-      // Resolve location for display
-      const firstBusinessZip = result?.businesses?.[0]?.detection?.address
-        ? (result.businesses[0].detection.address.match(/\b(\d{5})(?:-\d{4})?\b/) || [])[1]
-        : null;
-      // Fix: use exifData param (fresh, not stale photoExifData state)
-      const resolved = await resolveZipFromLeadLockPhoto({
-        liveGps: leadLockGps,
-        photoExif: exifData,
-        businessAddressZip: firstBusinessZip || null,
-        allowDeviceFallback: true,
-      });
-      setResolvedLocation(resolved);
+      // Resolve location for display — skip if already resolved for this session
+      if (!resolvedZipRef.current) {
+        const firstBusinessZip = result?.businesses?.[0]?.detection?.address
+          ? (result.businesses[0].detection.address.match(/\b(\d{5})(?:-\d{4})?\b/) || [])[1]
+          : null;
+        const resolved = await resolveZipFromLeadLockPhoto({
+          liveGps: leadLockGps,
+          photoExif: exifData,
+          businessAddressZip: firstBusinessZip || null,
+          allowDeviceFallback: true,
+        });
+        if (mountedRef.current) setResolvedLocation(resolved);
+        if (resolved?.zip) resolvedZipRef.current = resolved.zip;
+      } else {
+        // Re-use cached zip
+        if (mountedRef.current) {
+          setResolvedLocation({
+            zip: resolvedZipRef.current,
+            source: 'cached',
+            confidence: 0.9,
+            capturedAt: new Date().toISOString(),
+          });
+        }
+      }
 
       if (result.success) {
         const formatted = formatMultiBusinessesForDisplay(result);
@@ -335,34 +354,59 @@ export default function LeadLockCameraScreen({ navigation }) {
       .find(Boolean) || null;
 
     try {
-      // Resolve photo location once for the whole photo — prefer live GPS snapshot
-      const resolved = await resolveZipFromLeadLockPhoto({
-        liveGps: leadLockGps,
-        photoExif: photoExifData,
-        businessAddressZip: businessZip,
-        allowDeviceFallback: true,
-      });
+      let resolved;
+      if (resolvedZipRef.current) {
+        resolved = {
+          zip: resolvedZipRef.current,
+          source: 'cached',
+          confidence: 0.9,
+          capturedAt: new Date().toISOString(),
+        };
+      } else {
+        resolved = await resolveZipFromLeadLockPhoto({
+          liveGps: leadLockGps,
+          photoExif: photoExifData,
+          businessAddressZip: businessZip,
+          allowDeviceFallback: true,
+        });
+      }
+      if (!mountedRef.current) return;
 
       console.log('[LeadLockCamera] Resolved photo location:', resolved);
 
       const prospects = convertSelectedBusinessesToProspects(selected, resolved);
 
       // Read existing queue from correct storage key
-      const raw = storageBridge.getSync(LEADS_STORAGE_KEY);
-      const currentQueue = raw ? JSON.parse(raw) : [];
+      let currentQueue = [];
+      try {
+        const raw = storageBridge.getSync(LEADS_STORAGE_KEY);
+        if (raw) currentQueue = JSON.parse(raw);
+        if (!Array.isArray(currentQueue)) currentQueue = [];
+      } catch (parseErr) {
+        console.warn('[LeadLock] Queue parse error, starting fresh:', parseErr);
+        currentQueue = [];
+      }
       const updatedQueue = [...currentQueue, ...prospects];
 
-      // Write to both MMKV and raw AsyncStorage backup
-      storageBridge.setSync(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+      // Write to MMKV with error guard
+      try {
+        storageBridge.setSync(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+      } catch (mmkvErr) {
+        console.error('[LeadLock] MMKV write failed:', mmkvErr);
+      }
+      // AsyncStorage backup
       const RawStorage = require('@react-native-async-storage/async-storage').default;
-      await RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue)).catch(() => {});
+      await RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue)).catch((e) =>
+        console.warn('[LeadLock] AsyncStorage backup write failed:', e)
+      );
 
+      if (!mountedRef.current) return;
       Alert.alert('Added to Queue', `${prospects.length} prospect${prospects.length !== 1 ? 's' : ''} added successfully`, [
         { text: 'OK', onPress: () => resetCamera() },
       ]);
     } catch (error) {
       console.error('[LeadLock] Queue save error:', error);
-      Alert.alert('Error', 'Failed to add to queue: ' + error.message);
+      Alert.alert('Error', 'Failed to add to queue: ' + (error?.message || 'unknown'));
     }
   };
 

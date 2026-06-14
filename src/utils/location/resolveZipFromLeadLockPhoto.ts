@@ -1,5 +1,13 @@
 import { reverseGeocodeCoords } from '../geoEnrich';
 
+// In-memory TTL cache: avoid duplicate reverse geocode calls within 30s
+const zipCache = new Map<string, { result: any; expiresAt: number }>();
+const ZIP_CACHE_TTL = 30000;
+
+function cacheKey(lat: number, lon: number) {
+  return `${lat.toFixed(4)},${lon.toFixed(4)}`;
+}
+
 function isUsZip(value: string | null | undefined) {
   if (!value) return false;
   const v = String(value).trim();
@@ -29,6 +37,12 @@ function extractExifCoords(exif: any) {
 }
 
 async function reverseGeocodeZip(lat: number, lon: number) {
+  const key = cacheKey(lat, lon);
+  const cached = zipCache.get(key);
+  if (cached && Date.now() < cached.expiresAt) {
+    console.log('[LeadLock ZipResolver] cache hit for', key, cached.result?.zip);
+    return cached.result;
+  }
   try {
     const res = await reverseGeocodeCoords({ latitude: lat, longitude: lon });
     console.log('[LeadLock ZipResolver] reverseGeocodeCoords result:', res);
@@ -41,6 +55,7 @@ async function reverseGeocodeZip(lat: number, lon: number) {
       city: res.city || null,
       state: res.state || null,
     };
+    zipCache.set(key, { result, expiresAt: Date.now() + ZIP_CACHE_TTL });
     console.log('[LeadLock ZipResolver] extracted zip/city/state:', result);
     return result;
   } catch (err) {
