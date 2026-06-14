@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { createSupabaseClient } from '../utils/supabaseClient';
 import { storageBridge } from '../utils/storage';
 import { showThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
@@ -39,7 +40,7 @@ export default function SupportScreen({ navigation }) {
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [appVersion, setAppVersion] = useState('v2.0.1-BETA-43');
+  const [appVersion, setAppVersion] = useState('');
   const [repName, setRepName] = useState('');
   const [employeeId, setEmployeeId] = useState('N/A');
   const [branch, setBranch] = useState('N/A');
@@ -95,6 +96,13 @@ export default function SupportScreen({ navigation }) {
       // Get OS version
       const version = Platform.Version || 'Unknown';
       setOsVersion(version.toString());
+
+      // Get app version from Constants
+      const config = Constants.expoConfig || Constants.manifest || {};
+      const v = config.version || 'Unknown';
+      const runtime = config.runtimeVersion || '';
+      const beta = config.extra?.betaBuild || '';
+      setAppVersion(`v${v}${runtime ? ` (runtime ${runtime})` : ''}${beta ? ` · BETA-${beta}` : ''}`);
     } catch (error) {
       console.error('Error loading device info:', error);
     }
