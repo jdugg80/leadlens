@@ -68,6 +68,7 @@ const VERTICAL_PATTERNS = [
   { vertical: 'Medical', terms: ['medical', 'clinic', 'hospital', 'dental', 'dentist', 'orthodont', 'doctor', 'pediatric', 'urgent care', 'surgery'] },
   { vertical: 'Schools / Daycares', terms: ['school', 'daycare', 'academy', 'learning center', 'childcare', 'elementary', 'isd', 'college'] },
   { vertical: 'Government', terms: ['city of', 'town of', 'police', 'fire department', 'municipal', 'county', 'public works', 'government'] },
+  { vertical: 'Pest Control', terms: ['pest control', 'exterminator', 'pest management', 'bug', 'termite', 'roach', 'rodent', 'pesticide', 'fumigation', 'mosquito'] },
 ];
 
 export function classifyVertical(lead = {}) {

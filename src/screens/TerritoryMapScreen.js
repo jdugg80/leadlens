@@ -14,6 +14,7 @@ import {
   DEFAULT_TERRITORY_REGION,
 } from '../utils/mapSafety';
 import { screenHeight } from '../utils/responsive';
+import { classifyVertical } from '../utils/leadProcessing';
 
 // Unicode constants for safety
 const ICON_CROSS = "\u2715";
@@ -715,7 +716,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const isLeadVisible = useCallback((lead) => {
     if (!lead?.coords || !filters) return false;
     if (!activeProfile) return true;
-    const leadV = String(lead.vertical || '').toLowerCase().trim();
+    const rawV = String(lead.vertical || '').trim();
+    const leadV = (rawV || classifyVertical(lead).vertical || 'Other').toLowerCase().trim();
     const profC = String(activeProfile.category || '').toLowerCase().trim();
     if (profC && profC !== 'pest control' && leadV && leadV !== profC && !leadV.includes(profC) && !profC.includes(leadV)) return false;
     if (!activeProfile || activeProfile.category === 'Pest Control') {
