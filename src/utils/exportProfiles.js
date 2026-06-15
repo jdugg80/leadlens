@@ -443,14 +443,23 @@ export async function buildSalesTemplateFile(leads = [], user = {}) {
 }
 
 export async function buildProfileExportFile(leads = [], profile = {}, user = {}) {
-  const workbook = profile.templateUri
-    ? read(
-        await FileSystem.readAsStringAsync(profile.templateUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        }),
-        { type: 'base64' }
-      )
-    : utils.book_new();
+  let workbook;
+  if (profile.templateUri) {
+    const info = await FileSystem.getInfoAsync(profile.templateUri);
+    if (!info.exists) {
+      throw new Error(
+        'Template file is missing. Please re-select your custom template under Export Settings.'
+      );
+    }
+    workbook = read(
+      await FileSystem.readAsStringAsync(profile.templateUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      }),
+      { type: 'base64' }
+    );
+  } else {
+    workbook = utils.book_new();
+  }
 
   const sheetName = profile.sheetName || profile.name || 'Export';
   const headers = profile.headers || [];
@@ -540,7 +549,13 @@ export async function pickCustomTemplate() {
 
   const asset = result.assets[0];
 
-  const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+  // Copy from the ephemeral DocumentPicker cache to a permanent location
+  // so the URI remains valid across sessions and after Android clears the cache.
+  const safeName = (asset.name || 'template.xlsx').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const stableUri = `${FileSystem.documentDirectory}leadlens_template_${safeName}`;
+  await FileSystem.copyAsync({ from: asset.uri, to: stableUri });
+
+  const base64 = await FileSystem.readAsStringAsync(stableUri, {
     encoding: FileSystem.EncodingType.Base64,
   });
 
@@ -559,7 +574,7 @@ export async function pickCustomTemplate() {
   );
 
   return {
-    asset,
+    asset: { ...asset, uri: stableUri },
     workbook,
     firstSheetName,
     headers,
@@ -568,14 +583,23 @@ export async function pickCustomTemplate() {
 }
 
 export async function exportUsingProfile(leads = [], profile = {}, user = {}) {
-  const workbook = profile.templateUri
-    ? read(
-        await FileSystem.readAsStringAsync(profile.templateUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        }),
-        { type: 'base64' }
-      )
-    : utils.book_new();
+  let workbook;
+  if (profile.templateUri) {
+    const info = await FileSystem.getInfoAsync(profile.templateUri);
+    if (!info.exists) {
+      throw new Error(
+        'Template file is missing. Please re-select your custom template under Export Settings.'
+      );
+    }
+    workbook = read(
+      await FileSystem.readAsStringAsync(profile.templateUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      }),
+      { type: 'base64' }
+    );
+  } else {
+    workbook = utils.book_new();
+  }
 
   const sheetName = profile.sheetName || profile.name || 'Export';
   const headers = profile.headers || [];
