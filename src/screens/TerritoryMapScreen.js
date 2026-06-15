@@ -14,6 +14,7 @@ import {
   DEFAULT_TERRITORY_REGION,
 } from '../utils/mapSafety';
 import { screenHeight } from '../utils/responsive';
+import { classifyVertical } from '../utils/leadProcessing';
 
 // Unicode constants for safety
 const ICON_CROSS = "\u2715";
@@ -76,6 +77,8 @@ const _toNormalizedZipEntry = (entry, defaults = {}) => {
 import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
 import { useFocusEffect } from '@react-navigation/native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
+import HomeownerFilterPanel from '../components/HomeownerFilterPanel';
+import HomeownerSignalCard from '../components/HomeownerSignalCard';
 import {
   COLORS,
   LEADS_STORAGE_KEY,
@@ -156,6 +159,13 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const [lowMemoryMode, setLowMemoryMode] = useState(false);
 
+  // Homeowner mode state
+  const [targetLensMode, setTargetLensMode] = useState('business');
+  const [homeownerFilter, setHomeownerFilter] = useState('all');
+  const [lookbackWindow, setLookbackWindow] = useState('90d');
+  const [homeownerProspects, setHomeownerProspects] = useState([]);
+  const [selectedHomeowner, setSelectedHomeowner] = useState(null);
+
   const DEFAULT_FILTERS = {
     businessType: 'All Businesses',
     leadStatus: 'All',
@@ -233,6 +243,41 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [clusters, setClusters] = useState([]);
 
   useEffect(() => { BetaTracker.screen('TerritoryMapScreen'); }, []);
+
+  // Homeowner data loading
+  useEffect(() => {
+    if (targetLensMode !== 'homeowner') return;
+    loadHomeownerProspects();
+  }, [targetLensMode, homeownerFilter, lookbackWindow]);
+
+  async function loadHomeownerProspects() {
+    try {
+      const { createSupabaseClient } = require('../utils/supabaseClient');
+      const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
+      const settings = supaRaw ? JSON.parse(supaRaw) : {};
+      const supabase = createSupabaseClient(settings);
+      if (!supabase) return;
+
+      let query = supabase
+        .from('targetlens_prospects')
+        .select('*')
+        .not('lat', 'is', null)
+        .not('lng', 'is', null)
+        .eq('lookback_bucket', lookbackWindow)
+        .order('efficiency_score', { ascending: false })
+        .limit(200);
+
+      if (homeownerFilter === 'new_owner') query = query.eq('prospect_type', 'new_homeowner');
+      if (homeownerFilter === 'current_owner') query = query.eq('prospect_type', 'current_homeowner');
+      if (homeownerFilter === 'rental') query = query.eq('prospect_type', 'rental');
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setHomeownerProspects(data || []);
+    } catch (err) {
+      console.error('[HomeownerLoad]', err.message);
+    }
+  }
 
   const moveMapTo = useCallback((target, duration = 800) => {
     if (!target?.latitude || !target?.longitude) return;
@@ -670,6 +715,11 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   const isLeadVisible = useCallback((lead) => {
     if (!lead?.coords || !filters) return false;
+    if (!activeProfile) return true;
+    const rawV = String(lead.vertical || '').trim();
+    const leadV = (rawV || classifyVertical(lead).vertical || 'Other').toLowerCase().trim();
+    const profC = String(activeProfile.category || '').toLowerCase().trim();
+    if (profC && profC !== 'pest control' && leadV && leadV !== profC && !leadV.includes(profC) && !profC.includes(leadV)) return false;
     if (!activeProfile || activeProfile.category === 'Pest Control') {
       if (filters.signalsOnly) {
         const hasLens = !!(lead.lensSignal || lead.lens_signal_id);
@@ -721,6 +771,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!isAppActive || !filters) return;
+    if (targetLensMode === 'homeowner') {
+      setClusters([]);
+      return;
+    }
     if (clusterBuildTimerRef.current) clearTimeout(clusterBuildTimerRef.current);
     clusterBuildTimerRef.current = setTimeout(() => {
       const points = [];
@@ -1071,6 +1125,31 @@ export default function TerritoryMapScreen({ navigation, route }) {
     <View style={s.root}>
       <ScreenHeader title="Territory Map" onBack={() => navigation.goBack()} badge={(totalLoadedZips || 0) + " ZIPS"} />
 
+      {/* Profile Mode Switcher */}
+      <View style={s.profileSwitcher}>
+        <TouchableOpacity
+          style={[s.profileTab, targetLensMode === 'business' && s.profileTabActive]}
+          onPress={() => setTargetLensMode('business')}
+        >
+          <Text style={s.profileTabText}>Business</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.profileTab, targetLensMode === 'homeowner' && s.profileTabActive]}
+          onPress={() => setTargetLensMode('homeowner')}
+        >
+          <Text style={s.profileTabText}>Homeowner</Text>
+        </TouchableOpacity>
+      </View>
+
+      {targetLensMode === 'homeowner' && (
+        <HomeownerFilterPanel
+          ownershipFilter={homeownerFilter}
+          setOwnershipFilter={setHomeownerFilter}
+          lookbackWindow={lookbackWindow}
+          setLookbackWindow={setLookbackWindow}
+        />
+      )}
+
       {/* Address search bar with autocomplete */}
       <View style={{ marginHorizontal: 12, marginVertical: 8, zIndex: 100 }}>
         <View style={s.searchBar}>
@@ -1120,9 +1199,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
           moveOnMarkerPress={false}
           onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
         >
-          {/* ZIP Boundary Polygons */}
-          {!lowMemoryMode && zipBoundaryOverlays}
-          {(clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
+          {/* ZIP Boundary Polygons — business mode only */}
+          {targetLensMode === 'business' && !lowMemoryMode && zipBoundaryOverlays}
+          {targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;
             if (!isFinite(lat) || !isFinite(lng)) return null;
@@ -1143,7 +1222,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             }} activeProfile={activeProfile} />;
             return null;
           }).filter(Boolean) : []}
-          {!lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
+          {targetLensMode === 'business' && !lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
             <LensSignalMapMarker
               key={`sig-fallback-${signal?.id || idx}`}
               signal={signal}
@@ -1160,7 +1239,37 @@ export default function TerritoryMapScreen({ navigation, route }) {
               activeProfile={activeProfile}
             />
           ))}
-          {(!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+          {targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+
+          {/* Homeowner mode pins */}
+          {targetLensMode === 'homeowner' && homeownerProspects
+            .filter(p => {
+              if (!p.lat || !p.lng) return false;
+              if (homeownerFilter === 'all') return true;
+              if (homeownerFilter === 'new_owner') return p.prospect_type === 'new_homeowner';
+              if (homeownerFilter === 'current_owner') return p.prospect_type === 'current_homeowner';
+              if (homeownerFilter === 'rental') return p.prospect_type === 'rental';
+              return true;
+            })
+            .map((prospect, i) => {
+              const isNewProp = prospect.prospect_type === 'new_homeowner';
+              const isRental = prospect.prospect_type === 'rental';
+              const pinColor = isNewProp ? '#00C9FF' : isRental ? '#CC1040' : '#7B3FBE';
+              const pinEmoji = isNewProp ? '\uD83D\uDD11' : isRental ? '\uD83D\uDCCB' : '\uD83C\uDFE0';
+              return (
+                <Marker
+                  key={`homeowner-${prospect.id || i}`}
+                  coordinate={{ latitude: prospect.lat, longitude: prospect.lng }}
+                  onPress={() => setSelectedHomeowner(prospect)}
+                  tracksViewChanges={false}
+                >
+                  <View style={[s.homeownerPin, { borderColor: pinColor }]}>
+                    <Text style={s.homeownerPinEmoji}>{pinEmoji}</Text>
+                  </View>
+                </Marker>
+              );
+            })
+          }
         </MapView>
         {showMapActionButtons && (
           <View style={[s.bottomActions, { bottom: insets.bottom + 16 }]}>
@@ -1400,6 +1509,37 @@ export default function TerritoryMapScreen({ navigation, route }) {
             />
           </View>
         )}
+
+        {/* Homeowner signal card */}
+        {targetLensMode === 'homeowner' && selectedHomeowner && (
+          <HomeownerSignalCard
+            prospect={selectedHomeowner}
+            onClose={() => setSelectedHomeowner(null)}
+            onAddToQueue={(p) => {
+              try {
+                const lead = {
+                  id: `homeowner_${Date.now()}`,
+                  businessName: p.grantee_name || p.owner_name || 'Homeowner',
+                  address: p.address,
+                  city: p.city,
+                  state: p.state,
+                  zip: p.zip,
+                  phone: p.owner_phone || '',
+                  email: p.owner_email || '',
+                  latitude: p.lat,
+                  longitude: p.lng,
+                  captureMethod: 'TargetLens_Homeowner',
+                  status: 'New',
+                  propertyType: 'Residential',
+                };
+                navigation.navigate('Review', { user, lead, editIdx: null });
+                setSelectedHomeowner(null);
+              } catch (e) {
+                console.warn('[TerritoryMapScreen] homeowner addToQueue failed:', e);
+              }
+            }}
+          />
+        )}
       </View>
     </View>
   );
@@ -1446,4 +1586,37 @@ const s = StyleSheet.create({
   closeBtn: { marginTop: 20, padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2, borderRadius: 10 },
   closeBtnText: { color: COLORS.text, fontWeight: '700' },
   smallBadge: { position: 'absolute', top: -4, right: -4 },
+  profileSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#0D1117',
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#1E2530',
+  },
+  profileTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  profileTabActive: {
+    backgroundColor: '#00C9FF22',
+    borderWidth: 1,
+    borderColor: '#00C9FF',
+  },
+  profileTabText: { color: '#B8BDD0', fontSize: 13, fontWeight: '600' },
+  homeownerPin: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#080A0F', borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+    elevation: 4, shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 3,
+  },
+  homeownerPinEmoji: { fontSize: 16 },
 });

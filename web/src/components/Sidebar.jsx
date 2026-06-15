@@ -25,6 +25,7 @@ export default function Sidebar() {
     { name: 'Prospects',       path: '/prospects',       icon: '🏢' },
     { name: 'Reps',            path: '/reps',            icon: '👥' },
     { name: 'Territories',     path: '/territories',     icon: '🗺️' },
+    { name: 'TargetLens',      path: '/targetlens',      icon: '🎯' },
     { name: 'Support Tickets', path: '/support-tickets', icon: '🎫' },
     { name: 'Roadmap',         path: '/roadmap',         icon: '🛣️' },
     { name: 'Settings',        path: '/settings',        icon: '⚙️' },

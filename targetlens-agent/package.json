@@ -1,0 +1,16 @@
+{
+  "name": "targetlens-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TargetLens homeowner prospect pipeline",
+  "main": "agent.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "scripts": {
+    "start": "node agent.js",
+    "start:tx": "node agent.js --state TX",
+    "start:ma": "node agent.js --state MA",
+    "start:enrich": "node agent.js --enrich"
+  }
+}
