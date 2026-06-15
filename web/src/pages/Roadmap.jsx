@@ -218,9 +218,15 @@ export default function LeadLensRoadmap() {
       setView("backlog");
       showToast("✓ Added to roadmap", "#00C9FF");
 
-      // Supabase sync
+      // Supabase sync — replace local id with Supabase's real UUID
       setSyncing(true);
-      await supabaseInsert(newItem);
+      const inserted = await supabaseInsert(newItem);
+      if (inserted && inserted[0]?.id) {
+        const supabaseItem = { ...newItem, id: inserted[0].id };
+        const withRealId = [supabaseItem, ...items];
+        setItems(withRealId);
+        saveLocal(withRealId);
+      }
       setSyncing(false);
     } catch (e) {
       console.error("Submit error:", e);
@@ -235,24 +241,42 @@ export default function LeadLensRoadmap() {
     setAnalyzing(false);
   };
 
-  const updateStatus = (id, status) => {
+  const updateStatus = async (id, status) => {
     const updated = items.map((i) => (i.id === id ? { ...i, status } : i));
     setItems(updated);
     saveLocal(updated);
     if (selected?.id === id) setSelected({ ...selected, status });
+    // Persist to Supabase
+    try {
+      const { error } = await supabase
+        .from("feature_requests")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+      showToast("✓ Status saved", "#22c55e");
+    } catch (e) {
+      console.warn("Supabase status update failed:", e.message);
+      showToast("Status saved locally only", "#F5C842");
+    }
   };
 
   const deleteItem = async (id) => {
+    if (!window.confirm("Delete this entry? This cannot be undone.")) return;
     const updated = items.filter((i) => i.id !== id);
     setItems(updated);
     saveLocal(updated);
     setSelected(null);
-    showToast("Deleted", "#CC1040");
     // Delete from Supabase
     try {
-      await supabase.from("feature_requests").delete().eq("id", id);
+      const { error } = await supabase
+        .from("feature_requests")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      showToast("Deleted", "#CC1040");
     } catch (e) {
       console.warn("Supabase delete failed:", e.message);
+      showToast("Deleted locally — DB sync failed", "#F5C842");
     }
   };
 
