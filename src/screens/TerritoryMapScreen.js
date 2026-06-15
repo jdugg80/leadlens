@@ -1189,9 +1189,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
           moveOnMarkerPress={false}
           onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
         >
-          {/* ZIP Boundary Polygons */}
-          {!lowMemoryMode && zipBoundaryOverlays}
-          {(clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
+          {/* ZIP Boundary Polygons — business mode only */}
+          {targetLensMode === 'business' && !lowMemoryMode && zipBoundaryOverlays}
+          {targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;
             if (!isFinite(lat) || !isFinite(lng)) return null;
@@ -1212,7 +1212,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             }} activeProfile={activeProfile} />;
             return null;
           }).filter(Boolean) : []}
-          {!lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
+          {targetLensMode === 'business' && !lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
             <LensSignalMapMarker
               key={`sig-fallback-${signal?.id || idx}`}
               signal={signal}
@@ -1229,7 +1229,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               activeProfile={activeProfile}
             />
           ))}
-          {(!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+          {targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
 
           {/* Homeowner mode pins */}
           {targetLensMode === 'homeowner' && homeownerProspects
