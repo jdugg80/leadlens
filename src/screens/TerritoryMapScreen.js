@@ -1295,8 +1295,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
             <TouchableOpacity style={s.actionBtn} onPress={searchNearby}><Text style={s.actionBtnIcon}>{ICON_SEARCH}</Text></TouchableOpacity>
             <TouchableOpacity
               style={s.actionBtn}
-              onPress={handleLensSignalAction}
-              onLongPress={() => setTargetLensVisible(true)}
+              onPress={() => setTargetLensVisible(true)}
+              onLongPress={handleLensSignalAction}
             >
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
