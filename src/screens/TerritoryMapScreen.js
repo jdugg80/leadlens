@@ -765,6 +765,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!isAppActive || !filters) return;
+    if (targetLensMode === 'homeowner') {
+      setClusters([]);
+      return;
+    }
     if (clusterBuildTimerRef.current) clearTimeout(clusterBuildTimerRef.current);
     clusterBuildTimerRef.current = setTimeout(() => {
       const points = [];
