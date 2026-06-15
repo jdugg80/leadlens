@@ -9,6 +9,7 @@ import SupportTickets from './pages/SupportTickets';
 import Roadmap from './pages/Roadmap';
 import Settings from './pages/Settings';
 import Sidebar from './components/Sidebar';
+import TargetLensHomeownerView from './components/TargetLensHomeownerView';
 import { supabase } from './lib/supabase';
 
 function App() {
@@ -57,6 +58,7 @@ function App() {
           <Route path="/support-tickets" element={protect(<SupportTickets />)} />
           <Route path="/roadmap"         element={protect(<Roadmap />)} />
           <Route path="/settings"        element={protect(<Settings />)} />
+          <Route path="/targetlens"      element={protect(<TargetLensHomeownerView />)} />
           <Route path="*"                element={<Navigate to="/" />} />
         </Routes>
       </main>
