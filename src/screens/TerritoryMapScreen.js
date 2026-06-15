@@ -714,6 +714,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   const isLeadVisible = useCallback((lead) => {
     if (!lead?.coords || !filters) return false;
+    if (!activeProfile) return true;
+    const leadV = String(lead.vertical || '').toLowerCase().trim();
+    const profC = String(activeProfile.category || '').toLowerCase().trim();
+    if (profC && profC !== 'pest control' && leadV && leadV !== profC && !leadV.includes(profC) && !profC.includes(leadV)) return false;
     if (!activeProfile || activeProfile.category === 'Pest Control') {
       if (filters.signalsOnly) {
         const hasLens = !!(lead.lensSignal || lead.lens_signal_id);
