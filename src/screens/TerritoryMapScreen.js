@@ -86,6 +86,8 @@ import {
   MAP_FILTERS_KEY,
   MAP_REGION_KEY,
   MAP_NEARBY_PLACES_KEY,
+  TARGET_LENS_PROFILES_KEY,
+  TARGET_LENS_SEARCH_MODE_KEY,
 } from '../constants';
 import { ScreenHeader } from '../components/UI';
 import {
@@ -220,6 +222,23 @@ export default function TerritoryMapScreen({ navigation, route }) {
       sub.remove();
       memSub?.remove?.();
     };
+  }, []);
+
+  // Load saved TargetLens profile on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(TARGET_LENS_PROFILES_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.category) setActiveProfile(parsed);
+        }
+        const modeRaw = await AsyncStorage.getItem(TARGET_LENS_SEARCH_MODE_KEY);
+        if (modeRaw) setSearchMode(modeRaw);
+      } catch (e) {
+        console.warn('[TerritoryMap] Failed to load saved TargetLens profile:', e);
+      }
+    })();
   }, []);
 
   const [filtersVisible, setFiltersVisible] = useState(false);
