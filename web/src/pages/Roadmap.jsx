@@ -84,7 +84,7 @@ JSON shape:
   "affected_screens": ["array of screen names"],
   "dependencies": ["any libs, APIs, or features required"],
   "effort_estimate": "e.g. 2-4 hours / 1-2 days / 3-5 days",
-  "suggested_update": "e.g. Beta-49 or Beta-50",
+  "suggested_update": "e.g. Beta-51 or Beta-52",
   "update_type": "ota|rebuild|config",
   "agent_prompt": "A complete copy-paste Claude prompt to implement this fix/feature. Include all project context, file references, and exact instructions needed.",
   "task_breakdown": [
@@ -103,16 +103,53 @@ JSON shape:
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 1500,
+      max_tokens: 4000,
       system: systemPrompt,
       messages: [{ role: "user", content: rawInput }],
     }),
   });
 
   const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || `API error ${response.status}`);
   const text = data.content?.map((b) => b.text || "").join("") || "";
-  const clean = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
+  let clean = text.replace(/```json|```/g, "").trim();
+
+  // If response was truncated, attempt to close the JSON so parse doesn't blow up
+  if (clean && !clean.endsWith("}")) {
+    // Close any open string, then close open objects/arrays
+    const openBrackets = (clean.match(/\[/g) || []).length - (clean.match(/\]/g) || []).length;
+    const openBraces  = (clean.match(/\{/g) || []).length - (clean.match(/\}/g) || []).length;
+    // If we're inside a string value, close it first
+    const quoteCount = (clean.match(/(?<!\\)"/g) || []).length;
+    if (quoteCount % 2 !== 0) clean += '"';
+    for (let i = 0; i < openBrackets; i++) clean += "]";
+    for (let i = 0; i < openBraces;  i++) clean += "}";
+  }
+
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    // Last resort: extract what fields we can with a regex sweep
+    const get = (key) => {
+      const m = clean.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`, "s"));
+      return m ? m[1] : null;
+    };
+    return {
+      title:          get("title")          || "Untitled",
+      summary:        get("summary")        || text.slice(0, 200),
+      type,
+      priority:       get("priority")       || "medium",
+      priority_reason:get("priority_reason")|| "",
+      complexity:     get("complexity")     || "medium",
+      affected_screens: [],
+      dependencies:   [],
+      effort_estimate:get("effort_estimate")|| "unknown",
+      suggested_update:get("suggested_update")|| "Beta-51",
+      update_type:    get("update_type")    || "rebuild",
+      agent_prompt:   get("agent_prompt")   || "(Response was truncated — hit Re-Analyze to retry)",
+      task_breakdown: [],
+    };
+  }
 }
 
 // ── Priority config ──────────────────────────────────────────────────────────
