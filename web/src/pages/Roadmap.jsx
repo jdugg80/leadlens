@@ -280,6 +280,69 @@ export default function LeadLensRoadmap() {
     }
   };
 
+  const [reAnalyzing, setReAnalyzing] = useState(false);
+
+  const reAnalyzeItem = async (item) => {
+    if (!item.raw_input) {
+      showToast("No original input to re-analyze", "#F5C842");
+      return;
+    }
+    setReAnalyzing(true);
+    try {
+      const spec = await analyzeWithClaude(item.raw_input, item.type || "feature", activeProject.context);
+      const updated = items.map((i) =>
+        i.id === item.id ? { ...i, ...spec } : i
+      );
+      setItems(updated);
+      saveLocal(updated);
+      const updatedItem = { ...item, ...spec };
+      setSelected(updatedItem);
+      // Persist to Supabase
+      const { error } = await supabase
+        .from("feature_requests")
+        .update({
+          title: spec.title,
+          summary: spec.summary,
+          priority: spec.priority,
+          priority_reason: spec.priority_reason,
+          complexity: spec.complexity,
+          affected_screens: spec.affected_screens,
+          dependencies: spec.dependencies,
+          effort_estimate: spec.effort_estimate,
+          suggested_update: spec.suggested_update,
+          update_type: spec.update_type,
+          agent_prompt: spec.agent_prompt,
+          task_breakdown: spec.task_breakdown,
+        })
+        .eq("id", item.id);
+      if (error) throw error;
+      showToast("✓ Re-analyzed and saved", "#00C9FF");
+    } catch (e) {
+      console.error("Re-analyze failed:", e);
+      showToast("Re-analyze failed: " + (e.message || "unknown"), "#CC1040");
+    }
+    setReAnalyzing(false);
+  };
+
+  const updateSuggestedUpdate = async (id, value) => {
+    const updated = items.map((i) =>
+      i.id === id ? { ...i, suggested_update: value } : i
+    );
+    setItems(updated);
+    saveLocal(updated);
+    if (selected?.id === id) setSelected({ ...selected, suggested_update: value });
+    try {
+      const { error } = await supabase
+        .from("feature_requests")
+        .update({ suggested_update: value })
+        .eq("id", id);
+      if (error) throw error;
+      showToast("✓ Beta version updated", "#22c55e");
+    } catch (e) {
+      showToast("Saved locally only", "#F5C842");
+    }
+  };
+
   // Group items into suggested update packages
   const packages = useCallback(() => {
     const groups = {};
@@ -686,7 +749,6 @@ export default function LeadLensRoadmap() {
             {/* Meta row */}
             <div style={styles.modalMetaRow}>
               {[
-                ["UPDATE", selected.suggested_update],
                 ["EFFORT", selected.effort_estimate],
                 ["COMPLEXITY", selected.complexity],
                 ["DEPLOY TYPE", selected.update_type === "ota" ? "⚡ OTA" : selected.update_type === "config" ? "☁ CONFIG" : "🔨 REBUILD"],
@@ -697,6 +759,28 @@ export default function LeadLensRoadmap() {
                   <div style={styles.modalMetaVal}>{val || "—"}</div>
                 </div>
               ))}
+              {/* Editable beta version chip */}
+              <div style={styles.modalMetaChip}>
+                <div style={styles.modalMetaLabel}>UPDATE</div>
+                <input
+                  value={selected.suggested_update || ""}
+                  onChange={(e) => setSelected({ ...selected, suggested_update: e.target.value })}
+                  onBlur={(e) => updateSuggestedUpdate(selected.id, e.target.value)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    borderBottom: `1px solid #00C9FF44`,
+                    color: "#B8BDD0",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    width: 80,
+                    outline: "none",
+                    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+                    padding: "2px 0",
+                  }}
+                  title="Click to edit beta version"
+                />
+              </div>
             </div>
 
             {/* Priority reason */}
@@ -748,7 +832,42 @@ export default function LeadLensRoadmap() {
 
             {/* Agent Scripts */}
             <div style={styles.sectionBlock}>
-              <div style={styles.sectionLabel}>AGENT SCRIPTS</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={styles.sectionLabel}>AGENT SCRIPTS</div>
+                <button
+                  onClick={() => reAnalyzeItem(selected)}
+                  disabled={reAnalyzing}
+                  style={{
+                    padding: "5px 14px",
+                    background: reAnalyzing ? "transparent" : `#00C9FF18`,
+                    border: `1px solid #00C9FF55`,
+                    borderRadius: 5, color: "#00C9FF",
+                    fontSize: 9, letterSpacing: 1.5, fontWeight: 700,
+                    cursor: reAnalyzing ? "not-allowed" : "pointer",
+                    opacity: reAnalyzing ? 0.6 : 1,
+                    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {reAnalyzing ? "◌ ANALYZING..." : "⟳ RE-ANALYZE WITH AI"}
+                </button>
+              </div>
+
+              {!selected.agent_prompt && !reAnalyzing && (
+                <div style={{
+                  padding: "14px 16px",
+                  background: "#2a1500",
+                  border: "1px solid #FF6B3544",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: "#FF6B35",
+                  marginBottom: 10,
+                  letterSpacing: 0.5,
+                }}>
+                  ⚠ No agent script — this entry was submitted without AI analysis. Hit RE-ANALYZE to generate one.
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 8, marginBottom: 10, marginTop: 6 }}>
                 <button
                   onClick={() => setAgentTab("prompt")}
