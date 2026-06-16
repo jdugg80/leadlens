@@ -39,6 +39,8 @@ import SettingsScreen             from './src/screens/SettingsScreen';
 import ConsentScreen              from './src/screens/ConsentScreen';
 import FAQScreen                  from './src/screens/FAQScreen';
 import SupportScreen              from './src/screens/SupportScreen';
+import BugReportScreen            from './src/screens/BugReportScreen';
+import FeatureRequestScreen       from './src/screens/FeatureRequestScreen';
 import LegalDocumentScreen        from './src/screens/LegalDocumentScreen';
 import TerritoryManagerScreen     from './src/screens/TerritoryManagerScreen';
 import TerritoryMapScreen         from './src/screens/TerritoryMapScreen';
@@ -387,6 +389,8 @@ export default function App() {
           <Stack.Screen name="Consent"             component={ConsentScreen} />
           <Stack.Screen name="FAQ"                 component={FAQScreen} />
           <Stack.Screen name="Support"             component={SupportScreen} />
+          <Stack.Screen name="BugReportScreen" component={BugReportScreen} />
+          <Stack.Screen name="FeatureRequestScreen" component={FeatureRequestScreen} />
           <Stack.Screen name="LegalDocument"       component={LegalDocumentScreen} />
           <Stack.Screen name="Export"              component={ExportScreen} />
           <Stack.Screen name="Admin"               component={AdminScreen} />

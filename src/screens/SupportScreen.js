@@ -1,703 +1,209 @@
-import React, { useState, useRef, useEffect } from 'react';
+/**
+ * SupportScreen.js — BETA-47 Redesign
+ *
+ * Clean hub screen: header + 2 nav buttons + App Metadata.
+ * No form here — each button navigates to its own screen.
+ *
+ * Navigation targets:
+ *   - 'BugReportScreen'
+ *   - 'FeatureRequestScreen'
+ */
+
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
-  Modal,
-  FlatList,
-  SafeAreaView,
-  Image,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as Device from 'expo-device';
+import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { createSupabaseClient } from '../utils/supabaseClient';
-import { storageBridge } from '../utils/storage';
-import { showThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
 
-const COLORS = {
-  bg: '#080A0F',
-  accent: '#00C9FF',
-  accent2: '#CC1040',
-  purple: '#7B3FBE',
-  chrome: '#B8BDD0',
-  surface: '#1A1D24',
-  border: '#2A2D34',
-  error: '#FF6B6B',
-  success: '#4ECB71',
-};
+const SUPABASE_URL = 'https://qkbvwryucaakkkqaqvka.supabase.co';
+const SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrYnZ3cnl1Y2Fha2trcWFxdmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzODIyNzUsImV4cCI6MjA5MTk1ODI3NX0.Mfi0ca1Ea_tdJlknL-8XKY2MwZpDAnzExco3saLc5RU';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
+});
+
+function getAppMeta() {
+  const version =
+    Constants.expoConfig?.version || Constants.manifest?.version || '—';
+  const build =
+    Constants.expoConfig?.extra?.betaBuild ||
+    Constants.manifest?.extra?.betaBuild ||
+    Constants.expoConfig?.android?.versionCode ||
+    '—';
+  return { version, build };
+}
 
 export default function SupportScreen({ navigation }) {
-  const supabase = createSupabaseClient();
-  const [expectedIssue, setExpectedIssue] = useState('');
-  const [actualIssue, setActualIssue] = useState('');
-  const [issueType, setIssueType] = useState('Bug');
-  const [showTypeModal, setShowTypeModal] = useState(false);
-  const [attachments, setAttachments] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [appVersion, setAppVersion] = useState('');
-  const [repName, setRepName] = useState('');
-  const [employeeId, setEmployeeId] = useState('N/A');
-  const [branch, setBranch] = useState('N/A');
-  const [platform] = useState('android');
-  const [deviceModel, setDeviceModel] = useState('Unknown');
-  const [osVersion, setOsVersion] = useState('Unknown');
-  const errorScrollRef = useRef(null);
-
-  // ── Roadmap submission state ─────────────────────────────────────────────
-  const [roadmapModalVisible, setRoadmapModalVisible] = useState(false);
-  const [roadmapType, setRoadmapType] = useState('bug');
-  const [roadmapTitle, setRoadmapTitle] = useState('');
-  const [roadmapDesc, setRoadmapDesc] = useState('');
-  const [roadmapSubmitting, setRoadmapSubmitting] = useState(false);
-  const [roadmapSuccess, setRoadmapSuccess] = useState(false);
-
-  const issueTypes = ['Bug', 'Feature Request', 'Performance Issue', 'UI/UX Feedback', 'Other'];
+  const [user, setUser] = useState(null);
+  const { version, build } = getAppMeta();
 
   useEffect(() => {
-    loadUserInfo();
-    loadDeviceInfo();
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.user) setUser(data.session.user);
+    })();
   }, []);
 
-  const loadUserInfo = async () => {
-    try {
-      // Pull name from auth session first
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const meta = session.user.user_metadata || {};
-        const authName = meta.full_name || meta.name || session.user.email || '';
-        if (authName) setRepName(authName);
-      }
-
-      // Override with locally stored values if present
-      const storedName   = await storageBridge.getItem('repName');
-      const storedId     = await storageBridge.getItem('employeeId');
-      const storedBranch = await storageBridge.getItem('branch');
-
-      if (storedName)   setRepName(storedName);
-      if (storedId)     setEmployeeId(storedId);
-      if (storedBranch) setBranch(storedBranch);
-    } catch (error) {
-      console.error('Error loading user info:', error);
-    }
-  };
-
-  const loadDeviceInfo = async () => {
-    try {
-      // Get device model
-      const model = Device.modelName || 'Unknown';
-      setDeviceModel(model);
-
-      // Get OS version
-      const version = Platform.Version || 'Unknown';
-      setOsVersion(version.toString());
-
-      // Get app version from Constants
-      const config = Constants.expoConfig || Constants.manifest || {};
-      const v = config.version || 'Unknown';
-      const runtime = config.runtimeVersion || '';
-      const beta = config.extra?.betaBuild || '';
-      setAppVersion(`v${v}${runtime ? ` (runtime ${runtime})` : ''}${beta ? ` · BETA-${beta}` : ''}`);
-    } catch (error) {
-      console.error('Error loading device info:', error);
-    }
-  };
-
-  const handleRoadmapSubmit = async () => {
-    if (!roadmapTitle.trim() || !roadmapDesc.trim()) {
-      showThemedAlert('Missing Info', 'Please fill in both the title and description.');
-      return;
-    }
-    setRoadmapSubmitting(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const submittedBy = session?.user?.email || session?.user?.id || 'anonymous-rep';
-      const record = {
-        id: Date.now().toString(),
-        project: 'leadlens',
-        type: roadmapType,
-        raw_input: `TITLE: ${roadmapTitle.trim()}\n\nDESCRIPTION: ${roadmapDesc.trim()}`,
-        title: roadmapTitle.trim(),
-        summary: roadmapDesc.trim().slice(0, 200),
-        source: 'rep',
-        submitted_by: submittedBy,
-        status: 'backlog',
-        created_at: new Date().toISOString(),
-      };
-      const { error } = await supabase.from('feature_requests').insert(record);
-      if (error) throw error;
-      setRoadmapModalVisible(false);
-      setRoadmapTitle('');
-      setRoadmapDesc('');
-      setRoadmapSuccess(true);
-      setTimeout(() => setRoadmapSuccess(false), 4000);
-    } catch (err) {
-      console.error('Roadmap submission error:', err);
-      showThemedAlert('Submission Failed', 'Unable to submit right now. Please try again.');
-    }
-    setRoadmapSubmitting(false);
-  };
-
-  const handleSubmitTicket = async () => {
-    // Validation
-    if (!expectedIssue.trim()) {
-      showThemedAlert('Validation Error', 'Please describe what you expected');
-      return;
-    }
-    if (!actualIssue.trim()) {
-      showThemedAlert('Validation Error', 'Please describe what actually happened');
-      return;
-    }
-    setLoading(true);
-
-    try {
-      // Get current user session
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session) {
-        showThemedAlert('Authentication Error', 'Unable to verify user session. Please log in again.');
-        setLoading(false);
-        return;
-      }
-
-      const userId = session.user.id;
-      const timestamp = new Date().toISOString();
-
-      // Prepare ticket data
-      const ticketData = {
-        user_id:         userId,
-        rep_email:       session.user.email || '',
-        rep_name:        repName || session.user.email || 'Unknown',
-        issue_type:      issueType,
-        subject:         `[${issueType}] ${expectedIssue.substring(0, 80)}`,
-        details:         actualIssue,
-        expected:        expectedIssue,
-        actual:          actualIssue,
-        app_version:     appVersion,
-        platform:        platform,
-        device_model:    deviceModel,
-        os_version:      osVersion,
-        employee_num:    employeeId || 'N/A',
-        branch_num:      branch || 'N/A',
-        attachments:     attachments.length ? attachments : null,
-        status:          'open',
-      };
-
-      // Insert ticket into Supabase
-      const { data, error } = await supabase
-        .from('support_tickets')
-        .insert([ticketData])
-        .select();
-
-      if (error) {
-        console.error('Ticket submission error:', error);
-        showThemedAlert('Submission Failed', `Error: ${error.message}`);
-        setLoading(false);
-        return;
-      }
-
-      // Reset form
-      setExpectedIssue('');
-      setActualIssue('');
-      setIssueType('Bug');
-      setAttachments([]);
-
-      showThemedAlert(
-        '✅ Ticket Submitted',
-        `Support ticket #${data[0]?.id || 'submitted'} has been created. Our team will review it shortly.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.goBack();
-            }
-          }
-        ]
-      );
-    } catch (error) {
-      console.error('Unexpected error during submission:', error);
-      showThemedAlert('Submission Failed', error.message || 'An unexpected error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderIssueTypeModal = () => (
-    <Modal
-      visible={showTypeModal}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setShowTypeModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Select Issue Type</Text>
-          <FlatList
-            data={issueTypes}
-            keyExtractor={(item) => item}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.issueTypeItem,
-                  issueType === item && styles.issueTypeItemActive,
-                ]}
-                onPress={() => {
-                  setIssueType(item);
-                  setShowTypeModal(false);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.issueTypeText,
-                    issueType === item && styles.issueTypeTextActive,
-                  ]}
-                >
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            )}
-          />
-          <TouchableOpacity
-            style={styles.modalCloseButton}
-            onPress={() => setShowTypeModal(false)}
-          >
-            <Text style={styles.modalCloseText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-
   return (
-    <SafeAreaView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+    >
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={28} color={COLORS.accent} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Support & Feedback</Text>
-        <View style={styles.betaBadge}>
-          <Text style={styles.betaBadgeText}>BETA</Text>
-        </View>
+        <Text style={styles.headerTitle}>Support</Text>
+        <Text style={styles.headerSub}>
+          Every report and idea goes straight to the team.
+        </Text>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        ref={errorScrollRef}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── Roadmap Submission Cards ────────────────────────────────── */}
-        <View style={styles.roadmapRow}>
-          <TouchableOpacity
-            style={[styles.roadmapCard, { borderColor: '#FF6B3544' }]}
-            onPress={() => { setRoadmapType('bug'); setRoadmapModalVisible(true); }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="bug-outline" size={22} color="#FF6B35" />
-            <Text style={[styles.roadmapCardTitle, { color: '#FF6B35' }]}>Report a Bug</Text>
-            <Text style={styles.roadmapCardSub}>Send to dev team</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.roadmapCard, { borderColor: '#7B3FBE44' }]}
-            onPress={() => { setRoadmapType('feature'); setRoadmapModalVisible(true); }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="bulb-outline" size={22} color="#7B3FBE" />
-            <Text style={[styles.roadmapCardTitle, { color: '#7B3FBE' }]}>Suggest a Feature</Text>
-            <Text style={styles.roadmapCardSub}>Share your idea</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.divider} />
-
-        <Text style={styles.sectionLabel}>WHAT DID YOU EXPECT?</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Describe expected behavior..."
-          placeholderTextColor={COLORS.chrome}
-          multiline
-          numberOfLines={4}
-          value={expectedIssue}
-          onChangeText={setExpectedIssue}
-          editable={!loading}
-        />
-
-        <Text style={styles.sectionLabel}>WHAT ACTUALLY HAPPENED?</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Describe the issue..."
-          placeholderTextColor={COLORS.chrome}
-          multiline
-          numberOfLines={5}
-          value={actualIssue}
-          onChangeText={setActualIssue}
-          editable={!loading}
-        />
-
-        <Text style={styles.sectionLabel}>ISSUE TYPE</Text>
+      {/* Action Buttons */}
+      <View style={styles.actionRow}>
         <TouchableOpacity
-          style={styles.issueTypeButton}
-          onPress={() => setShowTypeModal(true)}
-          disabled={loading}
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate('BugReportScreen', {
+  repEmail: user?.email || user?.user_metadata?.email || '',
+  repName: user?.user_metadata?.repName || user?.user_metadata?.full_name || '',
+})}
+          activeOpacity={0.8}
         >
-          <Text style={styles.issueTypeButtonText}>{issueType}</Text>
-          <Ionicons name="chevron-down" size={20} color={COLORS.accent} />
-        </TouchableOpacity>
-
-        <Text style={styles.sectionLabel}>ATTACHMENTS</Text>
-        <View style={styles.attachmentContainer}>
-          <Text style={styles.attachmentText}>
-            {attachments.length > 0
-              ? `${attachments.length} attachment${attachments.length !== 1 ? 's' : ''} selected`
-              : 'No attachments selected yet'}
-          </Text>
-        </View>
-
-        <Text style={styles.sectionLabel}>APP METADATA</Text>
-        <View style={styles.metadataBox}>
-          <Text style={styles.metadataText}>App Version: {appVersion}</Text>
-          <Text style={styles.metadataText}>Platform: {platform}</Text>
-          <Text style={styles.metadataText}>Device Model: {deviceModel}</Text>
-          <Text style={styles.metadataText}>Android Version: {osVersion}</Text>
-          <Text style={styles.metadataText}>Rep Name: {repName || 'Not set'}</Text>
-          <Text style={styles.metadataText}>Employee #: {employeeId}</Text>
-          <Text style={styles.metadataText}>Branch / Dept / Team: {branch}</Text>
-          <Text style={styles.metadataText}>Issue Type: {issueType}</Text>
-          <Text style={styles.metadataText}>
-            Time: {new Date().toISOString()}
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            loading && styles.submitButtonDisabled,
-          ]}
-          onPress={handleSubmitTicket}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={COLORS.accent} />
-          ) : (
-            <Text style={styles.submitButtonText}>SUBMIT SUPPORT TICKET</Text>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.spacer} />
-      </ScrollView>
-
-      {renderIssueTypeModal()}
-      <ThemedAlertHost />
-
-      {/* ── Roadmap Submission Modal ──────────────────────────────────────── */}
-      <Modal
-        visible={roadmapModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setRoadmapModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { width: '92%' }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons
-                  name={roadmapType === 'bug' ? 'bug-outline' : 'bulb-outline'}
-                  size={18}
-                  color={roadmapType === 'bug' ? '#FF6B35' : '#7B3FBE'}
-                />
-                <Text style={[styles.modalTitle, { color: roadmapType === 'bug' ? '#FF6B35' : '#7B3FBE' }]}>
-                  {roadmapType === 'bug' ? 'REPORT A BUG' : 'SUGGEST A FEATURE'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setRoadmapModalVisible(false)}>
-                <Ionicons name="close" size={22} color="#444" />
-              </TouchableOpacity>
-            </View>
-            <Text style={{ color: '#555', fontSize: 12, marginBottom: 16, lineHeight: 18 }}>
-              {roadmapType === 'bug'
-                ? 'Describe what happened, which screen, and how to reproduce it.'
-                : 'Describe the feature and what problem it solves.'}
-            </Text>
-            <Text style={styles.sectionLabel}>TITLE</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 44, marginBottom: 14 }]}
-              value={roadmapTitle}
-              onChangeText={setRoadmapTitle}
-              placeholder={roadmapType === 'bug' ? 'e.g. Map pins disappear after filter' : 'e.g. Add voice notes to prospect cards'}
-              placeholderTextColor="#333"
-              maxLength={100}
-            />
-            <Text style={styles.sectionLabel}>DESCRIPTION</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 90 }]}
-              value={roadmapDesc}
-              onChangeText={setRoadmapDesc}
-              placeholder={roadmapType === 'bug' ? 'Steps to reproduce? How often? Which screen?' : 'What would this do? Who benefits?'}
-              placeholderTextColor="#333"
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-            <TouchableOpacity
-              style={[styles.submitButton, {
-                backgroundColor: 'transparent',
-                borderWidth: 1,
-                borderColor: roadmapType === 'bug' ? '#FF6B3555' : '#7B3FBE55',
-                marginBottom: 8,
-                opacity: roadmapSubmitting ? 0.5 : 1,
-              }]}
-              onPress={handleRoadmapSubmit}
-              disabled={roadmapSubmitting}
-            >
-              {roadmapSubmitting
-                ? <ActivityIndicator size="small" color={roadmapType === 'bug' ? '#FF6B35' : '#7B3FBE'} />
-                : <Text style={[styles.submitButtonText, { color: roadmapType === 'bug' ? '#FF6B35' : '#7B3FBE' }]}>
-                    SUBMIT {roadmapType === 'bug' ? 'BUG REPORT' : 'FEATURE REQUEST'} →
-                  </Text>
-              }
-            </TouchableOpacity>
+          <Text style={styles.actionBtnIcon}>🐛</Text>
+          <View style={styles.actionBtnText}>
+            <Text style={styles.actionBtnLabel}>Report a Bug</Text>
+            <Text style={styles.actionBtnHint}>Crashes, broken features, unexpected behavior</Text>
           </View>
-        </View>
-      </Modal>
+          <Text style={styles.actionBtnChevron}>›</Text>
+        </TouchableOpacity>
 
-      {/* ── Success Toast ─────────────────────────────────────────────────── */}
-      {roadmapSuccess && (
-        <View style={styles.successToast}>
-          <Ionicons name="checkmark-circle" size={18} color="#00C9FF" />
-          <Text style={styles.successToastText}>Submitted! Thanks for the feedback.</Text>
+        <TouchableOpacity
+          style={[styles.actionBtn, styles.actionBtnPurple]}
+          onPress={() => navigation.navigate('FeatureRequestScreen', {
+  repEmail: user?.email || user?.user_metadata?.email || '',
+  repName: user?.user_metadata?.repName || user?.user_metadata?.full_name || '',
+})}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.actionBtnIcon}>💡</Text>
+          <View style={styles.actionBtnText}>
+            <Text style={styles.actionBtnLabel}>Suggest a Feature</Text>
+            <Text style={styles.actionBtnHint}>Ideas to make LeadLens work better for you</Text>
+          </View>
+          <Text style={styles.actionBtnChevron}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* App Metadata */}
+      <View style={styles.metaCard}>
+        <Text style={styles.metaHeader}>App Info</Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaKey}>Version</Text>
+          <Text style={styles.metaVal}>{version}</Text>
         </View>
-      )}
-    </SafeAreaView>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaKey}>Build</Text>
+          <Text style={styles.metaVal}>BETA-{build}</Text>
+        </View>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaKey}>Platform</Text>
+          <Text style={styles.metaVal}>
+            {Platform.OS} {Platform.Version}
+          </Text>
+        </View>
+        {user?.email && (
+          <View style={[styles.metaRow, { borderBottomWidth: 0 }]}>
+            <Text style={styles.metaKey}>Account</Text>
+            <Text style={styles.metaVal}>{user.email}</Text>
+          </View>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
+const C = {
+  bg: '#080A0F',
+  surface: '#10141C',
+  border: '#1C2130',
+  cyan: '#00C9FF',
+  purple: '#7B3FBE',
+  chrome: '#B8BDD0',
+  muted: '#555C6E',
+  white: '#FFFFFF',
+};
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
+  container: { flex: 1, backgroundColor: C.bg },
+  content: { padding: 20, paddingBottom: 60 },
+
+  header: { marginBottom: 28 },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.chrome,
-    flex: 1,
-    marginLeft: 12,
-  },
-  betaBadge: {
-    backgroundColor: COLORS.purple,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  betaBadgeText: {
-    color: COLORS.accent,
-    fontSize: 11,
+    fontSize: 26,
     fontWeight: '700',
+    color: C.white,
+    letterSpacing: 0.3,
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.chrome,
-    opacity: 0.6,
-    marginBottom: 8,
-    letterSpacing: 1,
-  },
-  input: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 2,
-    borderColor: COLORS.accent,
-    borderRadius: 12,
-    padding: 12,
-    color: COLORS.chrome,
+  headerSub: {
+    marginTop: 6,
     fontSize: 14,
-    marginBottom: 20,
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  issueTypeButton: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 2,
-    borderColor: COLORS.accent,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  issueTypeButtonText: {
-    color: COLORS.chrome,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: 16,
-    width: '80%',
-    maxHeight: '70%',
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.accent,
-    marginBottom: 12,
-  },
-  issueTypeItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: COLORS.bg,
-  },
-  issueTypeItemActive: {
-    backgroundColor: COLORS.accent,
-  },
-  issueTypeText: {
-    color: COLORS.chrome,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  issueTypeTextActive: {
-    color: COLORS.bg,
-  },
-  modalCloseButton: {
-    marginTop: 12,
-    paddingVertical: 10,
-    backgroundColor: COLORS.border,
-    borderRadius: 8,
-  },
-  modalCloseText: {
-    color: COLORS.chrome,
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  attachmentContainer: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 20,
-  },
-  attachmentText: {
-    color: COLORS.chrome,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  metadataBox: {
-    backgroundColor: COLORS.surface,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.purple,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginBottom: 20,
-  },
-  metadataText: {
-    color: COLORS.chrome,
-    fontSize: 12,
-    fontWeight: '400',
-    marginBottom: 6,
-  },
-  submitButton: {
-    backgroundColor: COLORS.accent,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  submitButtonDisabled: {
-    opacity: 0.6,
-  },
-  submitButtonText: {
-    color: COLORS.bg,
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  spacer: {
-    height: 20,
+    color: C.chrome,
+    lineHeight: 20,
   },
 
-  // ── Roadmap cards ──────────────────────────────────────────────────────
-  roadmapRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  roadmapCard: {
-    flex: 1,
-    backgroundColor: '#0d1018',
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    alignItems: 'flex-start',
-    gap: 4,
-  },
-  roadmapCardTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 6,
-  },
-  roadmapCardSub: {
-    color: '#444',
-    fontSize: 11,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#1a2030',
-    marginBottom: 20,
-  },
-  successToast: {
-    position: 'absolute',
-    bottom: 30,
-    left: 20,
-    right: 20,
-    backgroundColor: '#0d1018',
-    borderWidth: 1,
-    borderColor: '#00C9FF44',
-    borderRadius: 10,
-    padding: 14,
+  actionRow: { gap: 12, marginBottom: 8 },
+  actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.cyan,
+    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    gap: 14,
   },
-  successToastText: {
-    color: '#00C9FF',
-    fontSize: 12,
-    flex: 1,
+  actionBtnPurple: { borderColor: C.purple },
+  actionBtnIcon: { fontSize: 22 },
+  actionBtnText: { flex: 1 },
+  actionBtnLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: C.white,
+    marginBottom: 3,
+  },
+  actionBtnHint: { fontSize: 12, color: C.muted, lineHeight: 16 },
+  actionBtnChevron: { fontSize: 22, color: C.muted, marginLeft: 4 },
+
+  metaCard: {
+    marginTop: 32,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 16,
+  },
+  metaHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.muted,
     letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 12,
   },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  metaKey: { fontSize: 13, color: C.muted },
+  metaVal: { fontSize: 13, color: C.chrome, fontWeight: '500' },
 });

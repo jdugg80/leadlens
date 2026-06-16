@@ -577,6 +577,46 @@ async function updateScarlett(buildInfo, newVersion, apkUrl) {
   ok('Scarlett app_config updated');
 }
 
+// ─── 9b. Insert beta_releases entry ───────────────────────────────────
+
+async function insertBetaRelease(buildInfo) {
+  console.log('\n🔄 Inserting beta_releases entry...');
+
+  const serviceKey = process.env.SCARLETT_SERVICE_ROLE_KEY;
+
+  if (DRY_RUN) {
+    dryLog(`Would INSERT into ${SCARLETT_URL}/rest/v1/beta_releases`);
+    dryLog(`  build_number=${buildInfo.buildNumber}, version_label=${buildInfo.version}`);
+    return;
+  }
+
+  const res = await fetch(`${SCARLETT_URL}/rest/v1/beta_releases`, {
+    method: 'POST',
+    headers: {
+      'apikey':        serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type':  'application/json',
+      'Prefer':        'return=minimal',
+    },
+    body: JSON.stringify({
+      build_number:    buildInfo.buildNumber,
+      version_label:    buildInfo.version,
+      changelog:       buildInfo.changesText || null,
+      released_at:      new Date().toISOString(),
+    }),
+  });
+
+  if (!res.ok) {
+    // 409 = already exists (idempotent)
+    if (res.status !== 409) {
+      throw new Error(`beta_releases insert failed: HTTP ${res.status} — ${await res.text()}`);
+    }
+    warn('beta_releases row already exists — skipping insert');
+  } else {
+    ok(`beta_releases inserted: ${buildInfo.version}`);
+  }
+}
+
 // ─── 10. Notify testers (Resend email + Expo push) ─────────────────────────
 
 async function notifyTesters(buildInfo, newVersion, downloadUrl) {
@@ -788,6 +828,7 @@ async function main() {
     step(8, TOTAL, 'Publishing — GitHub + Scarlett + testers');
     const { releaseUrl, apkDownloadUrl } = await createGitHubRelease(buildInfo, apkPath, repoInfo, newVersion);
     await updateScarlett(buildInfo, newVersion, apkDownloadUrl);
+    await insertBetaRelease(buildInfo);
     await notifyTesters(buildInfo, newVersion, apkDownloadUrl);
 
     step(9, TOTAL, 'Committing and pushing to git');

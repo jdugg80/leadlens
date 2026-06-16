@@ -1290,6 +1290,12 @@ export default function TerritoryMapScreen({ navigation, route }) {
             })
           }
         </MapView>
+        {activeProfile && activeProfile.category !== 'Pest Control' && (
+          <View style={s.activeProfileBadge}>
+            <Text style={s.activeProfileLabel}>ACTIVE PROFILE</Text>
+            <Text style={s.activeProfileValue}>{activeProfile.label}</Text>
+          </View>
+        )}
         {showMapActionButtons && (
           <View style={[s.bottomActions, { bottom: insets.bottom + 16 }]}>
             <TouchableOpacity style={s.actionBtn} onPress={searchNearby}><Text style={s.actionBtnIcon}>{ICON_SEARCH}</Text></TouchableOpacity>
