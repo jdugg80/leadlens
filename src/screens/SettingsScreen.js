@@ -22,6 +22,7 @@ import {
   AUTOMATION_SETTINGS_KEY,
   COLORS,
   DEFAULT_INTRO_TEMPLATES,
+  DEFAULT_REVIEW_TEMPLATES,
   EXPORT_MODES,
   LEADS_STORAGE_KEY,
   SUPABASE_SETTINGS_KEY,
@@ -40,9 +41,12 @@ import {
 import {
   getExportSettings,
   getIntroTemplates,
+  getReviewTemplates,
   resetIntroTemplates,
+  resetReviewTemplates,
   saveExportSettings,
   saveIntroTemplates,
+  saveReviewTemplates,
 } from '../utils/templateSettings';
 import { loadExportProfiles } from '../utils/exportProfiles';
 import { maybeRunAutoExport } from '../utils/autoExport';
@@ -246,6 +250,7 @@ export default function SettingsScreen({ navigation, route }) {
   const user = userProfile;
 
   const [templates, setTemplates] = useState(DEFAULT_INTRO_TEMPLATES);
+  const [reviewTemplates, setReviewTemplates] = useState(DEFAULT_REVIEW_TEMPLATES);
   const [autoIntro, setAutoIntro] = useState(true);
   const [defaultExportMode, setDefaultExportMode] = useState(EXPORT_MODES.STANDARD);
   const [defaultExportProfile, setDefaultExportProfile] = useState('');
@@ -331,6 +336,7 @@ export default function SettingsScreen({ navigation, route }) {
     (async () => {
       const results = await Promise.all([
         getIntroTemplates().catch(() => DEFAULT_INTRO_TEMPLATES),
+        getReviewTemplates().catch(() => DEFAULT_REVIEW_TEMPLATES),
         getExportSettings().catch(() => ({})),
         loadExportProfiles().catch(() => []),
         AsyncStorage.getItem(AUTO_INTRO_KEY).catch(() => null),
@@ -344,6 +350,7 @@ export default function SettingsScreen({ navigation, route }) {
 
       const [
         savedTemplates,
+        savedReviewTemplates,
         exportSettings,
         savedProfiles,
         storedAutoIntro,
@@ -376,6 +383,7 @@ export default function SettingsScreen({ navigation, route }) {
       }
 
       setTemplates(savedTemplates);
+      setReviewTemplates(savedReviewTemplates);
       setSavedExportProfiles(savedProfiles || []);
       let initialMode = exportSettings.mode || EXPORT_MODES.STANDARD;
       if (initialMode === EXPORT_MODES.SALES_TEMPLATE) {
@@ -454,6 +462,7 @@ export default function SettingsScreen({ navigation, route }) {
   }, []);
 
   const updateTemplate = (key, value) => setTemplates((prev) => ({ ...prev, [key]: value }));
+  const updateReviewTemplate = (key, value) => setReviewTemplates((prev) => ({ ...prev, [key]: value }));
   const updateAutoExport = (key, value) => setAutoExport((prev) => ({ ...prev, [key]: value }));
   const updateSupabase = (key, value) => setSupabaseSettings((prev) => ({ ...prev, [key]: value }));
   const updateAutomation = (key, value) => setAutomation((prev) => ({ ...prev, [key]: value }));
@@ -488,6 +497,7 @@ export default function SettingsScreen({ navigation, route }) {
 
       await Promise.all([
         saveIntroTemplates(templates),
+        saveReviewTemplates(reviewTemplates),
         saveExportSettings(exportSettingsPayload),
         AsyncStorage.setItem(AUTO_INTRO_KEY, String(autoIntro)),
         AsyncStorage.setItem(
@@ -549,6 +559,24 @@ export default function SettingsScreen({ navigation, route }) {
           onPress: async () => {
             const restored = await resetIntroTemplates();
             setTemplates(restored);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleResetReviewTemplates = () => {
+    showThemedAlert(
+      'Reset review templates',
+      'Restore the default free review offer templates?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            const restored = await resetReviewTemplates();
+            setReviewTemplates(restored);
           },
         },
       ]
@@ -902,6 +930,50 @@ await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
 
         <TouchableOpacity style={s.resetBtn} onPress={handleResetTemplates}>
           <Text style={s.resetText}>Reset templates to default</Text>
+        </TouchableOpacity>
+      </Card>
+
+      <SectionLabel>Free Review Offer Templates</SectionLabel>
+      <Card>
+        <View style={{ marginTop: 4 }}>
+          <FieldInput
+            label="Review Email Subject"
+            value={reviewTemplates.emailSubject}
+            onChangeText={(value) => updateReviewTemplate('emailSubject', value)}
+            placeholder="Free Pest Control Program Review for {businessName}"
+          />
+        </View>
+
+        <View style={{ marginTop: 12 }}>
+          <FieldInput
+            label="Review Email Body"
+            value={reviewTemplates.emailBody}
+            onChangeText={(value) => updateReviewTemplate('emailBody', value)}
+            placeholder="Hi {contactName}..."
+            multiline
+            numberOfLines={8}
+            style={s.multiInput}
+          />
+        </View>
+
+        <View style={{ marginTop: 12 }}>
+          <FieldInput
+            label="Review SMS Body"
+            value={reviewTemplates.smsBody}
+            onChangeText={(value) => updateReviewTemplate('smsBody', value)}
+            placeholder="Hi {firstName}..."
+            multiline
+            numberOfLines={5}
+            style={s.multiInput}
+          />
+        </View>
+
+        <Text style={s.tokenHelp}>
+          Tokens: {'{repName}'}, {'{businessName}'}, {'{firstName}'}, {'{lastName}'}, {'{contactName}'}, {'{branchNum}'}, {'{city}'}, {'{state}'}, {'{repEmail}'}
+        </Text>
+
+        <TouchableOpacity style={s.resetBtn} onPress={handleResetReviewTemplates}>
+          <Text style={s.resetText}>Reset review templates to default</Text>
         </TouchableOpacity>
       </Card>
 

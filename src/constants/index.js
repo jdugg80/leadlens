@@ -117,6 +117,11 @@ export const AI_RECOMMENDATION_SETTINGS_KEY = '@leadlens_ai_recommendation_setti
 export const AI_PERSONALITY_STYLE_KEY = '@leadlens_ai_personality_style';
 export const AI_VOICE_PROFILE_KEY = '@leadlens_ai_voice_profile';
 
+export const OUTREACH_REVIEW_TEMPLATES_KEY = '@leadlens_outreach_review_templates';
+export const OUTREACH_SETTINGS_KEY = '@leadlens_outreach_settings';
+export const OUTREACH_HISTORY_KEY = '@leadlens_outreach_history';
+export const TCPA_CONSENT_KEY = '@leadlens_tcpa_consent';
+
 export const AI_PERSONALITY_STYLES = {
   PROFESSIONAL: 'Professional',
   FRIENDLY_COACH: 'Friendly Coach',
@@ -154,6 +159,14 @@ export const DEFAULT_INTRO_TEMPLATES = {
     'Hi {contactName},\n\nMy name is {repName} and I just had the pleasure of visiting {businessName}. I wanted to reach out and introduce myself properly.\n\nI\'d love the opportunity to connect and learn more about your business needs. Please don\'t hesitate to reach out at any time.\n\nBest regards,\n{repName}\nBranch {branchNum}',
   smsBody:
     'Hi {firstName}, this is {repName}! I just stopped by {businessName} and wanted to connect. Feel free to reach out anytime!',
+};
+
+export const DEFAULT_REVIEW_TEMPLATES = {
+  emailSubject: 'Free Pest Control Program Review for {businessName}',
+  emailBody:
+    'Hi {contactName},\n\nMy name is {repName} with LeadLens Pest Services. I noticed {businessName} in {city}, {state} and wanted to offer a complimentary pest control program review.\n\nOur team will evaluate your current setup, identify any risk areas, and provide a no-obligation recommendation tailored to your business — completely free.\n\nWould you be open to a quick 10-minute call this week?\n\nBest regards,\n{repName}\n{repEmail}\nBranch {branchNum}',
+  smsBody:
+    'Hi {firstName}, this is {repName} with LeadLens Pest Services. I\'d like to offer {businessName} a free pest control program review. No obligation — just a quick look at your current setup. Interested? Reply STOP to opt out.',
 };
 
 export const DEFAULT_EXPORT_SETTINGS = {

@@ -10,6 +10,7 @@ import AddressRow from '../components/AddressRow';
 import { screenWidth } from '../utils/responsive';
 import { applyRequiredPlaceholders, findDuplicateInLeads, inferVertical, normalizeLead, calculateLeadViability } from '../utils/leadHelpers';
 import { showThemedAlert } from '../components/ThemedAlert';
+import ProspectOutreachModal from '../components/ProspectOutreachModal';
 import { playSoundEffect } from '../utils/soundManager';
 import { recordUserActivityEvent } from '../utils/userLearning';
 import { getStyledMessage } from '../utils/aiPersonality';
@@ -254,6 +255,8 @@ export default function BatchReviewScreen({ navigation, route }) {
   const [stateFilter, setStateFilter] = useState('ALL');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [outreachProspect, setOutreachProspect] = useState(null);
+
   const [leads, setLeads] = useState(() =>
     initialLeads.map((lead) => ({
       ...lead,
@@ -438,6 +441,13 @@ export default function BatchReviewScreen({ navigation, route }) {
 
     const msg = await getStyledMessage('prospectAdded');
     showThemedAlert('Batch saved', msg || `${saved.length} prospect(s) added to queue.`, [
+      {
+        text: 'Reach Out',
+        onPress: () => {
+          const firstReachable = saved.find((l) => l.email || l.phone) || saved[0];
+          if (firstReachable) setOutreachProspect(firstReachable);
+        },
+      },
       { text: 'Done', onPress: () => navigation.navigate('Dashboard', { user }) },
     ]);
   };
@@ -550,6 +560,19 @@ export default function BatchReviewScreen({ navigation, route }) {
         initialNumToRender={10}
         windowSize={11}
         maxToRenderPerBatch={10}
+      />
+      <ProspectOutreachModal
+        visible={!!outreachProspect}
+        prospect={outreachProspect}
+        user={user}
+        onClose={() => {
+          setOutreachProspect(null);
+          navigation.navigate('Dashboard', { user });
+        }}
+        onSent={() => {
+          setOutreachProspect(null);
+          navigation.navigate('Dashboard', { user });
+        }}
       />
     </View>
   );

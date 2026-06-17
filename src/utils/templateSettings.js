@@ -2,8 +2,10 @@ import { storage as AsyncStorage } from './storage';
 import {
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_INTRO_TEMPLATES,
+  DEFAULT_REVIEW_TEMPLATES,
   EXPORT_SETTINGS_KEY,
   INTRO_TEMPLATE_SETTINGS_KEY,
+  OUTREACH_REVIEW_TEMPLATES_KEY,
   EXPORT_MODES,
   SUPABASE_SETTINGS_KEY,
 } from '../constants';
@@ -107,6 +109,29 @@ export function applyTemplate(template, context) {
     const value = context[key];
     return value === undefined || value === null || value === '' ? '' : String(value);
   });
+}
+
+export async function getReviewTemplates() {
+  const raw = await AsyncStorage.getItem(OUTREACH_REVIEW_TEMPLATES_KEY);
+  if (!raw) return DEFAULT_REVIEW_TEMPLATES;
+  try {
+    return { ...DEFAULT_REVIEW_TEMPLATES, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_REVIEW_TEMPLATES;
+  }
+}
+
+export async function saveReviewTemplates(templates) {
+  const next = { ...DEFAULT_REVIEW_TEMPLATES, ...templates };
+  await AsyncStorage.setItem(OUTREACH_REVIEW_TEMPLATES_KEY, JSON.stringify(next));
+  syncSettingsToSupabase('review_templates', next);
+  return next;
+}
+
+export async function resetReviewTemplates() {
+  await AsyncStorage.setItem(OUTREACH_REVIEW_TEMPLATES_KEY, JSON.stringify(DEFAULT_REVIEW_TEMPLATES));
+  syncSettingsToSupabase('review_templates', DEFAULT_REVIEW_TEMPLATES);
+  return DEFAULT_REVIEW_TEMPLATES;
 }
 
 export function buildTemplateContext(lead, user) {
