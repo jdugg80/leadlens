@@ -1,48 +1,32 @@
 /**
- * FeatureRequestScreen.js — BETA-47
- *
- * Dedicated feature request screen navigated to from SupportScreen.
- * - Title + description fields
- * - Submit → feature_requests table (update_type: 'rebuild')
- * - 4 randomized personalized confirmation messages featuring Jentris
+ * FeatureRequestScreen.js — BETA-51
+ * - Back button header
+ * - "Describe it" field expands to fill available space
+ * - Submit button pinned to bottom
+ * - 4 randomized Jentris confirmation messages
  */
 
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  Platform,
+  View, Text, StyleSheet, TouchableOpacity, TextInput,
+  Alert, ActivityIndicator, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
 const SUPABASE_URL = 'https://qkbvwryucaakkkqaqvka.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrYnZ3cnl1Y2Fha2trcWFxdmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzODIyNzUsImV4cCI6MjA5MTk1ODI3NX0.Mfi0ca1Ea_tdJlknL-8XKY2MwZpDAnzExco3saLc5RU';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrYnZ3cnl1Y2Fha2trcWFxdmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzODIyNzUsImV4cCI6MjA5MTk1ODI3NX0.Mfi0ca1Ea_tdJlknL-8XKY2MwZpDAnzExco3saLc5RU';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
 });
 
 function getAppMeta() {
-  const version =
-    Constants.expoConfig?.version || Constants.manifest?.version || '—';
-  const build =
-    Constants.expoConfig?.extra?.betaBuild ||
-    Constants.manifest?.extra?.betaBuild ||
-    Constants.expoConfig?.android?.versionCode ||
-    '—';
-  return { version, build };
+  const version = Constants.expoConfig?.version || Constants.manifest?.version || '—';
+  return { version };
 }
 
-// ── Confirmation message variants ────────────────────────────────────────────
 function getFeatureConfirmation(repName, featureTitle) {
   const name = repName || 'there';
   const title = featureTitle || 'your idea';
@@ -71,9 +55,6 @@ export default function FeatureRequestScreen({ navigation, route }) {
     }
     setSubmitting(true);
     try {
-      const repEmail = route?.params?.repEmail || 'unknown@leadlens.app';
-      const repName = route?.params?.repName || 'there';
-
       const { error } = await supabase.from('feature_requests').insert({
         title: title.trim(),
         summary: description.trim(),
@@ -81,11 +62,11 @@ export default function FeatureRequestScreen({ navigation, route }) {
         raw_input: description.trim(),
         source: 'in-app',
         type: 'feature',
-        project: 'Leadlens',
+        project: 'leadlens',
         status: 'pending',
         update_type: 'rebuild',
         app_version: version,
-  });
+      });
 
       if (error) throw error;
 
@@ -102,69 +83,85 @@ export default function FeatureRequestScreen({ navigation, route }) {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.screenTitle}>Suggest a Feature</Text>
-      <Text style={styles.screenSub}>
-        What would make LeadLens more useful for you in the field? Every idea
-        gets read by Joe.
-      </Text>
+    <View style={styles.safe}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Text style={styles.backArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Suggest a Feature</Text>
+        <View style={styles.backBtn} />
+      </View>
 
-      <Text style={styles.label}>Feature title</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Short, clear name for the feature"
-        placeholderTextColor="#555C6E"
-        value={title}
-        onChangeText={setTitle}
-        maxLength={120}
-      />
-
-      <Text style={styles.label}>Describe it</Text>
-      <TextInput
-        style={[styles.input, styles.inputMulti]}
-        placeholder="What should it do? Why would it help you sell more?"
-        placeholderTextColor="#555C6E"
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        numberOfLines={6}
-        textAlignVertical="top"
-      />
-
-      <TouchableOpacity
-        style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
-        onPress={submit}
-        disabled={submitting}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {submitting ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.submitBtnText}>Submit Idea</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+        <View style={styles.body}>
+          <Text style={styles.screenSub}>
+            What would make LeadLens more useful for you in the field? Every idea gets read by Joe.
+          </Text>
+
+          <Text style={styles.label}>Feature title</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Short, clear name for the feature"
+            placeholderTextColor="#555C6E"
+            value={title}
+            onChangeText={setTitle}
+            maxLength={120}
+          />
+
+          <Text style={styles.label}>Describe it</Text>
+          <TextInput
+            style={[styles.input, styles.inputMulti]}
+            placeholder="What should it do? Why would it help you sell more?"
+            placeholderTextColor="#555C6E"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            textAlignVertical="top"
+          />
+        </View>
+
+        {/* Submit pinned to bottom */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
+            onPress={submit}
+            disabled={submitting}
+          >
+            {submitting
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={styles.submitBtnText}>Submit Idea</Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const C = {
-  bg: '#080A0F',
-  border: '#1C2130',
-  purple: '#7B3FBE',
-  chrome: '#B8BDD0',
-  muted: '#555C6E',
-  white: '#FFFFFF',
+  bg: '#080A0F', border: '#1C2130',
+  cyan: '#00C9FF', purple: '#7B3FBE',
+  chrome: '#B8BDD0', muted: '#555C6E', white: '#FFFFFF',
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 20, paddingBottom: 60 },
+  safe: { flex: 1, backgroundColor: C.bg, paddingTop: StatusBar.currentHeight || 0 },
+  body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
 
-  screenTitle: { fontSize: 24, fontWeight: '700', color: C.white, marginBottom: 6 },
-  screenSub: { fontSize: 14, color: C.chrome, lineHeight: 20, marginBottom: 28 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  backBtn: { width: 44, alignItems: 'flex-start' },
+  backArrow: { fontSize: 32, color: C.cyan, lineHeight: 36 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: C.white },
+
+  screenSub: { fontSize: 14, color: C.chrome, lineHeight: 20, marginBottom: 8 },
 
   label: {
     fontSize: 12, fontWeight: '600', color: C.chrome,
@@ -175,11 +172,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#0D111A', borderWidth: 1, borderColor: C.border,
     borderRadius: 8, color: C.white, fontSize: 14, paddingHorizontal: 14, paddingVertical: 11,
   },
-  inputMulti: { minHeight: 140, paddingTop: 12 },
+  inputMulti: { flex: 1, paddingTop: 12, minHeight: 120 },
 
+  footer: { padding: 16, borderTopWidth: 1, borderTopColor: C.border },
   submitBtn: {
-    marginTop: 28, backgroundColor: C.purple, borderRadius: 10,
-    paddingVertical: 15, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.purple, borderRadius: 10,
+    paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
   },
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { fontSize: 15, fontWeight: '700', color: C.white, letterSpacing: 0.3 },
