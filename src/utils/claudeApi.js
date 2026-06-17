@@ -1,5 +1,6 @@
 import { enqueueTask, TASK_TYPES } from './taskQueue';
 import { extractProspectAI } from '../services/extractProspectAI';
+import { extractPhoneCandidatesFromText, mergePhoneCandidates, selectBestPhone } from './phoneExtraction';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -41,9 +42,10 @@ INFERENCE RULES:
 
 PHONE EXTRACTION RULES:
 - Extract EVERY phone number visible on the card/sign (office, direct, cell, mobile, fax)
-- If a number is labeled "cell", "mobile", "m", "c", or "direct", treat it as a mobile number
-- The "phone" field must be the BEST number to reach a decision-maker: prefer mobile/cell over office/main
-- Store the primary mobile/cell number in "mobilePhone" if it is separate from the main number
+- Recognize these common abbreviations and labels: cell, cellular, mobile, mob, m, c, direct, dir, d, phone, ph, telephone, tel, t, office, o, work, w, fax, f
+- If a number is labeled with any mobile/cell/direct abbreviation, treat it as a mobile number
+- The "phone" field must be the BEST number to reach a decision-maker: prefer mobile/cell/direct over office/main
+- Store the primary mobile/cell/direct number in "mobilePhone" if it is separate from the main number
 - Store any additional numbers in "altPhone" and a complete list in "phoneCandidates"
 - Each candidate must include the number and a type label like "mobile", "office", "fax", or "direct"
 
@@ -135,13 +137,18 @@ If nothing business-relevant is visible, return: {"image_type":"general","busine
     console.log(`[extractProspectRobust] image_type=${parsed.image_type}, found ${businesses.length} business(es)`);
 
     // Map to internal lead format
+    const rawText = parsed.rawText || '';
+    const fallbackCandidates = extractPhoneCandidatesFromText(rawText);
+
     return {
       leads: businesses.map(b => {
-        const mobile = b.mobilePhone || b.mobile || b.cell || '';
+        const aiCandidates = Array.isArray(b.phoneCandidates) ? b.phoneCandidates : [];
+        const candidates = mergePhoneCandidates(aiCandidates, fallbackCandidates);
+        const mobile = candidates.find(c => c.type === 'mobile')?.number
+          || b.mobilePhone || b.mobile || b.cell || '';
         const mainPhone = b.phone || '';
         const altPhone = b.altPhone || b.directPhone || b.officePhone || '';
-        const candidates = Array.isArray(b.phoneCandidates) ? b.phoneCandidates : [];
-        const bestPhone = mobile || mainPhone || altPhone || (candidates[0]?.number || '');
+        const bestPhone = mobile || mainPhone || altPhone || selectBestPhone(candidates);
 
         return {
           businessName:  b.businessName  || '',
@@ -150,7 +157,7 @@ If nothing business-relevant is visible, return: {"image_type":"general","busine
           pocTitle:      b.pocTitle      || '',
           phone:         bestPhone,
           mobilePhone:   mobile,
-          altPhone:      altPhone,
+          altPhone:      altPhone || mainPhone,
           phoneCandidates: candidates.length ? candidates : [
             mobile && { number: mobile, type: 'mobile' },
             mainPhone && { number: mainPhone, type: 'office' },
@@ -173,7 +180,7 @@ If nothing business-relevant is visible, return: {"image_type":"general","busine
           imageType:     parsed.image_type,
         };
       }),
-      ocrSummary: parsed.rawText || '',
+      ocrSummary: rawText,
       imageType:  parsed.image_type,
     };
   } catch (err) {

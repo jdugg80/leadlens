@@ -7,6 +7,7 @@
 import { enrichProspectProfile } from './dataEnrichmentOrchestrator';
 import { extractLocationFromBusinessCard } from './addressGeocoder';
 import { enrichBusinessWithPublicSources } from './enrichmentNormalizer';
+import { extractPhoneCandidatesFromText, mergePhoneCandidates, selectBestPhone } from './phoneExtraction';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -518,9 +519,10 @@ Extract every business card visible in the photo. For each card return all reada
 
 PHONE EXTRACTION RULES:
 - Extract EVERY phone number visible on each card (office, direct, cell, mobile, fax)
-- If a number is labeled "cell", "mobile", "m", "c", or "direct", treat it as a mobile number
-- The "phone" field must be the BEST number to reach a decision-maker: prefer mobile/cell over office/main
-- Store the primary mobile/cell number in "mobile" if it is separate from the main number
+- Recognize these common abbreviations and labels: cell, cellular, mobile, mob, m, c, direct, dir, d, phone, ph, telephone, tel, t, office, o, work, w, fax, f
+- If a number is labeled with any mobile/cell/direct abbreviation, treat it as a mobile number
+- The "phone" field must be the BEST number to reach a decision-maker: prefer mobile/cell/direct over office/main
+- Store the primary mobile/cell/direct number in "mobile" if it is separate from the main number
 - Store any additional numbers in "altPhone" and a complete list in "phoneCandidates"
 - Each candidate must include the number and a type label like "mobile", "office", "fax", or "direct"
 
@@ -598,8 +600,33 @@ If no business cards are found return:
       throw new Error('Claude returned non-JSON response');
     }
 
-    const cards = parsed.cards || [];
+    let cards = parsed.cards || [];
     console.log(`[CardScan] Detected ${cards.length} business cards`);
+
+    cards = cards.map((card) => {
+      const cardText = [card.cardNotes, card.address, card.name, card.company, card.title]
+        .filter(Boolean)
+        .join(' ');
+      const aiCandidates = Array.isArray(card.phoneCandidates) ? card.phoneCandidates : [];
+      const fallbackCandidates = extractPhoneCandidatesFromText(cardText);
+      const candidates = mergePhoneCandidates(aiCandidates, fallbackCandidates);
+      const mobile = candidates.find(c => c.type === 'mobile')?.number || card.mobile || '';
+      const mainPhone = card.phone || '';
+      const altPhone = card.altPhone || '';
+      const bestPhone = mobile || mainPhone || altPhone || selectBestPhone(candidates);
+
+      return {
+        ...card,
+        phone: bestPhone,
+        mobile: mobile,
+        altPhone: altPhone || mainPhone,
+        phoneCandidates: candidates.length ? candidates : [
+          mobile && { number: mobile, type: 'mobile' },
+          mainPhone && { number: mainPhone, type: 'office' },
+          altPhone && { number: altPhone, type: 'alternate' },
+        ].filter(Boolean),
+      };
+    });
 
     return {
       success: cards.length > 0,

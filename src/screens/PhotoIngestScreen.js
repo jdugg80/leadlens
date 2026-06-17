@@ -235,10 +235,10 @@ export default function PhotoIngestScreen({ navigation }) {
 
     setDetectionResult(result);
     const prospects = result.cards.map((card, idx) => {
-      const mobile = card.mobile || '';
+      const candidates = Array.isArray(card.phoneCandidates) ? card.phoneCandidates : [];
+      const mobile = candidates.find(c => c.type === 'mobile')?.number || card.mobile || '';
       const mainPhone = card.phone || '';
       const altPhone = card.altPhone || '';
-      const candidates = Array.isArray(card.phoneCandidates) ? card.phoneCandidates : [];
       const bestPhone = mobile || mainPhone || altPhone || (candidates[0]?.number || '');
 
       return {
@@ -250,11 +250,7 @@ export default function PhotoIngestScreen({ navigation }) {
         phone: bestPhone,
         mobilePhone: mobile,
         altPhone: altPhone || mainPhone,
-        phoneCandidates: candidates.length ? candidates : [
-          mobile && { number: mobile, type: 'mobile' },
-          mainPhone && { number: mainPhone, type: 'office' },
-          altPhone && { number: altPhone, type: 'alternate' },
-        ].filter(Boolean),
+        phoneCandidates: candidates,
         email: card.email || '',
         website: card.website || '',
         address: [card.address, card.city, card.state, card.zip].filter(Boolean).join(', '),
