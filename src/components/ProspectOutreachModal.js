@@ -68,16 +68,18 @@ export default function ProspectOutreachModal({
   }, [visible]);
 
   const templates = templateSet === 'intro' ? introTemplates : reviewTemplates;
-  const context = prospect && templates ? buildTemplateContext(prospect, user) : null;
+  const context = prospect && templates ? buildTemplateContext(prospect, user) : {};
 
-  const emailSubject = templates ? applyTemplate(templates.emailSubject, context) : '';
-  const emailBody = templates ? applyTemplate(templates.emailBody, context) : '';
-  const smsBody = templates ? applyTemplate(templates.smsBody, context) : '';
+  const emailSubject = templates && prospect ? applyTemplate(templates.emailSubject, context) : '';
+  const emailBody = templates && prospect ? applyTemplate(templates.emailBody, context) : '';
+  const smsBody = templates && prospect ? applyTemplate(templates.smsBody, context) : '';
 
   const emailCheck = prospect ? canSendEmail(prospect) : { allowed: false };
   const smsCheck = prospect && settings && consent
     ? canSendSms(prospect, settings, consent)
     : { allowed: false };
+
+  if (!prospect) return null;
 
   const handleToggleConsent = useCallback(async () => {
     const next = !(consent?.consented);
@@ -139,8 +141,6 @@ export default function ProspectOutreachModal({
     const canOpen = await Linking.canOpenURL(url);
     if (canOpen) Linking.openURL(url);
   };
-
-  if (!prospect) return null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>

@@ -105,8 +105,9 @@ export async function saveExportSettings(settings) {
 }
 
 export function applyTemplate(template, context) {
+  const safeContext = context || {};
   return String(template || '').replace(/\{(\w+)\}/g, (_, key) => {
-    const value = context[key];
+    const value = safeContext[key];
     return value === undefined || value === null || value === '' ? '' : String(value);
   });
 }
