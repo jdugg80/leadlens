@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   ScrollView, Alert, ActivityIndicator, Image, Platform,
-  KeyboardAvoidingView,
+  KeyboardAvoidingView, StatusBar,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
