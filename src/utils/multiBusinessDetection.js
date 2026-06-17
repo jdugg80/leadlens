@@ -516,6 +516,14 @@ export async function detectBusinessCardsInPhoto(base64Image, context = {}) {
 
 Extract every business card visible in the photo. For each card return all readable contact information.
 
+PHONE EXTRACTION RULES:
+- Extract EVERY phone number visible on each card (office, direct, cell, mobile, fax)
+- If a number is labeled "cell", "mobile", "m", "c", or "direct", treat it as a mobile number
+- The "phone" field must be the BEST number to reach a decision-maker: prefer mobile/cell over office/main
+- Store the primary mobile/cell number in "mobile" if it is separate from the main number
+- Store any additional numbers in "altPhone" and a complete list in "phoneCandidates"
+- Each candidate must include the number and a type label like "mobile", "office", "fax", or "direct"
+
 Respond ONLY with valid JSON — no markdown, no explanation:
 {
   "cards": [
@@ -525,6 +533,8 @@ Respond ONLY with valid JSON — no markdown, no explanation:
       "company": "Company/business name or null",
       "phone": "Primary phone number or null",
       "mobile": "Mobile/cell number if separate or null",
+      "altPhone": "Alternate phone number or null",
+      "phoneCandidates": [{"number": "", "type": ""}],
       "email": "Email address or null",
       "website": "Website URL or null",
       "address": "Street address or null",

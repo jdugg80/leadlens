@@ -234,22 +234,37 @@ export default function PhotoIngestScreen({ navigation }) {
     }
 
     setDetectionResult(result);
-    const prospects = result.cards.map((card, idx) => ({
-      id: `card_${Date.now()}_${idx}`,
-      scanMode: 'cards',
-      businessName: card.company || card.name || 'Unknown Business',
-      contactName: card.name || '',
-      title: card.title || '',
-      phone: card.phone || card.mobile || '',
-      email: card.email || '',
-      website: card.website || '',
-      address: [card.address, card.city, card.state, card.zip].filter(Boolean).join(', '),
-      confidence: card.confidence || 0,
-      pestIndicators: [],
-      riskScore: 50,
-      riskLevel: 'UNKNOWN',
-      notes: card.cardNotes || '',
-    }));
+    const prospects = result.cards.map((card, idx) => {
+      const mobile = card.mobile || '';
+      const mainPhone = card.phone || '';
+      const altPhone = card.altPhone || '';
+      const candidates = Array.isArray(card.phoneCandidates) ? card.phoneCandidates : [];
+      const bestPhone = mobile || mainPhone || altPhone || (candidates[0]?.number || '');
+
+      return {
+        id: `card_${Date.now()}_${idx}`,
+        scanMode: 'cards',
+        businessName: card.company || card.name || 'Unknown Business',
+        contactName: card.name || '',
+        title: card.title || '',
+        phone: bestPhone,
+        mobilePhone: mobile,
+        altPhone: altPhone || mainPhone,
+        phoneCandidates: candidates.length ? candidates : [
+          mobile && { number: mobile, type: 'mobile' },
+          mainPhone && { number: mainPhone, type: 'office' },
+          altPhone && { number: altPhone, type: 'alternate' },
+        ].filter(Boolean),
+        email: card.email || '',
+        website: card.website || '',
+        address: [card.address, card.city, card.state, card.zip].filter(Boolean).join(', '),
+        confidence: card.confidence || 0,
+        pestIndicators: [],
+        riskScore: 50,
+        riskLevel: 'UNKNOWN',
+        notes: card.cardNotes || '',
+      };
+    });
 
     setProspectsToConfirm(prospects);
     setShowConfirmation(true);

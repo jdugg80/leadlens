@@ -39,6 +39,14 @@ INFERENCE RULES:
 - If only a business name and city are visible, still return what you have — partial data is better than nothing
 - For business cards: extract EVERYTHING printed including social media handles, titles, taglines
 
+PHONE EXTRACTION RULES:
+- Extract EVERY phone number visible on the card/sign (office, direct, cell, mobile, fax)
+- If a number is labeled "cell", "mobile", "m", "c", or "direct", treat it as a mobile number
+- The "phone" field must be the BEST number to reach a decision-maker: prefer mobile/cell over office/main
+- Store the primary mobile/cell number in "mobilePhone" if it is separate from the main number
+- Store any additional numbers in "altPhone" and a complete list in "phoneCandidates"
+- Each candidate must include the number and a type label like "mobile", "office", "fax", or "direct"
+
 CONFIDENCE: Set confidence 0-100 based on how clearly the field was visible (90-100 = clearly printed, 60-89 = partially visible or inferred from context, 0-59 = guessed).
 
 ${locationHint}
@@ -53,6 +61,9 @@ Return ONLY valid JSON, no markdown, no explanation, exactly this structure:
       "pocLast": "",
       "pocTitle": "",
       "phone": "",
+      "mobilePhone": "",
+      "altPhone": "",
+      "phoneCandidates": [{"number": "", "type": ""}],
       "email": "",
       "website": "",
       "facebookUrl": "",
@@ -125,28 +136,43 @@ If nothing business-relevant is visible, return: {"image_type":"general","busine
 
     // Map to internal lead format
     return {
-      leads: businesses.map(b => ({
-        businessName:  b.businessName  || '',
-        pocFirst:      b.pocFirst      || '',
-        pocLast:       b.pocLast       || '',
-        pocTitle:      b.pocTitle      || '',
-        phone:         b.phone         || '',
-        email:         b.email         || '',
-        website:       b.website       || '',
-        facebookUrl:   b.facebookUrl   || '',
-        instagramUrl:  b.instagramUrl  || '',
-        linkedinUrl:   b.linkedinUrl   || '',
-        streetNumber:  b.streetNumber  || '',
-        streetName:    b.streetName    || '',
-        addressLine2:  b.addressLine2  || '',
-        city:          b.city          || '',
-        state:         b.state         || '',
-        zip:           b.zip           || '',
-        propertyType:  b.propertyType  || 'Commercial',
-        notes:         [b.notes, b.inferredFields?.length ? `AI-inferred: ${b.inferredFields.join(', ')}` : ''].filter(Boolean).join(' | '),
-        confidence:    b.confidence    || 70,
-        imageType:     parsed.image_type,
-      })),
+      leads: businesses.map(b => {
+        const mobile = b.mobilePhone || b.mobile || b.cell || '';
+        const mainPhone = b.phone || '';
+        const altPhone = b.altPhone || b.directPhone || b.officePhone || '';
+        const candidates = Array.isArray(b.phoneCandidates) ? b.phoneCandidates : [];
+        const bestPhone = mobile || mainPhone || altPhone || (candidates[0]?.number || '');
+
+        return {
+          businessName:  b.businessName  || '',
+          pocFirst:      b.pocFirst      || '',
+          pocLast:       b.pocLast       || '',
+          pocTitle:      b.pocTitle      || '',
+          phone:         bestPhone,
+          mobilePhone:   mobile,
+          altPhone:      altPhone,
+          phoneCandidates: candidates.length ? candidates : [
+            mobile && { number: mobile, type: 'mobile' },
+            mainPhone && { number: mainPhone, type: 'office' },
+            altPhone && { number: altPhone, type: 'alternate' },
+          ].filter(Boolean),
+          email:         b.email         || '',
+          website:       b.website       || '',
+          facebookUrl:   b.facebookUrl   || '',
+          instagramUrl:  b.instagramUrl  || '',
+          linkedinUrl:   b.linkedinUrl   || '',
+          streetNumber:  b.streetNumber  || '',
+          streetName:    b.streetName    || '',
+          addressLine2:  b.addressLine2  || '',
+          city:          b.city          || '',
+          state:         b.state         || '',
+          zip:           b.zip           || '',
+          propertyType:  b.propertyType  || 'Commercial',
+          notes:         [b.notes, b.inferredFields?.length ? `AI-inferred: ${b.inferredFields.join(', ')}` : ''].filter(Boolean).join(' | '),
+          confidence:    b.confidence    || 70,
+          imageType:     parsed.image_type,
+        };
+      }),
       ocrSummary: parsed.rawText || '',
       imageType:  parsed.image_type,
     };
@@ -277,8 +303,28 @@ Keywords: ${activeProfile.searchKeywords?.join(', ') || ''}.
     console.warn('[extractLeadsWithDebugFromImage] edge extraction failed:', err?.message || String(err));
   }
 
+  if (!result) return { leads: [], ocrSummary: '' };
+
+  const edgeMobile = result.mobilePhone || result.mobile || result.cell || '';
+  const edgeMain = result.phone || '';
+  const edgeAlt = result.altPhone || '';
+  const edgeCandidates = Array.isArray(result.phoneCandidates) ? result.phoneCandidates : [];
+  const bestPhone = edgeMobile || edgeMain || edgeAlt || (edgeCandidates[0]?.number || '');
+
   return {
-    leads: result ? [{ ...result, pocFirst: result.firstName, pocLast: result.lastName }] : [],
+    leads: [{
+      ...result,
+      phone: bestPhone,
+      mobilePhone: edgeMobile,
+      altPhone: edgeAlt || edgeMain,
+      phoneCandidates: edgeCandidates.length ? edgeCandidates : [
+        edgeMobile && { number: edgeMobile, type: 'mobile' },
+        edgeMain && { number: edgeMain, type: 'office' },
+        edgeAlt && { number: edgeAlt, type: 'alternate' },
+      ].filter(Boolean),
+      pocFirst: result.firstName,
+      pocLast: result.lastName,
+    }],
     ocrSummary: result?.notes || ''
   };
 }
@@ -302,12 +348,21 @@ export async function extractRawOcrFromImage(base64Image, mimeType = 'image/jpeg
 
   if (!result) throw new Error('No result');
 
+  const ocrMobile = result.mobilePhone || result.mobile || result.cell || '';
+  const ocrMain = result.phone || '';
+  const ocrAlt = result.altPhone || '';
+  const ocrCandidates = Array.isArray(result.phoneCandidates) ? result.phoneCandidates : [];
+
   return {
     visibleTextLines: result.notes?.split('\n') || [],
     businessNameCandidates: [result.businessName].filter(Boolean),
     addressCandidates: [`${result.streetNumber} ${result.streetName}`].filter(s => s.trim()),
     suiteCandidates: [result.addressLine2].filter(Boolean),
-    phoneCandidates: [result.phone].filter(Boolean),
+    phoneCandidates: ocrCandidates.length ? ocrCandidates.map(c => c.number || c.phone || String(c)).filter(Boolean) : [
+      ocrMobile,
+      ocrMain,
+      ocrAlt,
+    ].filter(Boolean),
     emailCandidates: [result.email].filter(Boolean),
     websiteCandidates: [result.website].filter(Boolean),
     imageQuality: 'clear',
