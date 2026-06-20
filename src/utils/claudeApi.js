@@ -137,8 +137,8 @@ If nothing business-relevant is visible, return: {"image_type":"general","busine
     console.log(`[extractProspectRobust] image_type=${parsed.image_type}, found ${businesses.length} business(es)`);
 
     // Map to internal lead format
-    const rawText = parsed.rawText || '';
-    const fallbackCandidates = extractPhoneCandidatesFromText(rawText);
+      const ocrText = parsed.rawText || '';
+      const fallbackCandidates = extractPhoneCandidatesFromText(ocrText);
 
     return {
       leads: businesses.map(b => {
@@ -180,7 +180,7 @@ If nothing business-relevant is visible, return: {"image_type":"general","busine
           imageType:     parsed.image_type,
         };
       }),
-      ocrSummary: rawText,
+        ocrSummary: ocrText,
       imageType:  parsed.image_type,
     };
   } catch (err) {
