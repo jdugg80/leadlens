@@ -52,5 +52,11 @@
     "mdLine": "Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar or notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `useSafeAreaInsets().top` from `react-native-safe-area-context`, which works correctly on all iOS devices including those with a notch or Dynamic Island. — reported by a LeadLens user. Thank you!",
     "summary": "Fixed a bug where the header on the Support, Bug Report, and Feature Request screens appeared behind the iOS status bar or notch due to use of the Android-only StatusBar.currentHeight. Now uses safe area insets for correct padding on all devices.",
     "date": "2026-06-20T21:55:45.633Z"
+  },
+  {
+    "id": "b312fac5-aa8a-430f-a925-c6cb4c80c5ec",
+    "mdLine": "**12-Hour Clock Display** — Time values throughout the app now show in 12-hour format with AM/PM instead of 24-hour format. — reported by a LeadLens user. Thank you!",
+    "summary": "Switched all time displays in the app from 24-hour format to 12-hour format with AM/PM.",
+    "date": "2026-06-20T22:11:12.960Z"
   }
 ]
