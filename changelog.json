@@ -22,5 +22,11 @@
     "mdLine": "Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar/notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `useSafeAreaInsets().top` so headers sit correctly on all iOS devices. — reported by a LeadLens user. Thank you!",
     "summary": "Fixed a bug on iOS where the headers on the Support, Bug Report, and Feature Request screens were hidden behind the status bar or notch. The root cause was use of an Android-only API for top padding; it's now replaced with the proper safe area insets hook.",
     "date": "2026-06-20T17:37:17.302Z"
+  },
+  {
+    "id": "bd266203-fbec-4b8e-87a2-612db6a2fdb8",
+    "mdLine": "Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS devices because `StatusBar.currentHeight` is Android-only and returns `undefined` on iOS. Switched to `useSafeAreaInsets().top` from `react-native-safe-area-context` so top padding works correctly on all devices. — reported by a LeadLens user. Thank you!",
+    "summary": "Fixed a medium-severity iOS bug where the Support, Bug Report, and Feature Request screen headers were appearing behind the status bar/notch due to use of the Android-only StatusBar.currentHeight. All three screens now use useSafeAreaInsets().top for correct cross-platform padding.",
+    "date": "2026-06-20T18:13:43.096Z"
   }
 ]
