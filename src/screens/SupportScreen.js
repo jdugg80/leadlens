@@ -11,8 +11,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
-  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -46,6 +46,7 @@ function getNow() {
 export default function SupportScreen({ navigation }) {
   const [user, setUser] = useState(null);
   const { version, build } = getAppMeta();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     (async () => {
@@ -61,7 +62,7 @@ export default function SupportScreen({ navigation }) {
   const osVersion = `${Platform.OS} ${Platform.Version}`;
 
   return (
-    <View style={styles.safe}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -137,7 +138,7 @@ const C = {
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg, paddingTop: StatusBar.currentHeight || 0 },
+  safe: { flex: 1, backgroundColor: C.bg },
   container: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
 
   header: {

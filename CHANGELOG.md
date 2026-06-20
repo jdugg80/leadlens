@@ -1,3 +1,7 @@
+## 2026-06-20
+- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `insets.top` from `react-native-safe-area-context` so the padding works correctly on all devices. — reported by a LeadLens user. Thank you!
+- Fixed iOS header positioning on Support, Bug Report, and Feature Request screens — headers no longer render under the status bar or notch, by replacing the Android-only `StatusBar.currentHeight` with `insets.top` from `react-native-safe-area-context` — reported by a LeadLens user. Thank you!
+
 ## BETA-51 | 2026-06-14
 
 > Released via Project Scarlett — LeadLens_v2.0.51-BETA.51.apk

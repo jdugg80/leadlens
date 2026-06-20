@@ -10,8 +10,8 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   Alert, ActivityIndicator, Platform, KeyboardAvoidingView,
-  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -41,6 +41,7 @@ function getFeatureConfirmation(repName, featureTitle) {
 }
 
 export default function FeatureRequestScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const repEmail = route?.params?.repEmail || 'unknown@leadlens.app';
   const repName = route?.params?.repName || 'there';
   const { version } = getAppMeta();
@@ -84,7 +85,7 @@ export default function FeatureRequestScreen({ navigation, route }) {
   };
 
   return (
-    <View style={styles.safe}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -150,7 +151,7 @@ const C = {
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg, paddingTop: StatusBar.currentHeight || 0 },
+  safe: { flex: 1, backgroundColor: C.bg },
   body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
 
   header: {

@@ -11,8 +11,9 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   ScrollView, Alert, ActivityIndicator, Image, Platform,
-  KeyboardAvoidingView, StatusBar,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 
@@ -44,6 +45,7 @@ function getBugConfirmation(repName, repEmail, ticketId) {
 }
 
 export default function BugReportScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const repEmail = route?.params?.repEmail || 'unknown@leadlens.app';
   const repName = route?.params?.repName || 'there';
   const { version, build } = getAppMeta();
@@ -161,7 +163,7 @@ export default function BugReportScreen({ navigation, route }) {
   };
 
   return (
-    <View style={styles.safe}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -272,7 +274,7 @@ const C = {
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg, paddingTop: StatusBar.currentHeight || 0 },
+  safe: { flex: 1, backgroundColor: C.bg },
   scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 12 },
 
