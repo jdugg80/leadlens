@@ -64,5 +64,23 @@
     "mdLine": "**Time Display** — Switched all time displays throughout the app from 24-hour format to 12-hour format with AM/PM indicators for easier readability. — reported by a LeadLens user. Thank you!",
     "summary": "Times across the app now show in 12-hour AM/PM format instead of 24-hour format.",
     "date": "2026-06-21T00:23:58.911Z"
+  },
+  {
+    "id": 19,
+    "mdLine": "Fixed an issue where the Support screen was not displaying the logged-in user's name and account information. — reported by a LeadLens user. Thank you!",
+    "summary": "The Support screen was missing the user's name and account details. This has been fixed so that information now displays correctly.",
+    "date": "2026-06-21T01:24:43.729Z"
+  },
+  {
+    "id": 16,
+    "mdLine": "Fixed an issue where edits made to prospects in the Prospect Queue were not being saved or persisted correctly. — reported by a LeadLens user. Thank you!",
+    "summary": "Prospect Queue edits were silently failing to save. The fix addresses issues in the save handler, Redux state updates, and API call flow to ensure edits persist correctly.",
+    "date": "2026-06-21T01:25:52.516Z"
+  },
+  {
+    "id": 19,
+    "mdLine": "Fixed an issue on the Support screen where your name and account information weren't showing up in the system information panel. — reported by a LeadLens user. Thank you!",
+    "summary": "Fixed missing user name and account info on the Support screen's system information panel.",
+    "date": "2026-06-21T02:33:37.058Z"
   }
 ]

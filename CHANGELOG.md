@@ -1,4 +1,7 @@
 ## 2026-06-21
+- Fixed an issue on the Support screen where your name and account information weren't showing up in the system information panel. — reported by a LeadLens user. Thank you!
+- Fixed an issue where edits made to prospects in the Prospect Queue were not being saved or persisted correctly. — reported by a LeadLens user. Thank you!
+- Fixed an issue where the Support screen was not displaying the logged-in user's name and account information. — reported by a LeadLens user. Thank you!
 - **Time Display** — Switched all time displays throughout the app from 24-hour format to 12-hour format with AM/PM indicators for easier readability. — reported by a LeadLens user. Thank you!
 
 ## 2026-06-20
