@@ -82,5 +82,17 @@
     "mdLine": "Fixed an issue on the Support screen where your name and account information weren't showing up in the system information panel. — reported by a LeadLens user. Thank you!",
     "summary": "Fixed missing user name and account info on the Support screen's system information panel.",
     "date": "2026-06-21T02:33:37.058Z"
+  },
+  {
+    "id": 20,
+    "mdLine": "Fixed an issue where business search on the territory map returned no results — reported by a LeadLens user. Thank you!",
+    "summary": "Business search on the territory map was returning no results due to a breakdown somewhere in the search pipeline (query construction, API response handling, state update, or rendering). This has been fixed.",
+    "date": "2026-06-21T06:21:43.118Z"
+  },
+  {
+    "id": 21,
+    "mdLine": "Fixed an issue where switching your TargetLens profile to a different business type would still show pest control results on the territory map instead of results for the newly selected profile. — reported by a LeadLens user. Thank you!",
+    "summary": "Switching TargetLens profiles now correctly clears and reloads territory map results to match the newly selected business type.",
+    "date": "2026-06-21T06:25:15.107Z"
   }
 ]

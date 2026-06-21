@@ -1,4 +1,6 @@
 ## 2026-06-21
+- Fixed an issue where switching your TargetLens profile to a different business type would still show pest control results on the territory map instead of results for the newly selected profile. — reported by a LeadLens user. Thank you!
+- Fixed an issue where business search on the territory map returned no results — reported by a LeadLens user. Thank you!
 - Fixed an issue on the Support screen where your name and account information weren't showing up in the system information panel. — reported by a LeadLens user. Thank you!
 - Fixed an issue where edits made to prospects in the Prospect Queue were not being saved or persisted correctly. — reported by a LeadLens user. Thank you!
 - Fixed an issue where the Support screen was not displaying the logged-in user's name and account information. — reported by a LeadLens user. Thank you!
