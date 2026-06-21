@@ -58,5 +58,11 @@
     "mdLine": "**12-Hour Clock Display** — Time values throughout the app now show in 12-hour format with AM/PM instead of 24-hour format. — reported by a LeadLens user. Thank you!",
     "summary": "Switched all time displays in the app from 24-hour format to 12-hour format with AM/PM.",
     "date": "2026-06-20T22:11:12.960Z"
+  },
+  {
+    "id": "b312fac5-aa8a-430f-a925-c6cb4c80c5ec",
+    "mdLine": "**Time Display** — Switched all time displays throughout the app from 24-hour format to 12-hour format with AM/PM indicators for easier readability. — reported by a LeadLens user. Thank you!",
+    "summary": "Times across the app now show in 12-hour AM/PM format instead of 24-hour format.",
+    "date": "2026-06-21T00:23:58.911Z"
   }
 ]

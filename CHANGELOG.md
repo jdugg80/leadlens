@@ -1,3 +1,6 @@
+## 2026-06-21
+- **Time Display** — Switched all time displays throughout the app from 24-hour format to 12-hour format with AM/PM indicators for easier readability. — reported by a LeadLens user. Thank you!
+
 ## 2026-06-20
 - **12-Hour Clock Display** — Time values throughout the app now show in 12-hour format with AM/PM instead of 24-hour format. — reported by a LeadLens user. Thank you!
 - Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar or notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `useSafeAreaInsets().top` from `react-native-safe-area-context`, which works correctly on all iOS devices including those with a notch or Dynamic Island. — reported by a LeadLens user. Thank you!
