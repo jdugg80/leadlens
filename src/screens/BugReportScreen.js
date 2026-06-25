@@ -15,31 +15,33 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
 const SUPABASE_URL = 'https://qkbvwryucaakkkqaqvka.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrYnZ3cnl1Y2Fha2trcWFxdmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzODIyNzUsImV4cCI6MjA5MTk1ODI3NX0.Mfi0ca1Ea_tdJlknL-8XKY2MwZpDAnzExco3saLc5RU';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
+});
 
 const MAX_PHOTOS = 5;
 const MAX_VIDEO_SECS = 30;
 
 function getAppMeta() {
   const version = Constants.expoConfig?.version || Constants.manifest?.version || '—';
-  const build =
-    Constants.expoConfig?.extra?.betaBuild ||
-    Constants.manifest?.extra?.betaBuild ||
-    Constants.expoConfig?.android?.versionCode || '—';
-  return { version, build };
+  return { version };
 }
 
-function getBugConfirmation(repName, repEmail, ticketId) {
+function getBugConfirmation(repName, bugTitle) {
   const name = repName || 'there';
-  const id = ticketId || '—';
+  const title = bugTitle || 'your report';
   const variants = [
-    `Got it, ${name}. Jentris — Joe's AI assistant — is already on your report and will make sure Joe knows about it. We'll follow up at ${repEmail} if we need more details. Ticket #${id}`,
-    `Report received, ${name}. Jentris has eyes on it and will flag Joe right away. Hang tight — we'll reach out at ${repEmail} if we need anything else. Ticket #${id}`,
-    `Thanks for flagging that, ${name}. Jentris is reviewing your report now and will loop Joe in. We know bugs in the field are frustrating — we're on it. Ticket #${id}`,
-    `You're good, ${name}. Jentris picked up your report and Joe will be in the loop shortly. If we need more details we'll hit you at ${repEmail}. Ticket #${id}`,
+    `Got it, ${name}. Jentris — Joe's AI assistant — is already on your report and will make sure Joe knows about it. We'll follow up if we need more details. '${title}' is in the queue.`,
+    `Report received, ${name}. Jentris has eyes on it and will flag Joe right away. Hang tight — '${title}' is logged and triaged.`,
+    `Thanks for flagging that, ${name}. Jentris is reviewing your report now and will loop Joe in. We know bugs in the field are frustrating — we're on it. '${title}' is tracked.`,
+    `You're good, ${name}. Jentris picked up your report and Joe will be in the loop shortly. '${title}' is in the bug queue.`,
   ];
   return variants[Math.floor(Math.random() * variants.length)];
 }
@@ -48,7 +50,7 @@ export default function BugReportScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const repEmail = route?.params?.repEmail || 'unknown@leadlens.app';
   const repName = route?.params?.repName || 'there';
-  const { version, build } = getAppMeta();
+  const { version } = getAppMeta();
 
   const [subject, setSubject] = useState('');
   const [details, setDetails] = useState('');
@@ -128,29 +130,22 @@ export default function BugReportScreen({ navigation, route }) {
     }
     setSubmitting(true);
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-support-ticket`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          repEmail,
-          repName,
-          issueType: 'bug',
-          subject: subject.trim(),
-          details: details.trim(),
-          appVersion: version,
-          build: String(build),
-          platform: Platform.OS,
-          attachmentCount: photos.length + (video ? 1 : 0),
-        }),
+      const { error } = await supabase.from('feature_requests').insert({
+        title: subject.trim(),
+        summary: details.trim(),
+        submitted_by: repEmail,
+        raw_input: details.trim(),
+        source: 'in-app',
+        type: 'bug',
+        project: 'leadlens',
+        status: 'pending',
+        update_type: 'rebuild',
+        app_version: version,
       });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      if (error) throw error;
 
-      const message = getBugConfirmation(repName, repEmail, data.ticketId);
+      const message = getBugConfirmation(repName, subject.trim());
       Alert.alert('Report sent', message, [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);

@@ -1,5 +1,6 @@
 // Supabase Edge Function: analyze-submission
-// Triggers on INSERT to feature_requests where source = 'rep'
+// Triggers on INSERT to feature_requests where source = 'in-app'
+// Auto-triages bug reports only; feature requests require manual review.
 // 1. Runs Claude AI analysis
 // 2. Updates the row with analysis
 // 3. Sends Resend email for ALL submissions
@@ -32,13 +33,14 @@ async function analyzeWithClaude(rawInput: string, type: string, projectId: stri
   const projectContext = PROJECT_CONTEXTS[projectId] || `Project: ${projectId}`;
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${ANTHROPIC_API_KEY}`,
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-3-5-sonnet-20241022",
       max_tokens: 1500,
       system: `You are the technical planning AI for: ${projectContext}
 When given a ${type === "bug" ? "bug report" : "feature idea"}, respond ONLY with valid JSON — no markdown, no backticks.
@@ -119,8 +121,15 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const record = body.record;
-    if (!record || record.source !== "rep") {
-      return new Response(JSON.stringify({ skipped: true }), { status: 200 });
+    if (!record || record.source !== "in-app") {
+      return new Response(JSON.stringify({ skipped: true, reason: "not_in_app_submission" }), { status: 200 });
+    }
+
+    // Only auto-triage bug reports. Feature requests require manual review
+    // via the roadmap site's Re-Analyze button to avoid unnecessary API calls
+    // on ideas that might get rejected before any script is ever generated.
+    if (record.type !== "bug") {
+      return new Response(JSON.stringify({ skipped: true, reason: "feature_request_requires_manual_review" }), { status: 200 });
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);

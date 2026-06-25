@@ -25,11 +25,12 @@ serve(async (req) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${ANTHROPIC_API_KEY}`,
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: body.model || "claude-sonnet-4-20250514",
+        model: body.model || "claude-3-5-sonnet-20241022",
         max_tokens: body.max_tokens || 1500,
         system: body.system,
         messages: body.messages,
