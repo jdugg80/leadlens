@@ -8652,3 +8652,111 @@ Found 72 modified files:
 ==================================================
 
 
+=== LeadLens Scan - 2026-06-22 17:02:00 ===
+Found 20 modified files:
+  06/22 13:09 - \.git\opencode
+  06/22 12:40 - \src\screens\BugReportScreen.js
+  06/22 12:31 - \supabase\migrations\20260622000000_add_feature_requests_analyze_trigger.sql
+  06/22 12:30 - \supabase\functions\analyze-submission\index.ts
+  06/22 12:23 - \.gitignore
+  06/22 12:22 - \scripts\generate-changelog.js
+  06/22 09:12 - \.git\config
+  06/22 09:12 - \.git\FETCH_HEAD
+  06/22 08:56 - \.git\ORIG_HEAD
+  06/22 00:28 - \.git\logs\refs\remotes\origin\main
+  06/22 00:28 - \.git\refs\remotes\origin\main
+  06/22 00:28 - \.git\logs\refs\heads\main
+  06/22 00:28 - \.git\logs\HEAD
+  06/22 00:28 - \.git\refs\heads\main
+  06/22 00:28 - \.git\objects\06\e3acaca386b22395411e60d8a0e50a8e802043
+  06/22 00:28 - \.git\COMMIT_EDITMSG
+  06/22 00:28 - \.git\index
+  06/22 00:28 - \.git\objects\9c\ad1c5bd29c690897ae32cf681aaa20581ef52b
+  06/22 00:28 - \.git\objects\3c\af042cd3302d2a5000caee1e43f05be24d828f
+  06/21 17:01 - \change-log.txt
+
+==================================================
+
+
+=== LeadLens Scan - 2026-06-24 17:01:23 ===
+Found  modified files:
+  06/24 16:41 - \.git\opencode
+
+==================================================
+
+
+=== LeadLens Scan - 2026-06-25 17:01:11 ===
+Found 69 modified files:
+  06/25 11:23 - \web\.gitignore
+  06/25 11:23 - \web\.env.local
+  06/25 11:23 - \web\.vercel\README.txt
+  06/25 11:23 - \web\.vercel\project.json
+  06/25 11:00 - \supabase\functions\claude-proxy\index.ts
+  06/25 11:00 - \supabase\functions\analyze-submission\index.ts
+  06/25 11:00 - \web\src\pages\Roadmap.jsx
+  06/25 10:31 - \web\node_modules\.vite\deps\_metadata.json
+  06/25 10:31 - \web\node_modules\.vite\deps\recharts.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react_jsx-runtime.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react-router-dom.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react_jsx-dev-runtime.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react-dom_client.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react-dom.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react-CZunmVaX.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\@supabase_supabase-js.js.map
+  06/25 10:31 - \web\node_modules\.vite\deps\react-CZunmVaX.js
+  06/25 10:31 - \web\node_modules\.vite\deps\recharts.js
+  06/25 10:31 - \web\node_modules\.vite\deps\react.js
+  06/25 10:31 - \web\node_modules\.vite\deps\react_jsx-dev-runtime.js
+  06/25 10:31 - \web\node_modules\.vite\deps\react_jsx-runtime.js
+  06/25 10:31 - \web\node_modules\.vite\deps\react-router-dom.js
+  06/25 10:31 - \web\node_modules\.vite\deps\react-dom_client.js
+  06/25 10:31 - \web\node_modules\.vite\deps\react-dom.js
+  06/25 10:31 - \web\node_modules\.vite\deps\@supabase_supabase-js.js
+  06/25 10:31 - \web\node_modules\.vite\deps\package.json
+  06/25 10:22 - \supabase\.temp\cli-latest
+  06/25 09:53 - \dist\_expo\static\js\ios\AppEntry-be21e85c74875de8faf654c94b545f69.hbc.map
+  06/25 09:53 - \dist\_expo\static\js\android\AppEntry-a4ef72a6a25bdf0f6a2690db96ef9f06.hbc.map
+  06/25 09:53 - \dist\_expo\static\js\ios\AppEntry-be21e85c74875de8faf654c94b545f69.hbc
+  06/25 09:53 - \dist\_expo\static\js\android\AppEntry-a4ef72a6a25bdf0f6a2690db96ef9f06.hbc
+  06/25 09:53 - \dist\assets\2f552408f4c074c88ec56738b0580913
+  06/25 09:53 - \dist\assets\b62641afc9ab487008e996a5c5865e56
+  06/25 09:53 - \dist\assets\e20945d7c929279ef7a6f1db184a4470
+  06/25 09:53 - \dist\metadata.json
+  06/25 09:53 - \dist\assets\f7c53c47a66934504fcbc7cc164895a7
+  06/25 09:53 - \dist\assets\f5b790e2ac193b3d41015edb3551f9b8
+  06/25 09:53 - \dist\assets\b49ae8ab2dbccb02c4d11caaacf09eab
+  06/25 09:53 - \dist\assets\adec7d6f310bc577f05e8fe06a5daccf
+  06/25 09:53 - \dist\debug.html
+  06/25 09:53 - \dist\assets\cdd04e13d4ec83ff0cd13ec8dabdc341
+  06/25 09:53 - \dist\assets\d2285965fe34b05465047401b8595dd0
+  06/25 09:53 - \dist\assets\c79c3606a1cf168006ad3979763c7e0c
+  06/25 09:53 - \dist\assets\6148e7019854f3bde85b633cb88f3c25
+  06/25 09:53 - \dist\assets\605ed7926cf39a2ad5ec2d1f9d391d3d
+  06/25 09:53 - \dist\assets\56c8d80832e37783f12c05db7c8849e2
+  06/25 09:53 - \dist\assets\1f77739ca9ff2188b539c36f30ffa2be
+  06/25 09:53 - \dist\assets\3dedd0e8197d6a879d52fcf5bcbf0a70
+  06/25 09:53 - \dist\assets\a132ecc4ba5c1517ff83c0fb321bc7fc
+  06/25 09:53 - \dist\assets\a76d309774d33d9856f650bed4292a23
+  06/25 09:53 - \dist\assets\b06871f281fee6b241d60582ae9369b9
+  06/25 09:53 - \dist\assets\7d40544b395c5949f4646f5e150fe020
+  06/25 09:53 - \dist\assets\778ffc9fe8773a878e9c30a6304784de
+  06/25 09:53 - \dist\assets\8765deb8491507d0bbac46e29218bdb9
+  06/25 09:53 - \dist\assets\35ba0eaec5a4f5ed12ca16fabeae451d
+  06/25 09:53 - \dist\assets\31b5ffea3daddc69dd01a1f3d6cf63c5
+  06/25 09:53 - \dist\assets\02bc1fa7c0313217bde2d65ccbff40c9
+  06/25 09:53 - \dist\assets\140c53a7643ea949007aa9a282153849
+  06/25 09:53 - \dist\assets\4e85bc9ebe07e0340c9c4fc2f6c38908
+  06/25 09:53 - \dist\assets\3b89dd103490708d19a95adcae52210e
+  06/25 09:53 - \dist\assets\5223c8d9b0d08b82a5670fb5f71faf78
+  06/25 09:53 - \dist\assets\370dd5af19f8364907b6e2c41f45dbbf
+  06/25 09:53 - \dist\assets\376d6a4c7f622917c39feb23671ef71d
+  06/25 09:53 - \dist\assets\3a2ba31570920eeb9b1d217cabe58315
+  06/25 09:53 - \dist\assetmap.json
+  06/25 09:53 - \dist\assets\1681f34aaca71b8dfb70756bca331eb2
+  06/25 09:53 - \dist\assets\0ea69b5077e7c4696db85dbcba75b0e1
+  06/24 17:46 - \.git\opencode
+  06/24 17:01 - \change-log.txt
+
+==================================================
+
+

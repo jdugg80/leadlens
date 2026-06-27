@@ -15,7 +15,9 @@ const path         = require('path')
 
 const SUPABASE_URL  = process.env.LEADLENS_SUPABASE_URL  || 'https://qkbvwryucaakkkqaqvka.supabase.co'
 const SERVICE_KEY   = process.env.LEADLENS_SERVICE_ROLE_KEY
-const CHANGELOG     = path.join(__dirname, '..', 'CHANGELOG.md')
+const PROJECT_ROOT  = path.join(__dirname, '..')
+const CHANGELOG     = path.join(PROJECT_ROOT, 'CHANGELOG.md')
+const COMMIT_MARKER = path.join(PROJECT_ROOT, '.last-changelogged-commit')
 
 const [,, BETA_VERSION, VERSION_STRING, MODE] = process.argv
 
@@ -85,17 +87,43 @@ async function getClaudeApiKey() {
   return rows[0].claude_api_key
 }
 
+// ─── Commit marker helpers ────────────────────────────────────────────────────
+
+function readLastCommit() {
+  try {
+    return fs.readFileSync(COMMIT_MARKER, 'utf8').trim()
+  } catch {
+    return null
+  }
+}
+
+function writeLastCommit(hash) {
+  fs.writeFileSync(COMMIT_MARKER, hash + '\n', 'utf8')
+  console.log(`[changelog] Marker updated: ${hash}`)
+}
+
+function getCurrentHead() {
+  try {
+    return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
+  } catch {
+    return null
+  }
+}
+
 // ─── Get git diff ─────────────────────────────────────────────────────────────
 
-function getGitDiff() {
+function getGitDiff(sinceCommit) {
   try {
-    // Staged diff (before commit)
+    if (sinceCommit) {
+      // Diff from last changelogged commit to HEAD
+      const diff = execSync(`git diff ${sinceCommit} HEAD`, { encoding: 'utf8' })
+      return diff.length > 8000 ? diff.substring(0, 8000) + '\n... (truncated)' : diff
+    }
+    // First run or no marker — fall back to staged diff, then HEAD~1
     let diff = execSync('git diff --staged', { encoding: 'utf8' })
     if (!diff.trim()) {
-      // Fall back to diff vs last commit (post-commit scenario)
       diff = execSync('git diff HEAD~1 HEAD', { encoding: 'utf8' })
     }
-    // Truncate to ~8000 chars to stay within token limits
     return diff.length > 8000 ? diff.substring(0, 8000) + '\n... (truncated)' : diff
   } catch {
     return ''
@@ -104,8 +132,11 @@ function getGitDiff() {
 
 // ─── Get changed file list ────────────────────────────────────────────────────
 
-function getChangedFiles() {
+function getChangedFiles(sinceCommit) {
   try {
+    if (sinceCommit) {
+      return execSync(`git diff ${sinceCommit} HEAD --name-only`, { encoding: 'utf8' }).trim()
+    }
     const staged = execSync('git diff --staged --name-only', { encoding: 'utf8' }).trim()
     if (staged) return staged
     return execSync('git diff HEAD~1 HEAD --name-only', { encoding: 'utf8' }).trim()
@@ -195,8 +226,17 @@ function prependChangelog(entry) {
 async function main() {
   console.log(`[changelog] Generating entry for ${BETA_VERSION}...`)
 
-  const diff  = getGitDiff()
-  const files = getChangedFiles()
+  // ── Idempotency check ────────────────────────────────────────────────────
+  const currentHead = getCurrentHead()
+  const lastCommit  = readLastCommit()
+
+  if (currentHead && lastCommit && currentHead === lastCommit) {
+    console.log('[changelog] No new commits since last changelog entry, skipping.')
+    return
+  }
+
+  const diff  = getGitDiff(lastCommit)
+  const files = getChangedFiles(lastCommit)
 
   if (!diff && !files) {
     console.warn('[changelog] No git diff found — changelog entry may be limited.')
@@ -210,6 +250,11 @@ async function main() {
   console.log('')
 
   prependChangelog(entry)
+
+  // ── Persist marker ───────────────────────────────────────────────────────
+  if (currentHead) {
+    writeLastCommit(currentHead)
+  }
 }
 
 main().catch(err => {

@@ -1,3 +1,6 @@
+## 2026-06-27
+- Fixed an unspecified issue — reported by a LeadLens user. Thank you!
+
 ## 2026-06-21
 - Fixed an issue where switching your TargetLens profile to a different business type would still show pest control results on the territory map instead of results for the newly selected profile. — reported by a LeadLens user. Thank you!
 - Fixed an issue where business search on the territory map returned no results — reported by a LeadLens user. Thank you!

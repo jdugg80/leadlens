@@ -94,5 +94,11 @@
     "mdLine": "Fixed an issue where switching your TargetLens profile to a different business type would still show pest control results on the territory map instead of results for the newly selected profile. — reported by a LeadLens user. Thank you!",
     "summary": "Switching TargetLens profiles now correctly clears and reloads territory map results to match the newly selected business type.",
     "date": "2026-06-21T06:25:15.107Z"
+  },
+  {
+    "id": "00ea8d48-2392-4164-9bee-f1e0a1f08b99",
+    "mdLine": "Fixed an unspecified issue — reported by a LeadLens user. Thank you!",
+    "summary": "A bug fix was applied for an unspecified issue with limited detail provided.",
+    "date": "2026-06-27T14:18:16.438Z"
   }
 ]
