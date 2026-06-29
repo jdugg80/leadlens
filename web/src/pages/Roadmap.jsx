@@ -92,14 +92,14 @@ JSON shape:
   ]
 }`;
 
-  const PROXY_URL = "https://qkbvwryucaakkkqaqvka.supabase.co/functions/v1/claude-proxy";
+  const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/claude-proxy`;
   const { data: { session } } = await supabase.auth.getSession();
   const response = await fetch(PROXY_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${session?.access_token}`,
-      "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrYnZ3cnl1Y2Fha2trcWFxdmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzODIyNzUsImV4cCI6MjA5MTk1ODI3NX0.Mfi0ca1Ea_tdJlknL-8XKY2MwZpDAnzExco3saLc5RU",
+      "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",

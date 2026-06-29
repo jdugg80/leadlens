@@ -84,7 +84,7 @@ npx supabase functions logs enrich-lead
 In Supabase Dashboard → Project Settings → Edge Functions → Manage Secrets:
 
 ```
-GOOGLE_MAPS_API_KEY=AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI
+GOOGLE_MAPS_API_KEY=<your-google-maps-api-key>
 APIFY_API_KEY=<get from https://apify.com, free account>
 ```
 

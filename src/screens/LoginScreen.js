@@ -561,8 +561,8 @@ export default function LoginScreen({ navigation }) {
             // Report current build + push token to Scarlett beta_testers table
             // This powers the "current build" column in the admin portal
             if (payload.repEmail) {
-              const SCARLETT_URL = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
-              const SCARLETT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsbnRneWhmeHhiY3d3Y3hhb3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyODE5NjQsImV4cCI6MjA5Mzg1Nzk2NH0.sN8lupQFAGGsPr_UuEQGqm9JYMASP8D0wyPfCxIMaAw';
+              const SCARLETT_URL = process.env.SCARLETT_SUPABASE_URL || 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
+              const SCARLETT_KEY = process.env.EXPO_PUBLIC_SCARLETT_ANON_KEY;
               const buildNum = parseInt(Constants.nativeBuildVersion || '0', 10);
               fetch(
                 `${SCARLETT_URL}/rest/v1/beta_testers?email=eq.${encodeURIComponent(payload.repEmail.toLowerCase().trim())}`,

@@ -16,8 +16,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ── Config ────────────────────────────────────────────────────────────────────
 // Events are written to the SCARLETT project so the admin portal can read them.
 // The LeadLens project (EXPO_PUBLIC_SUPABASE_URL) is for app data only.
-const SUPABASE_URL      = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsbnRneWhmeHhiY3d3Y3hhb3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyODE5NjQsImV4cCI6MjA5Mzg1Nzk2NH0.sN8lupQFAGGsPr_UuEQGqm9JYMASP8D0wyPfCxIMaAw';
+const SUPABASE_URL      = process.env.SCARLETT_SUPABASE_URL || 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SCARLETT_ANON_KEY;
 const EVENTS_TABLE      = 'beta_events';
 const DEVICE_ID_KEY     = 'beta_tracker_device_id';
 const USER_KEY          = '@leadlens_user'; // matches USER_STORAGE_KEY in src/constants/index.js

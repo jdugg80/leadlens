@@ -118,7 +118,7 @@ export async function getZipBounds(zip) {
 
   // 5. Fallback: Google Geocoding to get centroid — renders as circle on map
   try {
-    const GOOGLE_KEY = 'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI';
+    const GOOGLE_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
     const resp = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${cleanZip}&key=${GOOGLE_KEY}`);
     const data = await resp.json();
     const loc = data.results?.[0]?.geometry?.location;

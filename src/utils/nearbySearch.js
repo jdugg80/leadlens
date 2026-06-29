@@ -20,8 +20,7 @@ function getGoogleMapsKey(overrideKey = null) {
   const key = (
     extraConfig.googlePlacesApiKey ||
     androidConfig.apiKey ||
-    process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
-    'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI'
+    process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY
   );
 
   if (!key) {

@@ -14,8 +14,11 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OWNER_EMAIL = Deno.env.get("OWNER_EMAIL") || "joe@okaymedia.com";
-const VAPID_PUBLIC_KEY = "BJuv9Pf5X4PPM6fwosFB7OcUXOiV7XayE0N1T_hR-paY7mPijE-XaiKGa9nop5V2-zElWNHjWSASm-nmiinARfQ";
-const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") || "I0559-PMAUWqQWyf8gl2hf-BJ7IZ-CC2rccmUFGhRaA";
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY");
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY");
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  throw new Error("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set via supabase secrets set");
+}
 
 const PROJECT_CONTEXTS: Record<string, string> = {
   leadlens: `LeadLens is a React Native field sales prospecting app for pest control.
@@ -40,7 +43,7 @@ async function analyzeWithClaude(rawInput: string, type: string, projectId: stri
         "anthropic-version": "2023-06-01",
       },
     body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1500,
       system: `You are the technical planning AI for: ${projectContext}
 When given a ${type === "bug" ? "bug report" : "feature idea"}, respond ONLY with valid JSON — no markdown, no backticks.

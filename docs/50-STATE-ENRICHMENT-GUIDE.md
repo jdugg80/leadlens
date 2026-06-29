@@ -27,7 +27,7 @@ supabase/functions/
 Add to Supabase secrets (Settings → Edge Functions → Manage Secrets):
 
 ```bash
-GOOGLE_MAPS_API_KEY=AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI
+GOOGLE_MAPS_API_KEY=<your-google-maps-api-key>
 APIFY_API_KEY=<get from https://apify.com, free tier>
 SUPABASE_URL=https://qkbvwryucaakkkqaqvka.supabase.co
 SUPABASE_ANON_KEY=<your anon key>

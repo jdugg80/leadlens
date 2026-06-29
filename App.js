@@ -131,8 +131,8 @@ class AppErrorBoundary extends Component {
 async function checkForUpdate() {
   console.log('[UPDATE] Starting check...');
   try {
-    const supabaseUrl = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
-    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsbnRneWhmeHhiY3d3Y3hhb3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyODE5NjQsImV4cCI6MjA5Mzg1Nzk2NH0.sN8lupQFAGGsPr_UuEQGqm9JYMASP8D0wyPfCxIMaAw';
+    const supabaseUrl = process.env.SCARLETT_SUPABASE_URL || 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
+    const supabaseKey = process.env.EXPO_PUBLIC_SCARLETT_ANON_KEY;
     if (!supabaseKey) {
       console.log('[UPDATE] No key');
       return;

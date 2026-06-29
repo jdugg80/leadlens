@@ -128,7 +128,7 @@ import Supercluster from 'supercluster';
 import { MapClusterMarker } from '../features/map/MapClusterMarker';
 import BetaTracker from '../../utils/betaTracker';
 
-const GOOGLE_MAPS_API_KEY = 'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI';
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 const MAP_SAFE_MODE = true;
 
 export default function TerritoryMapScreen({ navigation, route }) {

@@ -8760,3 +8760,153 @@ Found 69 modified files:
 ==================================================
 
 
+=== LeadLens Scan - 2026-06-27 17:01:18 ===
+Found 78 modified files:
+  06/27 09:18 - \.git\logs\refs\remotes\origin\main
+  06/27 09:18 - \.git\refs\remotes\origin\main
+  06/27 09:18 - \.git\logs\HEAD
+  06/27 09:18 - \.git\logs\refs\heads\main
+  06/27 09:18 - \.git\refs\heads\main
+  06/27 09:18 - \.git\objects\e5\5714d36c0ddea3079a2fde92aff1af34009133
+  06/27 09:18 - \.git\COMMIT_EDITMSG
+  06/27 09:18 - \.git\index
+  06/27 09:18 - \.git\objects\07\77cca043e106bb9ad896dc0712cb3a5b182a08
+  06/27 09:18 - \.git\objects\c8\df6db4cdb5af6476d675421602d50330cea13e
+  06/27 09:18 - \.git\objects\ce\ff2bc01526dec72a3a232c71c2e98444528711
+  06/27 09:18 - \.git\objects\9d\d94be7d34529345d9917845016d477eebe1668
+  06/27 09:18 - \.git\objects\2e\2ca69dfbbad6dec76fbf5439012b2e19d852c0
+  06/27 09:18 - \.git\objects\1c\2a10739c7c9f4a884841e32840b4a3698db62c
+  06/27 09:18 - \.git\objects\2a\f7bc7b79795062cf0a9430210d6798d9d69125
+  06/27 09:18 - \.git\objects\d3\013e996b99f5d0907679cad39b6f8595bd298a
+  06/27 09:18 - \.git\objects\f1\42fc7d086ef2a6f1fde5074ea4ad3ff6eae9ad
+  06/27 09:18 - \.git\objects\be\4d405760a8d220c7544c886a6469a4b2bc74d5
+  06/27 09:18 - \.git\objects\96\c7983bbf85d91525472f1f49642d3e640dc014
+  06/27 09:18 - \.git\objects\4f\064a65fe83d737f041d53813b56ad200e9f755
+  06/27 09:18 - \changelog.json
+  06/27 09:18 - \CHANGELOG.md
+  06/27 09:17 - \dist\_expo\static\js\ios\AppEntry-be21e85c74875de8faf654c94b545f69.hbc.map
+  06/27 09:17 - \dist\_expo\static\js\ios\AppEntry-be21e85c74875de8faf654c94b545f69.hbc
+  06/27 09:17 - \dist\_expo\static\js\android\AppEntry-a4ef72a6a25bdf0f6a2690db96ef9f06.hbc
+  06/27 09:17 - \dist\_expo\static\js\android\AppEntry-a4ef72a6a25bdf0f6a2690db96ef9f06.hbc.map
+  06/27 09:17 - \dist\assets\2f552408f4c074c88ec56738b0580913
+  06/27 09:17 - \dist\assets\b62641afc9ab487008e996a5c5865e56
+  06/27 09:17 - \dist\assets\e20945d7c929279ef7a6f1db184a4470
+  06/27 09:17 - \dist\assets\b06871f281fee6b241d60582ae9369b9
+  06/27 09:17 - \dist\metadata.json
+  06/27 09:17 - \dist\assets\d2285965fe34b05465047401b8595dd0
+  06/27 09:17 - \dist\assets\f7c53c47a66934504fcbc7cc164895a7
+  06/27 09:17 - \dist\assets\f5b790e2ac193b3d41015edb3551f9b8
+  06/27 09:17 - \dist\assets\3b89dd103490708d19a95adcae52210e
+  06/27 09:17 - \dist\assets\3dedd0e8197d6a879d52fcf5bcbf0a70
+  06/27 09:17 - \dist\assets\370dd5af19f8364907b6e2c41f45dbbf
+  06/27 09:17 - \dist\assets\376d6a4c7f622917c39feb23671ef71d
+  06/27 09:17 - \dist\assets\3a2ba31570920eeb9b1d217cabe58315
+  06/27 09:17 - \dist\assets\605ed7926cf39a2ad5ec2d1f9d391d3d
+  06/27 09:17 - \dist\assets\6148e7019854f3bde85b633cb88f3c25
+  06/27 09:17 - \dist\assets\778ffc9fe8773a878e9c30a6304784de
+  06/27 09:17 - \dist\assets\4e85bc9ebe07e0340c9c4fc2f6c38908
+  06/27 09:17 - \dist\assets\5223c8d9b0d08b82a5670fb5f71faf78
+  06/27 09:17 - \dist\assets\56c8d80832e37783f12c05db7c8849e2
+  06/27 09:17 - \dist\debug.html
+  06/27 09:17 - \dist\assets\adec7d6f310bc577f05e8fe06a5daccf
+  06/27 09:17 - \dist\assets\b49ae8ab2dbccb02c4d11caaacf09eab
+  06/27 09:17 - \dist\assets\cdd04e13d4ec83ff0cd13ec8dabdc341
+  06/27 09:17 - \dist\assets\c79c3606a1cf168006ad3979763c7e0c
+  06/27 09:17 - \dist\assets\a76d309774d33d9856f650bed4292a23
+  06/27 09:17 - \dist\assets\31b5ffea3daddc69dd01a1f3d6cf63c5
+  06/27 09:17 - \dist\assets\35ba0eaec5a4f5ed12ca16fabeae451d
+  06/27 09:17 - \dist\assets\7d40544b395c5949f4646f5e150fe020
+  06/27 09:17 - \dist\assets\a132ecc4ba5c1517ff83c0fb321bc7fc
+  06/27 09:17 - \dist\assets\8765deb8491507d0bbac46e29218bdb9
+  06/27 09:17 - \dist\assets\0ea69b5077e7c4696db85dbcba75b0e1
+  06/27 09:17 - \dist\assetmap.json
+  06/27 09:17 - \dist\assets\140c53a7643ea949007aa9a282153849
+  06/27 09:17 - \dist\assets\1f77739ca9ff2188b539c36f30ffa2be
+  06/27 09:17 - \dist\assets\1681f34aaca71b8dfb70756bca331eb2
+  06/27 09:17 - \dist\assets\02bc1fa7c0313217bde2d65ccbff40c9
+  06/27 09:10 - \.git\objects\de\28198135ad294757cdc80096027bd141814114
+  06/27 09:10 - \.git\objects\5b\ed8f7abb0d2a460f1d3436763031fc6d14cd1d
+  06/27 09:10 - \.git\objects\b6\1304f67e79ad4310c629c2e95f03d221ab0c0b
+  06/27 09:10 - \.git\objects\54\665d365559a1350202cacc8d441dd29d886e85
+  06/27 09:10 - \.git\objects\1b\5424cafed96d63e4923deccd1c27628889f605
+  06/27 09:10 - \.git\objects\ef\accc70ac4b77599927ab5cc6524ba841724dac
+  06/27 09:10 - \.git\objects\ed\05a6226101bafe8da5249e8a35f2850ed4fe6d
+  06/27 09:10 - \.git\objects\4e\7a6aef2dba077f34e6c45fd3abd0461bd9de01
+  06/27 09:10 - \.git\objects\75\2be85a62b12a4884c91275825744a6f8e68718
+  06/27 09:10 - \.git\objects\67\7369358acd1cebeb4c73c4b4ddaa5efd35e4b9
+  06/27 09:10 - \.git\objects\a4\67800c0c1cb2e3b24ccab4235b6f4b7ffb7c8f
+  06/27 09:10 - \.git\objects\00\6eb428df6e4b28c5447c9e70381b72b12bf584
+  06/27 09:09 - \supabase\.temp\cli-latest
+  06/27 09:09 - \supabase\functions\analyze-submission\index.ts
+  06/27 09:09 - \supabase\functions\claude-proxy\index.ts
+  06/27 09:09 - \web\src\pages\Roadmap.jsx
+
+==================================================
+
+
+=== LeadLens Scan - 2026-06-28 17:01:37 ===
+Found 60 modified files:
+  06/28 11:32 - \dist\_expo\static\js\android\AppEntry-9c84958a513f76a2efd406b0227bdc00.hbc.map
+  06/28 11:32 - \dist\_expo\static\js\android\AppEntry-9c84958a513f76a2efd406b0227bdc00.hbc
+  06/28 11:32 - \dist\_expo\static\js\ios\AppEntry-38cb22f8af36789f44d8335d865a599c.hbc.map
+  06/28 11:32 - \dist\_expo\static\js\ios\AppEntry-38cb22f8af36789f44d8335d865a599c.hbc
+  06/28 11:32 - \dist\assets\2f552408f4c074c88ec56738b0580913
+  06/28 11:32 - \dist\assets\b62641afc9ab487008e996a5c5865e56
+  06/28 11:32 - \dist\assets\f7c53c47a66934504fcbc7cc164895a7
+  06/28 11:32 - \dist\assets\e20945d7c929279ef7a6f1db184a4470
+  06/28 11:32 - \dist\assets\f5b790e2ac193b3d41015edb3551f9b8
+  06/28 11:32 - \dist\debug.html
+  06/28 11:32 - \dist\assets\adec7d6f310bc577f05e8fe06a5daccf
+  06/28 11:32 - \dist\assets\605ed7926cf39a2ad5ec2d1f9d391d3d
+  06/28 11:32 - \dist\assets\6148e7019854f3bde85b633cb88f3c25
+  06/28 11:32 - \dist\metadata.json
+  06/28 11:32 - \dist\assets\cdd04e13d4ec83ff0cd13ec8dabdc341
+  06/28 11:32 - \dist\assets\c79c3606a1cf168006ad3979763c7e0c
+  06/28 11:32 - \dist\assets\b49ae8ab2dbccb02c4d11caaacf09eab
+  06/28 11:32 - \dist\assets\d2285965fe34b05465047401b8595dd0
+  06/28 11:32 - \dist\assets\5223c8d9b0d08b82a5670fb5f71faf78
+  06/28 11:32 - \dist\assets\8765deb8491507d0bbac46e29218bdb9
+  06/28 11:32 - \dist\assets\b06871f281fee6b241d60582ae9369b9
+  06/28 11:32 - \dist\assets\a76d309774d33d9856f650bed4292a23
+  06/28 11:32 - \dist\assets\a132ecc4ba5c1517ff83c0fb321bc7fc
+  06/28 11:32 - \dist\assets\56c8d80832e37783f12c05db7c8849e2
+  06/28 11:32 - \dist\assets\4e85bc9ebe07e0340c9c4fc2f6c38908
+  06/28 11:32 - \dist\assets\3dedd0e8197d6a879d52fcf5bcbf0a70
+  06/28 11:32 - \dist\assets\778ffc9fe8773a878e9c30a6304784de
+  06/28 11:32 - \dist\assets\7d40544b395c5949f4646f5e150fe020
+  06/28 11:32 - \dist\assets\31b5ffea3daddc69dd01a1f3d6cf63c5
+  06/28 11:32 - \dist\assets\3b89dd103490708d19a95adcae52210e
+  06/28 11:32 - \dist\assets\1f77739ca9ff2188b539c36f30ffa2be
+  06/28 11:32 - \dist\assets\35ba0eaec5a4f5ed12ca16fabeae451d
+  06/28 11:32 - \dist\assets\0ea69b5077e7c4696db85dbcba75b0e1
+  06/28 11:32 - \dist\assets\1681f34aaca71b8dfb70756bca331eb2
+  06/28 11:32 - \dist\assets\3a2ba31570920eeb9b1d217cabe58315
+  06/28 11:32 - \dist\assets\140c53a7643ea949007aa9a282153849
+  06/28 11:32 - \dist\assets\370dd5af19f8364907b6e2c41f45dbbf
+  06/28 11:32 - \dist\assets\376d6a4c7f622917c39feb23671ef71d
+  06/28 11:32 - \dist\assetmap.json
+  06/28 11:32 - \dist\assets\02bc1fa7c0313217bde2d65ccbff40c9
+  06/28 11:28 - \src\screens\ProspectQueueScreen.js
+  06/27 23:20 - \.git\opencode
+  06/27 20:03 - \.git\logs\refs\remotes\origin\main
+  06/27 20:03 - \.git\refs\remotes\origin\main
+  06/27 20:03 - \.git\logs\refs\heads\main
+  06/27 20:03 - \.git\logs\HEAD
+  06/27 20:03 - \.git\refs\heads\main
+  06/27 20:03 - \.git\objects\fe\99aac57b4cd845a1f34b9ec3ba9deb2dc6b908
+  06/27 20:03 - \.git\COMMIT_EDITMSG
+  06/27 20:03 - \.git\index
+  06/27 20:03 - \.git\objects\cf\a7f975816a67d2b1b78812eb38c135ed13e4a9
+  06/27 20:03 - \.git\objects\dc\155280bc561952111ecd90872f6b7a0028d63b
+  06/27 20:03 - \.git\objects\d0\66b2a342f385a1d63a9b7798346dae64b980ff
+  06/27 20:03 - \.git\objects\53\1a3ef972060849d44f512421c4a9500ad4f41a
+  06/27 20:03 - \.git\objects\82\aea4b7b417472d39100a28175643ddca5600b0
+  06/27 20:02 - \web\src\pages\Roadmap.jsx
+  06/27 19:50 - \supabase\functions\claude-proxy\index.ts
+  06/27 19:48 - \supabase\functions\analyze-submission\index.ts
+  06/27 19:46 - \supabase\.temp\cli-latest
+  06/27 17:01 - \change-log.txt
+
+==================================================
+
+

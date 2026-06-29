@@ -97,12 +97,17 @@ async function saveComptrollerMatchesToDb(matches: NormalizedComptrollerBusiness
     updated_at: new Date().toISOString()
   }));
 
-  const { error } = await supabase
-    .from('comptroller_business_records')
-    .upsert(rows, { onConflict: 'taxpayer_id, location_number' });
+  const { data, error } = await supabase.functions.invoke('upsert-comptroller', {
+    body: rows,
+  });
 
   if (error) {
-    console.warn('[ComptrollerEnrichment] DB Save Failed:', error.message);
+    console.error('[ComptrollerEnrichment] Edge Function write failed:', error.message || error);
+    return;
+  }
+
+  if (data && !data.success) {
+    console.error('[ComptrollerEnrichment] Edge Function returned error:', data.error);
   }
 }
 

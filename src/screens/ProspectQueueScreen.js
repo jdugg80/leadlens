@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -58,30 +58,45 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
   const scrollRef = useRef(null);
-  const scrollLockRef = useRef(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
   const scrollTimerRef = useRef(null);
+  const atBottomRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
+  }, []);
+
+  const handleScroll = useCallback((e) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    const isAtBottom = distanceFromBottom < 20;
+    atBottomRef.current = isAtBottom;
+    if (isAtBottom && scrollLocked) {
+      setScrollLocked(false);
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+        scrollTimerRef.current = null;
+      }
+    }
+  }, [scrollLocked]);
 
   const scrollToBottom = useCallback(() => {
-    if (scrollLockRef.current) return;
-    scrollLockRef.current = true;
+    if (scrollLocked) return;
+    if (atBottomRef.current) return;
+    setScrollLocked(true);
     try {
       scrollRef.current?.scrollToEnd({ animated: true });
     } catch (e) {
       console.warn('[ProspectQueue] scrollToEnd failed:', e.message);
-      scrollLockRef.current = false;
+      setScrollLocked(false);
+      return;
     }
     scrollTimerRef.current = setTimeout(() => {
-      scrollLockRef.current = false;
-    }, 500);
-  }, []);
-
-  const handleScrollEnd = useCallback(() => {
-    scrollLockRef.current = false;
-    if (scrollTimerRef.current) {
-      clearTimeout(scrollTimerRef.current);
-      scrollTimerRef.current = null;
-    }
-  }, []);
+      setScrollLocked(false);
+    }, 800);
+  }, [scrollLocked]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -389,8 +404,8 @@ export default function ProspectQueueScreen({ navigation, route }) {
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
-          onMomentumScrollEnd={handleScrollEnd}
-          onScrollEndDrag={handleScrollEnd}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.headerRow}>
             <Text style={styles.title}>Prospect Queue</Text>
@@ -443,9 +458,9 @@ export default function ProspectQueueScreen({ navigation, route }) {
 
       {sortedLeads.length > 0 && (
         <TouchableOpacity
-          style={[styles.skipToBottomBtn, scrollLockRef.current && styles.skipToBottomBtnDisabled]}
+          style={[styles.skipToBottomBtn, scrollLocked && styles.skipToBottomBtnDisabled]}
           onPress={scrollToBottom}
-          disabled={scrollLockRef.current}
+          disabled={scrollLocked}
           activeOpacity={0.7}
         >
           <Text style={styles.skipToBottomText}>↓ Skip to Bottom</Text>

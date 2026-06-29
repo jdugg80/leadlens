@@ -12,8 +12,8 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import { APP_VERSION } from '../src/constants';
 
-const BETA_URL = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
-const BETA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsbnRneWhmeHhiY3d3Y3hhb3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyODE5NjQsImV4cCI6MjA5Mzg1Nzk2NH0.sN8lupQFAGGsPr_UuEQGqm9JYMASP8D0wyPfCxIMaAw';
+const BETA_URL = process.env.SCARLETT_SUPABASE_URL || 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
+const BETA_KEY = process.env.EXPO_PUBLIC_SCARLETT_ANON_KEY;
 
 const beta = createClient(BETA_URL, BETA_KEY);
 

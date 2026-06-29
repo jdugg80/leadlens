@@ -76,7 +76,7 @@ import { showThemedAlert } from '../components/ThemedAlert';
 import { searchGooglePlacesByText, enrichMissingBusinessAddress, parseAddressComponents } from '../utils/nearbySearch';
 import { getCurrentCoords } from '../utils/geoEnrich';
 
-const GOOGLE_PLACES_API_KEY = 'AIzaSyBjzIQsLGY1E3paPr8XROVWg83e_JLOJzI';
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 import { getStyledMessage } from '../utils/aiPersonality';
 import { upsertProspect, deleteProspect } from '../utils/backendSync';
