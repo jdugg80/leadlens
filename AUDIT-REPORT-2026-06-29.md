@@ -1113,3 +1113,50 @@ Front & Back mode captured two photos correctly, but both sides were processed a
 ```
 eas update --branch production --message "fix: merge Front & Back business card scans"
 ```
+
+---
+
+## Fix: False "Leave Scanner?" Prompt (Navigation/Cleanup Ordering)
+
+### Date
+2026-06-30
+
+### Root Cause
+
+`CaptureScreen` completed scans and navigated to `BatchReviewScreen` before clearing local blocking state. The guard itself checks `isBlockingRef.current`, which is derived from `processing || scanInProgress.current`. Because cleanup happened after navigation in happy paths, `CaptureScreen` could still believe a completed scan was active when the user later left `BatchReviewScreen`.
+
+### Lines Changed
+
+| File | Lines | Change |
+|------|-------|--------|
+| `src/screens/CaptureScreen.js` | 321-326 | Added `clearScanBlockingState()` helper to clear `currentCardScanSessionId.current`, `scanInProgress.current`, `isBlockingRef.current`, and `processing` before completed-flow navigation. |
+| `src/screens/CaptureScreen.js` | 545-546 | Recovery batch completion now clears blocking state before navigating to `BatchReview`. |
+| `src/screens/CaptureScreen.js` | 950-951 | Generic AI/gallery `processAssets` navigation now clears blocking state before navigating to `BatchReview`. |
+| `src/screens/CaptureScreen.js` | 1274-1289 | Single-sided non-queue fallback now returns leads, completes the session, clears blocking state, then navigates. |
+| `src/screens/CaptureScreen.js` | 1305-1314 | Single-sided queue path now clears blocking state before navigating to `BatchReview`. |
+| `src/screens/CaptureScreen.js` | 1441-1459 | Front & Back non-queue fallback now completes the session, clears blocking state, then navigates. |
+| `src/screens/CaptureScreen.js` | 1477-1486 | Front & Back queue path now clears blocking state before navigating to `BatchReview`. |
+| `src/screens/CaptureScreen.js` | 1665-1666 | Spreadsheet import completion now clears blocking state before navigating to `BatchReview`. |
+
+### Guard Logic Confirmation
+
+- The `beforeRemove` listener was not modified.
+- The guard computation `isBlockingRef.current = processing || scanInProgress.current` was not changed.
+- This fix only reorders completed-flow cleanup so the existing guard sees the correct inactive state before navigation.
+
+### Explicitly Not Addressed
+
+- The scan session status flip (`processing -> completed -> processing -> completed`) caused by the background enrichment queue remains open and separate.
+- The single-sided lead duplication issue remains open and separate; this fix does not modify duplicate detection or lead merging.
+
+### Test Plan
+
+1. Front & Back scan -> complete -> decline outreach -> navigate away. Confirm NO "Leave Scanner?" prompt appears.
+2. Single-sided scan -> complete -> decline outreach -> navigate away. Confirm NO prompt appears.
+3. Start a scan, then try to leave while it is genuinely still active or processing. Confirm the "Leave Scanner?" prompt still appears correctly.
+
+### OTA Command
+
+```
+eas update --branch production --message "fix: clear scan blocking state before BatchReview navigation"
+```

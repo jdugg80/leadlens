@@ -318,6 +318,13 @@ export default function CaptureScreen({ navigation, route }) {
   const isBlockingRef = useRef(false);
   isBlockingRef.current = processing || scanInProgress.current;
 
+  function clearScanBlockingState({ clearSession = true } = {}) {
+    if (clearSession) currentCardScanSessionId.current = null;
+    scanInProgress.current = false;
+    isBlockingRef.current = false;
+    setProcessing(false);
+  }
+
   const refreshUnfinishedSessions = useCallback(async () => {
     if (!SCAN_RECOVERY_ENABLED) {
       setRecoverySession(null);
@@ -535,6 +542,7 @@ export default function CaptureScreen({ navigation, route }) {
         startSessionEnrichmentQueue({ sessionId: recoverySession.id });
       }
 
+      clearScanBlockingState({ clearSession: false });
       navigation.push('BatchReview', {
         user,
         leads,
@@ -939,6 +947,7 @@ export default function CaptureScreen({ navigation, route }) {
         return leads;
       }
 
+      clearScanBlockingState({ clearSession: false });
       navigation.push('BatchReview', {
         user,
         leads,
@@ -1263,9 +1272,19 @@ export default function CaptureScreen({ navigation, route }) {
             setProcessing(true);
             setProcessingMsg(assets.length > 1 ? `Reading ${assets.length} cards...` : 'Reading card...');
             if (!sessionId || !SCAN_QUEUE_PROCESSING_ENABLED) {
-              await processAssets(assets, null, 'business-card');
+              const leads = await processAssets(assets, null, 'business-card', {
+                returnLeadsOnly: true,
+              });
               if (sessionId) {
                 await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
+              }
+              if (leads?.length) {
+                clearScanBlockingState();
+                navigation.push('BatchReview', {
+                  user,
+                  leads,
+                  sourceLabel: `Business Card Batch — ${leads.length} prospect${leads.length === 1 ? '' : 's'} found`,
+                });
               }
               return;
             }
@@ -1286,6 +1305,7 @@ export default function CaptureScreen({ navigation, route }) {
               if (SCAN_ENRICHMENT_QUEUE_ENABLED) {
                 startSessionEnrichmentQueue({ sessionId });
               }
+              clearScanBlockingState();
               navigation.push('BatchReview', {
                 user,
                 leads,
@@ -1425,15 +1445,16 @@ export default function CaptureScreen({ navigation, route }) {
               const leads = frontBackCaptureMethod === 'business-card-2-sided' && extractedLeads?.length
                 ? [mergeTwoSidedCardLeads(extractedLeads)]
                 : (extractedLeads || []);
+              if (sessionId) {
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
+              }
               if (leads.length) {
+                clearScanBlockingState();
                 navigation.push('BatchReview', {
                   user,
                   leads,
                   sourceLabel: 'Business Card Front & Back — 1 prospect found',
                 });
-              }
-              if (sessionId) {
-                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
               }
               return;
             }
@@ -1457,6 +1478,7 @@ export default function CaptureScreen({ navigation, route }) {
               if (SCAN_ENRICHMENT_QUEUE_ENABLED) {
                 startSessionEnrichmentQueue({ sessionId });
               }
+              clearScanBlockingState();
               navigation.push('BatchReview', {
                 user,
                 leads,
@@ -1640,6 +1662,7 @@ export default function CaptureScreen({ navigation, route }) {
       setProcessingMsg(`${leads.length} prospects ready`);
       await new Promise((r) => setTimeout(r, 120));
 
+      clearScanBlockingState({ clearSession: false });
       navigation.push('BatchReview', {
         user,
         leads,
