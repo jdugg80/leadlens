@@ -30,13 +30,15 @@ export async function extractProspectAI({
   });
 
   if (error) {
-    console.error('extract-prospect function error:', error);
-    throw new Error('Extraction failed. Please try again.');
+    const detail = error.message || JSON.stringify(error);
+    console.error('extract-prospect function error:', detail);
+    throw new Error(`extract-prospect failed: ${detail}`);
   }
 
   if (!data?.ok) {
-    console.error('extract-prospect returned error:', data);
-    throw new Error('Extraction failed. Please try again.');
+    const detail = JSON.stringify(data).slice(0, 200);
+    console.error('extract-prospect returned error:', detail);
+    throw new Error(`extract-prospect returned error: ${detail}`);
   }
 
   return data.result;

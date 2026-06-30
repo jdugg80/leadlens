@@ -19,25 +19,37 @@ export async function processQueue() {
     const queue = await getTaskQueue();
     const pendingTasks = queue.filter((t) => t.status === TASK_STATUS.PENDING || t.status === TASK_STATUS.FAILED);
 
+    if (!pendingTasks.length) {
+      console.log('[TaskQueue] Queue empty, nothing to process');
+      return;
+    }
+
+    console.log(`[TaskQueue] Processing ${pendingTasks.length} pending task(s)`);
+
     for (const task of pendingTasks) {
       if (task.retryCount >= task.maxRetries) {
+        console.warn(`[TaskQueue] Max retries exceeded for ${task.type}: ${task.id}`);
         await updateTaskStatus(task.id, TASK_STATUS.FAILED, { error: 'Max retries exceeded' });
         continue;
       }
 
       await updateTaskStatus(task.id, TASK_STATUS.RUNNING);
+      console.log(`[TaskQueue] Executing ${task.type}: ${task.id}`);
 
       try {
         const result = await executeTask(task);
         if (result.success) {
+          console.log(`[TaskQueue] Completed ${task.type}: ${task.id}`);
           await updateTaskStatus(task.id, TASK_STATUS.COMPLETED);
         } else {
+          console.error(`[TaskQueue] Failed ${task.type}: ${task.id}`, result.error);
           await updateTaskStatus(task.id, TASK_STATUS.FAILED, {
             error: result.error,
             retryCount: task.retryCount + 1
           });
         }
       } catch (err) {
+        console.error(`[TaskQueue] Failed ${task.type}: ${task.id}`, err?.message || err);
         await updateTaskStatus(task.id, TASK_STATUS.FAILED, {
           error: err.message,
           retryCount: task.retryCount + 1
@@ -63,6 +75,7 @@ async function executeTask(task) {
 
     case TASK_TYPES.ENRICH_LEAD: {
       const res = await enrichLead(payload.lead);
+      if (!res) return { success: false, error: 'enrichLead returned null' };
       return { success: true, data: res };
     }
 

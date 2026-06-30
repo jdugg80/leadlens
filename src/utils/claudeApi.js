@@ -228,8 +228,8 @@ export async function enrichLead(partialLead) {
     }
     return merged;
   } catch (err) {
-    if (__DEV__) console.warn('[enrichLead] failed:', err);
-    return partialLead;
+    console.error('[enrichLead] failed:', err?.message || err);
+    throw err;
   }
 }
 
