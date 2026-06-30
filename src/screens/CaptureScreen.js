@@ -572,7 +572,11 @@ export default function CaptureScreen({ navigation, route }) {
     console.log('[Capture] handleScan triggered');
 
     // GPS runs in parallel while user takes photo — ready by processing time
-    const coordsPromise = getCurrentCoords().catch(() => null);
+    // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
+    const coordsPromise = Promise.race([
+      getCurrentCoords(),
+      new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+    ]).catch(() => null);
 
     const assets = [];
     let keepScanning = true;
@@ -1024,8 +1028,12 @@ export default function CaptureScreen({ navigation, route }) {
     setProcessingMsg('Getting your location and heading...');
     setProcessing(true);
     try {
+      // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
       const [coords, heading] = await Promise.all([
-        getCurrentCoords(),
+        Promise.race([
+          getCurrentCoords(),
+          new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+        ]).catch(() => null),
         getCameraHeading(),
       ]);
       setProcessing(false);
@@ -1099,7 +1107,11 @@ export default function CaptureScreen({ navigation, route }) {
     let coords = null;
     if (isStorefront) {
       console.log('[Capture] Getting location for storefront scan');
-      coords = await getCurrentCoords();
+      // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
+      coords = await Promise.race([
+        getCurrentCoords(),
+        new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+      ]).catch(() => null);
       console.log('[Capture] Coords received:', !!coords);
     }
     

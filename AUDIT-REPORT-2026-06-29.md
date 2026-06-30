@@ -1160,3 +1160,67 @@ eas update --branch production --message "fix: merge Front & Back business card 
 ```
 eas update --branch production --message "fix: clear scan blocking state before BatchReview navigation"
 ```
+
+---
+
+## Step 5: GPS Timeout Protection (CaptureScreen)
+
+### Problem
+
+Three `getCurrentCoords()` call sites in `CaptureScreen.js` had no timeout. If GPS hardware is unresponsive (common on budget Android devices, indoor scans, or low-signal areas), these calls hang indefinitely — blocking the entire UI with no way for the user to cancel.
+
+The specific symptom: `handleSingleCapture` at line 1102 (`coords = await getCurrentCoords()`) blocks the entire processing pipeline in the Front & Back scan path, causing the session to stall at `processing` status with no log output.
+
+### Reference Pattern
+
+The codebase already has a timeout pattern in two other screens:
+
+| Screen | Line | Timeout |
+|--------|------|---------|
+| `TerritoryMapScreen.js` | 995-998 | 5s (`Promise.race` + `setTimeout(() => resolve(null), 5000)`) |
+| `DashboardScreen.js` | 360-363 | 3.5s (`Promise.race` + `setTimeout(() => reject(...), 3500)`) |
+
+Both use `Promise.race` between `getCurrentCoords()` and a timer promise. The TerritoryMapScreen pattern returns `null` on timeout; DashboardScreen rejects with an error. For CaptureScreen, the TerritoryMapScreen pattern (return `null`) is safer — callers already handle `coords === null` (proceeding without location).
+
+### Fixes Applied
+
+| File | Line | Call Site | Pattern |
+|------|------|-----------|---------|
+| `CaptureScreen.js` | 575-579 | `handleScan` parallel GPS (previously had `.catch(() => null)` only) | Wrapped in `Promise.race` with 5s timeout; `.catch(() => null)` preserved |
+| `CaptureScreen.js` | 1031-1036 | `handleIntelliVisionCapture` `Promise.all` (previously unprotected) | GPS arm of `Promise.all` wrapped in `Promise.race` with 5s timeout; `.catch(() => null)` added |
+| `CaptureScreen.js` | 1110-1113 | `handleSingleCapture` storefront GPS (previously bare `await getCurrentCoords()`) | Wrapped in `Promise.race` with 5s timeout; `.catch(() => null)` added |
+
+### Timeout Choice (5s)
+
+- 5s matches TerritoryMapScreen (same codebase convention)
+- `getCurrentCoords()` normally resolves in <1s on Android
+- 3.5s (DashboardScreen) is acceptable but slightly aggressive for camera flows
+- >10s defeats the purpose — user is already frustrated
+- 5s is the industry standard for mobile GPS timeout UX
+
+### Behavior on Timeout
+
+- `coords` resolves to `null` → scan proceeds without location
+- User can complete scan, just no lat/lng attached to the lead
+- No error shown (GPS unavailability is expected indoors)
+- Log: `[Capture] Coords received: false` already handles this gracefully
+
+### Files Changed
+
+| File | Lines Changed | Commit |
+|------|--------------|--------|
+| `src/screens/CaptureScreen.js` | 575-579, 1031-1036, 1110-1113 | Pending |
+
+### Test Plan
+
+1. **Normal GPS flow**: GPS lock in <1s → coords received as normal
+2. **Simulated timeout**: Cover device in thick foil pouch (blocks GPS) → scan completes with `coords = null`, no hang
+3. **Front & Back scan**: Both photos → session advances to `completed` within 5s of GPS call
+4. **IntelliVision**: `Promise.all` resolves with `null` coords + valid heading within 5s
+5. **Storefront scan**: `handleSingleCapture` proceeds without location if GPS unavailable
+
+### OTA Command
+
+```
+eas update --branch production --message "fix: add 5s GPS timeout to CaptureScreen to prevent indefinite hang"
+```
