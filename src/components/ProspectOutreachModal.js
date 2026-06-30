@@ -74,18 +74,18 @@ export default function ProspectOutreachModal({
   const emailBody = templates && prospect ? applyTemplate(templates.emailBody, context) : '';
   const smsBody = templates && prospect ? applyTemplate(templates.smsBody, context) : '';
 
+  const handleToggleConsent = useCallback(async () => {
+    const next = !(consent?.consented);
+    const updated = await setTcpaConsent(next);
+    setConsent(updated);
+  }, [consent]);
+
   const emailCheck = prospect ? canSendEmail(prospect) : { allowed: false };
   const smsCheck = prospect && settings && consent
     ? canSendSms(prospect, settings, consent)
     : { allowed: false };
 
   if (!prospect) return null;
-
-  const handleToggleConsent = useCallback(async () => {
-    const next = !(consent?.consented);
-    const updated = await setTcpaConsent(next);
-    setConsent(updated);
-  }, [consent]);
 
   const confirmSend = (channel, action) => {
     const isSms = channel === OUTREACH_CHANNELS.SMS;

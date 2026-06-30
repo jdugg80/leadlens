@@ -346,7 +346,8 @@ export default function LoginScreen({ navigation }) {
     const rawSaved = await AsyncStorage.getItem(USER_STORAGE_KEY);
     const saved = safeParseJson(rawSaved, null);
     if (saved && saved.firstName && saved.role) {
-      setUser({ ...nextUser, ...saved });
+      // Preserve the auth email — old saved user may have a different repEmail
+      setUser({ ...nextUser, ...saved, repEmail: email });
       setSelectedRole(saved.role);
     } else {
       setUser(nextUser);
