@@ -880,3 +880,60 @@ supabase functions deploy upsert-comptroller
 - Retry logic is unchanged: tasks retry up to 3 times (default `maxRetries`), then marked permanently FAILED.
 - The `enrichLead` rethrow is safe: all 3 callers (`DashboardScreen.enrichProspect`, `taskRunner.executeTask`, `scanQueueProcessor`) have try/catch blocks.
 - DashboardScreen's direct `enrichLead` call (line 742) catches the error and shows "Processing in background" — same user experience as before.
+
+---
+
+## Fix: ExportScreen AsyncStorage Clear Bug
+
+**Commit:** `139c5709` — `fix: clear AsyncStorage backup on export queue clear`
+
+### What Changed
+
+`src/screens/ExportScreen.js` — `clearExportedQueueItems` function (line 401-423):
+
+- Added `LEADS_STORAGE_KEY` to the constants import (line 20)
+- Added `RawStorage.removeItem(LEADS_STORAGE_KEY)` after the existing `saveLeads(nextQueue)` call
+- This matches the pattern already used by `SettingsScreen.handleClearQueue` (lines 721-724)
+
+### Before
+
+```js
+setLeads(nextQueue);
+await saveLeads(nextQueue);  // MMKV only
+setStatusText('Export complete. Queue cleared.');
+```
+
+### After
+
+```js
+setLeads(nextQueue);
+await saveLeads(nextQueue);  // MMKV
+const RawStorage = require('@react-native-async-storage/async-storage').default;
+await RawStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
+setStatusText('Export complete. Queue cleared.');
+```
+
+### Confirmation
+
+Both MMKV and AsyncStorage are now cleared by `clearExportedQueueItems`. Leads will no longer reappear after export + clear when MMKV resets (e.g. Expo dev client rebuild).
+
+### Other Files Checked
+
+| File | Function | Same Gap? | Action |
+|------|----------|-----------|--------|
+| `SettingsScreen.js:705-731` | `handleClearQueue` | No — already clears both | None needed |
+| `LoginScreen.js:368` | Multi-tenancy clear | No — intentional; followed by Supabase pull | None needed |
+| `DashboardScreen.js:579` | Sign-out cleanup | No — intentional; followed by re-auth | None needed |
+
+No other clear functions with the same bug pattern were found.
+
+### Scope Note
+
+**Supabase still retains a permanent copy of every previously exported lead.** Leads are pushed to Supabase at `ExportScreen.js:226,235` BEFORE the local clear runs. This fix only affects local device storage. If Joe wants old exported leads purged from Supabase too, that's a separate task requiring his explicit go-ahead given the destructive nature of deleting from the remote database.
+
+### Test Plan
+
+1. Export and clear a small batch of **test leads** (1-2 throwaway scans, not the real 1000) to verify the fix without risking real data.
+2. Force-close the app.
+3. Reopen — confirm the test leads do NOT reappear.
+4. If safe, confirm the fix also resolves the original issue with the real 1000 leads on next reload — but only after test-lead verification passes.
