@@ -266,6 +266,7 @@ export default function App() {
 
               // ── Beta tracking: start session with saved user email ──
               if (user.email) {
+                BetaTracker.setEmail(user.email);
                 await BetaTracker.init(user.email);
               }
             }

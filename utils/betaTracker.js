@@ -11,7 +11,7 @@
  *   await BetaTracker.trackError('Map failed to load', { screen: 'TerritoryMap' });
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage as AsyncStorage } from '../src/utils/storage';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 // Events are written to the SCARLETT project so the admin portal can read them.
