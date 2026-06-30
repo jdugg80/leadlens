@@ -937,3 +937,41 @@ No other clear functions with the same bug pattern were found.
 2. Force-close the app.
 3. Reopen — confirm the test leads do NOT reappear.
 4. If safe, confirm the fix also resolves the original issue with the real 1000 leads on next reload — but only after test-lead verification passes.
+
+---
+
+## Fix: BetaTracker Email Storage Mismatch
+
+**Commit:** `8c4c6b13` — `fix: BetaTracker reads email from MMKV instead of raw AsyncStorage`
+
+### Root Cause
+
+`resolveEmail()` in `utils/betaTracker.js` imported raw `@react-native-async-storage/async-storage`, but `LoginScreen.js` writes the user object to MMKV via `storageBridge`. Same key (`@leadlens_user`), different storage backends — so `resolveEmail()` always returned null on cold boot / app resume, causing every Scarlett admin Event Feed row to show a blank Tester column.
+
+This is the same storage-mismatch pattern as the ExportScreen bug fixed earlier today (raw AsyncStorage vs. storageBridge/MMKV confusion).
+
+### What Changed
+
+| File | Change |
+|------|--------|
+| `utils/betaTracker.js:14` | Import changed from `import AsyncStorage from '@react-native-async-storage/async-storage'` to `import { storage as AsyncStorage } from '../src/utils/storage'` |
+| `App.js:269` | Added `BetaTracker.setEmail(user.email)` before `BetaTracker.init(user.email)` at boot as defense-in-depth |
+
+### Import Path Verified
+
+- **Export name:** `storage` (named export at `src/utils/storage.js:50`)
+- **Alias used:** `storageBridge` (exported at line 322, used by LoginScreen)
+- **Relative path from `utils/betaTracker.js`:** `../src/utils/storage`
+- **API compatibility:** `storage.getItem(key)` is async and returns `Promise<string | null>` — compatible with how `resolveEmail()` uses it
+
+### Test Plan
+
+1. After OTA + two-launch cycle, log out and back in (or force-close and reopen while logged in).
+2. Check the Scarlett admin Event Feed — new events should show Joe's email in the Tester column instead of `—`.
+3. Events generated before this fix (today's blank events) will remain permanently blank in Scarlett history — this fix only affects events going forward.
+
+### OTA Command
+
+```
+eas update --branch production --message "fix: BetaTracker email attribution"
+```
