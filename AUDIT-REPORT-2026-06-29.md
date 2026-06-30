@@ -837,3 +837,46 @@ supabase functions deploy upsert-comptroller
 3. In Supabase Dashboard → Table Editor → `comptroller_business_records`, filter by `business_name` matching the enriched business
 4. Confirm a row exists with a recent `updated_at` timestamp (within the last minute)
 5. If no row appears, check Supabase Edge Function logs for `upsert-comptroller` errors
+
+---
+
+## Step 3 (partial): TaskQueue Logging + Error Propagation Fix
+
+**Commit:** `efb2fe51` — `fix: add TaskQueue logging and propagate enrichLead errors`
+
+### Files Changed
+
+| File | What Changed |
+|------|-------------|
+| `src/utils/taskRunner.js` | Added 5 log points: empty queue, task count, per-task execution, success, and failure. Added null-check on `enrichLead` return in `ENRICH_LEAD` handler. |
+| `src/utils/claudeApi.js` | `enrichLead()` catch block now logs with `console.error` (production-visible) and re-throws instead of silently returning the unchanged lead. |
+| `src/services/extractProspectAI.js` | Error messages now include the actual Edge Function error detail (HTTP status, response body truncated to 200 chars) instead of generic "Extraction failed" strings. |
+
+### What Joe Should See in Logcat After OTA
+
+**Success path:**
+```
+[TaskQueue] Processing 1 pending task(s)
+[TaskQueue] Executing ENRICH_LEAD: task_1719...
+[TaskQueue] Completed ENRICH_LEAD: task_1719...
+```
+
+**Failure path (e.g. Edge Function error, auth issue, network problem):**
+```
+[TaskQueue] Processing 1 pending task(s)
+[TaskQueue] Executing ENRICH_LEAD: task_1719...
+[enrichLead] failed: extract-prospect failed: 401 — {"message":"Invalid API key"}
+[TaskQueue] Failed ENRICH_LEAD: task_1719... extract-prospect failed: 401 — {"message":"Invalid API key"}
+```
+
+**No tasks:**
+```
+[TaskQueue] Queue empty, nothing to process
+```
+
+### Notes
+
+- This is a **diagnostic improvement** — the actual enrichment may still fail after this change, but now the exact failure reason will be visible in logcat.
+- Retry logic is unchanged: tasks retry up to 3 times (default `maxRetries`), then marked permanently FAILED.
+- The `enrichLead` rethrow is safe: all 3 callers (`DashboardScreen.enrichProspect`, `taskRunner.executeTask`, `scanQueueProcessor`) have try/catch blocks.
+- DashboardScreen's direct `enrichLead` call (line 742) catches the error and shows "Processing in background" — same user experience as before.
