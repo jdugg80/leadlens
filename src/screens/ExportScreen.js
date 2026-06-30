@@ -17,7 +17,7 @@ import { syncAllProspectsToSupabase, enqueueSyncAll } from '../utils/backendSync
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
-import { COLORS, EXPORT_MODES, USER_STORAGE_KEY } from '../constants';
+import { COLORS, EXPORT_MODES, LEADS_STORAGE_KEY, USER_STORAGE_KEY } from '../constants';
 import {
   ScreenHeader,
   Card,
@@ -414,6 +414,11 @@ export default function ExportScreen({ navigation, route }) {
 
     setLeads(nextQueue);
     await saveLeads(nextQueue);
+    // Also clear AsyncStorage backup — without this, leads reappear if MMKV
+    // ever resets (e.g. Expo dev client rebuild). See SettingsScreen.handleClearQueue
+    // for the same pattern.
+    const RawStorage = require('@react-native-async-storage/async-storage').default;
+    await RawStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
     setStatusText('Export complete. Queue cleared.');
   };
 
