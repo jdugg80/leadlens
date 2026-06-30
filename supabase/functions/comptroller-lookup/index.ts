@@ -168,6 +168,12 @@ Deno.serve(async (req) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
+    console.log("[comptroller-lookup] Calling CPA API", {
+      mode,
+      endpoint,
+      keyLength: apiKey.length,
+    });
+
     const cpaResponse = await fetch(`${CPA_BASE_URL}${endpoint}`, {
       method: "GET",
       headers: {
@@ -188,6 +194,14 @@ Deno.serve(async (req) => {
     }
 
     if (!cpaResponse.ok) {
+      console.error("[comptroller-lookup] CPA request failed", {
+        mode,
+        endpoint,
+        status: cpaResponse.status,
+        statusText: cpaResponse.statusText,
+        result: truncateLogValue(result),
+      });
+
       return jsonResponse(
         {
           error: "Texas Comptroller API request failed",
@@ -208,6 +222,13 @@ Deno.serve(async (req) => {
   } catch (error) {
     const isTimeout =
       error instanceof DOMException && error.name === "AbortError";
+
+    console.error("[comptroller-lookup] Unhandled failure", {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : undefined,
+      stack: error instanceof Error ? error.stack?.slice(0, 500) : undefined,
+      isTimeout,
+    });
 
     return jsonResponse(
       {
@@ -264,6 +285,15 @@ function normalizeComptrollerError(status: number): string {
     default:
       return "Unexpected Texas Comptroller API response.";
   }
+}
+
+function truncateLogValue(value: unknown): unknown {
+  if (typeof value === "object") {
+    const serialized = JSON.stringify(value);
+    return serialized ? serialized.slice(0, 500) : String(value);
+  }
+
+  return typeof value === "string" ? value.slice(0, 500) : value;
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

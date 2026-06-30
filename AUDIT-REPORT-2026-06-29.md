@@ -1052,3 +1052,26 @@ This crash directly explains the original complaint. The scan itself (image capt
 ```
 eas update --branch production --message "fix: LeadCard crash rendering phone object as React child"
 ```
+
+---
+
+## Debug: comptroller-lookup Diagnostic Logging Added
+
+### Date
+2026-06-30
+
+### Summary
+
+Added temporary diagnostic logging to `supabase/functions/comptroller-lookup/index.ts` after Round 2 confirmed the active 500s are not the missing-secret path.
+
+### Logging Added
+
+- Outbound CPA API request log with `mode`, `endpoint`, and API key length only.
+- Upstream non-OK response log with `mode`, `endpoint`, status, status text, and truncated response body.
+- Outer catch log with error message, name, truncated stack, and timeout flag.
+
+### Notes
+
+- No logic, response shape, auth behavior, or retry behavior changed.
+- The actual Texas Comptroller API key value is never logged.
+- This is a temporary diagnostic step so the next failed request shows whether the failure is upstream API status, network/fetch failure, or runtime exception.
