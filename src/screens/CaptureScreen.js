@@ -225,6 +225,16 @@ function findEmailInRow(row) {
   return Array.from(new Map(candidates.map(c => [c.original, c])).values());
 }
 
+function mergeTwoSidedValue(current, next, fallback = '') {
+  const currentText = String(current || '').trim();
+  if (currentText && currentText !== '.') return current;
+
+  const nextText = String(next || '').trim();
+  if (nextText && nextText !== '.') return next;
+
+  return fallback;
+}
+
 function mergeTwoSidedCardLeads(leads = []) {
   const merged = leads.reduce((acc, lead) => {
     const next = normalizeLead(lead);
@@ -232,8 +242,8 @@ function mergeTwoSidedCardLeads(leads = []) {
     return {
       ...acc,
       businessName: acc.businessName || next.businessName || '',
-      pocFirst: acc.pocFirst || next.pocFirst || '.',
-      pocLast: acc.pocLast || next.pocLast || '.',
+      pocFirst: mergeTwoSidedValue(acc.pocFirst, next.pocFirst, '.'),
+      pocLast: mergeTwoSidedValue(acc.pocLast, next.pocLast, '.'),
       phone: acc.phone || next.phone || '',
       email: acc.email || next.email || '',
       streetNumber: acc.streetNumber || next.streetNumber || '',
@@ -1405,10 +1415,23 @@ export default function CaptureScreen({ navigation, route }) {
             }
             console.log('[Capture] Back photo taken, processing both');
 
+            const frontBackCaptureMethod = 'business-card-2-sided';
             setProcessing(true);
             setProcessingMsg('Processing both sides...');
             if (!sessionId || !SCAN_QUEUE_PROCESSING_ENABLED) {
-              await processAssets([front, back], null, 'business-card-2-sided');
+              const extractedLeads = await processAssets([front, back], null, frontBackCaptureMethod, {
+                returnLeadsOnly: true,
+              });
+              const leads = frontBackCaptureMethod === 'business-card-2-sided' && extractedLeads?.length
+                ? [mergeTwoSidedCardLeads(extractedLeads)]
+                : (extractedLeads || []);
+              if (leads.length) {
+                navigation.push('BatchReview', {
+                  user,
+                  leads,
+                  sourceLabel: 'Business Card Front & Back — 1 prospect found',
+                });
+              }
               if (sessionId) {
                 await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
               }
@@ -1417,14 +1440,17 @@ export default function CaptureScreen({ navigation, route }) {
             const queueResult = await processScanSessionQueue({
               sessionId,
               includeFailed: false,
-              captureMethod: 'business-card-2-sided',
+              captureMethod: frontBackCaptureMethod,
               concurrency: 1,
               onProgress: ({ total, remaining }) => {
                 const done = Math.max(0, total - remaining);
                 setProcessingMsg(`Processing card ${done} of ${total}...`);
               },
             });
-            const leads = queueResult?.leads || [];
+            const extractedLeads = queueResult?.leads || [];
+            const leads = frontBackCaptureMethod === 'business-card-2-sided' && extractedLeads.length
+              ? [mergeTwoSidedCardLeads(extractedLeads)]
+              : extractedLeads;
             if (!leads.length) {
               showThemedAlert('No prospects found', 'Could not extract any prospect data from the cards.');
             } else {
@@ -1434,7 +1460,7 @@ export default function CaptureScreen({ navigation, route }) {
               navigation.push('BatchReview', {
                 user,
                 leads,
-                sourceLabel: `Business Card Batch — ${leads.length} prospect${leads.length === 1 ? '' : 's'} found`,
+                sourceLabel: 'Business Card Front & Back — 1 prospect found',
               });
             }
             if (sessionId) {

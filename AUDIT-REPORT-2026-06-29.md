@@ -1075,3 +1075,41 @@ Added temporary diagnostic logging to `supabase/functions/comptroller-lookup/ind
 - No logic, response shape, auth behavior, or retry behavior changed.
 - The actual Texas Comptroller API key value is never logged.
 - This is a temporary diagnostic step so the next failed request shows whether the failure is upstream API status, network/fetch failure, or runtime exception.
+
+---
+
+## Fix: Front & Back Scan Merge (mergeTwoSidedCardLeads wired up)
+
+### Date
+2026-06-30
+
+### Root Cause
+
+Front & Back mode captured two photos correctly, but both sides were processed as independent business-card rows and passed to `BatchReviewScreen` as separate leads. The existing `mergeTwoSidedCardLeads(leads)` helper at `src/screens/CaptureScreen.js:238-282` already merged front/back fields into one lead and set `captureMethod: 'business-card-2-sided'`, but it was never called.
+
+### Lines Changed
+
+| File | Lines | Change |
+|------|-------|--------|
+| `src/screens/CaptureScreen.js` | 228-246 | Added `mergeTwoSidedValue()` so placeholder `.` names from one side do not block real name fields from the other side during the existing merge. |
+| `src/screens/CaptureScreen.js` | 1418-1438 | Added explicit `frontBackCaptureMethod = 'business-card-2-sided'`; non-queue fallback now calls `processAssets(..., { returnLeadsOnly: true })`, wraps `mergeTwoSidedCardLeads(extractedLeads)` in an array, then navigates to `BatchReview` with one merged prospect. |
+| `src/screens/CaptureScreen.js` | 1440-1464 | Queue-based Front & Back path now processes with `frontBackCaptureMethod`, merges `queueResult.leads` into `[mergeTwoSidedCardLeads(extractedLeads)]`, and passes one merged prospect to `BatchReview`. |
+
+### Gating Confirmation
+
+- The merge only lives inside the explicit Front & Back handler that begins at `CaptureScreen.js:1305`.
+- The merge is additionally guarded by `frontBackCaptureMethod === 'business-card-2-sided'` before wrapping the merged lead.
+- Single-sided scans use the separate branch starting at `CaptureScreen.js:1182` with `captureMethod: 'business-card'`, so they never reach this merge call.
+- Regular multi-card single-sided batches also stay in that same single-sided branch and continue producing independent leads.
+
+### Test Plan
+
+1. Use Front & Back capture mode on a real business card, photograph both sides, let it process, and confirm `BatchReviewScreen` shows ONE prospect with fields combined from both sides.
+2. Scan a single-sided card and confirm it still produces exactly one prospect as before.
+3. If practical, scan 2-3 different cards in single-sided batch mode and confirm each produces its own separate prospect.
+
+### OTA Command
+
+```
+eas update --branch production --message "fix: merge Front & Back business card scans"
+```
