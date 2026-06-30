@@ -1,3 +1,19 @@
+## 2026-06-30
+- **TaskQueue Observability** — Added logging to the background task processor (`taskRunner.js`): empty queue, task count, per-task execution, success, and failure are now visible in logcat. Previously the processor ran silently with zero log output.
+- **Enrichment Error Propagation** — `enrichLead()` in `claudeApi.js` now re-throws errors instead of silently returning the unchanged lead. Failed enrichments are marked FAILED in the queue (retryable up to 3x) instead of being silently marked COMPLETED.
+- **Edge Function Error Detail** — `extractProspectAI.js` error messages now include the actual HTTP status and response body from the `extract-prospect` Edge Function instead of generic "Extraction failed" strings.
+
+## 2026-06-29
+- **Security: VAPID Key Hardening** — Removed hardcoded VAPID private key from `analyze-submission` Edge Function; both keys now read from environment variables with a startup guard that blocks deployment if missing.
+- **Security: Supabase Anon Key Consolidation** — Replaced hardcoded Supabase anon key fallbacks with environment variable references across 9 files (BugReportScreen, FeatureRequestScreen, AdminScreen, App.js, betaTracker, updateChecker, LoginScreen, web supabase.js, web Roadmap.jsx). LeadLens, Scarlett, and web each use their own env vars.
+- **Security: Google Maps API Key Centralization** — Replaced hardcoded Google Maps API key with `process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in 4 source files (ReviewScreen, TerritoryMapScreen, zipBoundaryCache, nearbySearch). Key removed from 2 doc files.
+- **Security: RLS Policy Hardening** — Tightened overly permissive `USING (true)` policies on 4 Supabase tables: `beta_testers` (own-email-only SELECT), `contact_candidates` (authenticated read-only, service_role write), `lenssignal_records` (authenticated-only, was public), `comptroller_business_records` (authenticated read-only, service_role write).
+- **Comptroller Write Path Fix** — New `upsert-comptroller` Edge Function replaces direct client-side table upserts for Comptroller enrichment cache. `comptrollerEnrichment.ts` now calls the Edge Function via `supabase.functions.invoke()` instead of writing directly (which would fail with RLS).
+- **Bug Report Routing** — Bug reports from the in-app form now route to the `feature_requests` table (with `source: 'in-app'`, `type: 'bug'`) so they reach the NeuroArc triage pipeline. Previously they went to `support_tickets` and were invisible.
+- **Claude Model Update** — Updated Claude model reference from `claude-sonnet-4-20250514` to `claude-haiku-4-5-20251001` across all Edge Functions and the web Roadmap page.
+- **Vercel Deployment Fixes** — Fixed misconfigured root directory (was pointing to `web/web` inside the project), corrected git author email for Vercel builds, deployed edge functions and web app.
+- **Full Repo Audit** — Comprehensive audit report (`AUDIT-REPORT-2026-06-29.md`) covering file structure, dependencies, security, schema, regressions, build pipeline, web portal, and code quality.
+
 ## 2026-06-27
 - Fixed an unspecified issue — reported by a LeadLens user. Thank you!
 
