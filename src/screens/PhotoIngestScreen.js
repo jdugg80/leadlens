@@ -58,7 +58,11 @@ export default function PhotoIngestScreen({ navigation }) {
 
   const getLocation = async () => {
     try {
-      const coords = await getCurrentCoords();
+      // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
+      const coords = await Promise.race([
+        getCurrentCoords(),
+        new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+      ]).catch(() => null);
       if (coords) {
         let city = 'Houston';
         let state = 'TX';

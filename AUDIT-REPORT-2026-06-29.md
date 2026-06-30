@@ -1224,3 +1224,44 @@ Both use `Promise.race` between `getCurrentCoords()` and a timer promise. The Te
 ```
 eas update --branch production --message "fix: add 5s GPS timeout to CaptureScreen to prevent indefinite hang"
 ```
+
+---
+
+## Step 5.1: GPS Timeout Protection (Remaining 4 Call Sites)
+
+### Problem
+
+After Step 5, 4 unprotected `getCurrentCoords()` call sites remained across the codebase. All block their respective async flows with no timeout — if GPS hardware is unresponsive, the calling function hangs indefinitely.
+
+### Fixes Applied
+
+| File | Line | Call Site | Context |
+|------|------|-----------|---------|
+| `BatchReviewScreen.js` | 88-93 | `handlePhoneSearch` | User tap on phone search button. If GPS hangs, button appears stuck with no feedback. |
+| `App.js` | 198-203 | `updateGlobalLocation` | Boot-time GPS update. Non-blocking to UI but delays county/zip resolution for lead enrichment. |
+| `PhotoIngestScreen.js` | 61-66 | `getLocation` | Photo ingest flow. If GPS hangs, photo processing stalls before location attachment. |
+| `LeadLockCameraScreen.js` | 205-210 | One-shot GPS fallback | Camera fallback after reactive GPS fails. If GPS hangs, camera remains stuck. |
+
+All use the same `Promise.race` + 5s timeout + `.catch(() => null)` pattern from Steps 5/Reference.
+
+### Complete GPS Timeout Coverage
+
+| Screen | Line | Timeout | Status |
+|--------|------|---------|--------|
+| CaptureScreen.js | 576-579 | 5s | ✅ Step 5 |
+| CaptureScreen.js | 1032-1036 | 5s | ✅ Step 5 |
+| CaptureScreen.js | 1110-1113 | 5s | ✅ Step 5 |
+| BatchReviewScreen.js | 88-93 | 5s | ✅ Step 5.1 |
+| App.js | 198-203 | 5s | ✅ Step 5.1 |
+| PhotoIngestScreen.js | 61-66 | 5s | ✅ Step 5.1 |
+| LeadLockCameraScreen.js | 205-210 | 5s | ✅ Step 5.1 |
+| TerritoryMapScreen.js | 995-998 | 5s | ✅ Pre-existing |
+| DashboardScreen.js | 360-363 | 3.5s | ✅ Pre-existing |
+| TerritoryMapScreen.js | 574-579 | N/A | ✅ Fire-and-forget `.then()/.catch()` — does not block UI |
+| geoEnrich.js | 35 | N/A | ✅ Definition (not a call site) |
+
+### OTA Command
+
+```
+eas update --branch production --message "fix: add 5s GPS timeout to remaining unprotected call sites"
+```

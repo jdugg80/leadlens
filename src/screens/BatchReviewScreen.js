@@ -85,7 +85,11 @@ const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onRemove }) {
     }
     setPhoneLoading(true);
     try {
-      const userCoords = await getCurrentCoords().catch(() => null);
+      // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
+      const userCoords = await Promise.race([
+        getCurrentCoords(),
+        new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+      ]).catch(() => null);
       const searchCenter = userCoords || (lead.latitude ? { latitude: lead.latitude, longitude: lead.longitude } : null);
       const fullQuery = [lead.businessName, lead.streetNumber, lead.streetName, lead.city, lead.state].filter(Boolean).join(' ');
 

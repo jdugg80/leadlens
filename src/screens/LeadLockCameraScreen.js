@@ -202,7 +202,11 @@ export default function LeadLockCameraScreen({ navigation }) {
 
     // Fallback: try one-shot GPS
     try {
-      const liveCoords = await getCurrentCoords();
+      // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
+      const liveCoords = await Promise.race([
+        getCurrentCoords(),
+        new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+      ]).catch(() => null);
       if (!mountedRef.current) return;
       if (liveCoords) {
         const geoInfo = await reverseGeocodeCoords(liveCoords).catch(() => null);
