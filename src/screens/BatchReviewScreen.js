@@ -179,17 +179,21 @@ const LeadCard = memo(function LeadCard({ lead, idx, onUpdate, onRemove }) {
               <FieldInput label="Phone" value={lead.phone} onChangeText={(v) => onUpdate(idx, 'phone', v)} />
               {lead.phoneCandidates && lead.phoneCandidates.length > 1 && (
                 <View style={s.candidateRow}>
-                  {lead.phoneCandidates.map((p, pIdx) => (
-                    <TouchableOpacity
-                      key={pIdx}
-                      style={[s.candidateChip, lead.phone === p && s.candidateChipActive]}
-                      onPress={() => onUpdate(idx, 'phone', p)}
-                    >
-                      <Text style={[s.candidateChipText, lead.phone === p && s.candidateChipActiveText]}>
-                        {p}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {lead.phoneCandidates.map((p, pIdx) => {
+                    const phoneText = typeof p === 'object' ? (p.number || p.phone || '') : String(p || '');
+                    const isActive = lead.phone === phoneText || lead.phone === p;
+                    return (
+                      <TouchableOpacity
+                        key={pIdx}
+                        style={[s.candidateChip, isActive && s.candidateChipActive]}
+                        onPress={() => onUpdate(idx, 'phone', phoneText)}
+                      >
+                        <Text style={[s.candidateChipText, isActive && s.candidateChipActiveText]}>
+                          {phoneText}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               )}
               {!lead.phone && (

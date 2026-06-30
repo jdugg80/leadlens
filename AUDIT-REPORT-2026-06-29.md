@@ -975,3 +975,80 @@ This is the same storage-mismatch pattern as the ExportScreen bug fixed earlier 
 ```
 eas update --branch production --message "fix: BetaTracker email attribution"
 ```
+
+---
+
+## Fix: LeadCard Phone Object Render Crash
+
+### Date
+2026-06-30
+
+### Root Cause
+
+`BatchReviewScreen.js:189` rendered `{p}` directly inside a `<Text>` component, where `p` is a phone candidate object from `phoneExtraction.js` with shape `{ number: "(555) 123-4567", type: "mobile", digits: "5551234567" }`. React cannot render objects as children — it requires strings or numbers.
+
+**Object shape origin:**
+- `phoneExtraction.js:extractPhoneCandidatesFromText()` creates `{ number, type, digits }` objects (line 47-51)
+- `phoneExtraction.js:mergePhoneCandidates()` creates the same shape (line 72-76)
+- `claudeApi.js:extractProspectRobust()` (line 146) and `multiBusinessDetection.js` (line 612) both use `mergePhoneCandidates()` and store the resulting objects in `lead.phoneCandidates`
+- The AI prompt (`claudeApi.js:68`) specifies `"phoneCandidates": [{"number": "", "type": ""}]` — the `digits` key is added by `mergePhoneCandidates` but not by the AI directly
+
+**Why `lead.phone` is safe but `lead.phoneCandidates` is not:**
+- `lead.phone` = `bestPhone` (line 151/158) — always a string (from `.number` property or AI string)
+- `lead.phoneCandidates` = raw `{ number, type, digits }` objects — rendered directly in candidate chips
+
+### Crash Trace
+
+1. User scans a business card
+2. `extractProspectRobust` or `extractLeadsWithDebugFromImage` runs
+3. `mergePhoneCandidates(aiCandidates, fallbackCandidates)` returns `[{ number, type, digits }, ...]`
+4. Lead object created with `phoneCandidates: [{ number, type, digits }, ...]`
+5. `BatchReviewScreen` renders `LeadCard`
+6. Line 182: `lead.phoneCandidates.map((p, pIdx) => (` iterates over objects
+7. Line 189: `{p}` renders raw object in `<Text>` → **CRASH: "Objects are not valid as a React child"**
+
+**Secondary bug:** Line 186 `onPress={() => onUpdate(idx, 'phone', p)}` set `lead.phone` to the object, which would then crash `FieldInput` (TextInput) on re-render.
+
+### Regression Analysis
+
+This is a **regression** introduced when `phoneExtraction.js` was added on 2026-06-17 (`cc3529d0`):
+
+| Commit | Date | What |
+|--------|------|------|
+| `6d2fbbc1` | 2026-05-13 | `LeadCard` added to `BatchReviewScreen.js` with `phoneCandidates.map` rendering `{p}` directly |
+| `cc3529d0` | 2026-06-17 | `phoneExtraction.js` introduced, `mergePhoneCandidates` returns `{ number, type, digits }` objects |
+| `a96ffe60` | 2026-06-17 | `claudeApi.js` updated to use `mergePhoneCandidates`, storing objects in `lead.phoneCandidates` |
+
+The rendering code was written when `phoneCandidates` contained plain strings. The phone extraction upgrade to structured objects never updated the render sites.
+
+### Files Fixed
+
+| File | Lines | Change |
+|------|-------|--------|
+| `src/screens/BatchReviewScreen.js` | 182-196 | Extract `.number` from phone candidate objects before rendering; fix chip highlight comparison; fix chip tap to set string value |
+
+**No other files needed fixing:**
+- `ReviewScreen.js:1015-1023` — renders `item.phone` from enrichment normalizer (different shape: `{ phone, source }`, always a string)
+- `ProspectQueueScreen.js:428` — renders `lead.phone` (always a string from `bestPhone`)
+- `PhotoIngestScreen.js:452` — renders `prospect.phone` (always a string)
+- `ProspectOutreachModal.js:180` — renders `prospect.phone` (always a string)
+- `LensSignalDetailsCard.tsx:97-99` — renders `displayPhone` (always a string)
+
+### Connection to "Business Card Scanning Issues"
+
+This crash directly explains the original complaint. The scan itself (image capture + AI extraction) was succeeding — the error boundary caught the crash and logged it to Scarlett. But the user saw a blank/crashed review screen instead of the extracted data, making it appear as if the scan "didn't work." The extraction pipeline was functioning correctly; only the render step was broken.
+
+### Test Plan
+
+1. Scan a business card (CaptureScreen → card mode)
+2. Let extraction complete (should find business successfully)
+3. View result in BatchReviewScreen — confirm no crash
+4. Confirm phone number displays as readable text in candidate chips
+5. Confirm tapping a candidate chip applies the string value to the Phone field
+6. Confirm the active candidate chip highlights correctly
+
+### OTA Command
+
+```
+eas update --branch production --message "fix: LeadCard crash rendering phone object as React child"
+```
