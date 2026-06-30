@@ -1265,3 +1265,94 @@ All use the same `Promise.race` + 5s timeout + `.catch(() => null)` pattern from
 ```
 eas update --branch production --message "fix: add 5s GPS timeout to remaining unprotected call sites"
 ```
+
+---
+
+## Step 6: Business Card Scan Enrichment Routing
+
+### Problem
+
+Business card scans (CaptureScreen → extractLeadsWithDebugFromImage → BatchReview) saved leads directly to storage without any enrichment. The `saveAll()` handler in BatchReviewScreen had no call to `enqueueEnrichLead()` or `processQueue()`, so leads sat in the queue without AI enrichment (missing phone, email, website, social links).
+
+Other paths (Dashboard `enrichProspect`) already call `enqueueEnrichLead()` + `processQueue()` for background enrichment.
+
+### Fix
+
+Added `enqueueEnrichLead()` + `processQueue()` calls in `BatchReviewScreen.js:443-447` after storage writes. Each saved lead is enqueued for background AI enrichment. The enrichment runs asynchronously — no UX blocking.
+
+### Files Changed
+
+| File | Lines Changed | Commit |
+|------|--------------|--------|
+| `src/screens/BatchReviewScreen.js` | 14-16 (imports), 443-447 (enqueue) | `46545b5a` |
+
+---
+
+## Step 7: Environment Variable Audit
+
+### Results
+
+**All env vars in `.env` match code expectations. No mismatches found.**
+
+| Env Var | In .env | Used in Code |
+|---------|---------|-------------|
+| `EXPO_PUBLIC_SUPABASE_URL` | ✅ | 10+ files (src/lib, src/utils, src/screens) |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ | 10+ files |
+| `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` | ✅ | 4 files (nearbySearch, zipBoundaryCache, TerritoryMap, Review) |
+| `EXPO_PUBLIC_ANTHROPIC_API_KEY` | ✅ | 6 files (claudeApi, multiBusiness, propertyRecords, healthDept, buildingPermits, businessCardEnricher) |
+| `EXPO_PUBLIC_SCARLETT_ANON_KEY` | ✅ | 3 files (App.js, LoginScreen, betaTracker) |
+| `SCARLETT_SUPABASE_URL` | ✅ | 3 files (App.js, LoginScreen, betaTracker) |
+| `VITE_SUPABASE_URL` | ✅ (web/.env) | 2 files (web/src/lib, web/src/pages/Roadmap) |
+| `VITE_SUPABASE_ANON_KEY` | ✅ (web/.env) | 2 files |
+| `TEXAS_COMPTROLLER_API_KEY` | ✅ | Edge Functions (Deno.env) |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Scripts only |
+| `GITHUB_TOKEN` | ✅ | Scripts only |
+| `EXPO_TOKEN` | ✅ | Scripts only |
+
+**No hardcoded API keys remain in source files** (`src/`, `web/`, `supabase/functions/`). All keys now route through env vars.
+
+---
+
+## Step 8: AsyncStorage vs. StorageBridge Audit
+
+### Results
+
+**No bugs found. All AsyncStorage usage is intentional.**
+
+#### Raw AsyncStorage imports (`@react-native-async-storage/async-storage`):
+
+| File | Usage | Verdict |
+|------|-------|---------|
+| `src/screens/SupportScreen.js:17` | Supabase auth storage adapter | ✅ Intentional — Supabase requires async storage |
+| `src/screens/FeatureRequestScreen.js:16` | Supabase auth storage adapter | ✅ Intentional |
+| `src/screens/BugReportScreen.js:19` | Supabase auth storage adapter | ✅ Intentional |
+| `src/utils/supabaseClient.js:3` | Supabase auth storage adapter | ✅ Intentional — has comment explaining why |
+| `src/utils/storage.js:1` | Bridge module definition | ✅ Source of truth |
+
+#### storageBridge/storage aliased as `AsyncStorage`:
+
+32 files import `storageBridge as AsyncStorage` or `storage as AsyncStorage` from `../utils/storage`. These all read/write to **MMKV** (sync), not raw AsyncStorage. This is the correct pattern.
+
+**No files read from raw AsyncStorage when MMKV should be used** — the two known bugs (ExportScreen clear, BetaTracker email) were already fixed in earlier commits.
+
+---
+
+## Deployment Summary
+
+| Item | Status | Commit/Command |
+|------|--------|---------------|
+| GPS timeout (CaptureScreen) | ✅ Done | `1a4a287c` |
+| GPS timeout (remaining 4) | ✅ Done | `186b7109` |
+| BatchReview enrichment routing | ✅ Done | `46545b5a` |
+| comptroller-lookup deploy | ✅ Done | `supabase functions deploy comptroller-lookup` |
+| upsert-comptroller deploy | ✅ Done | `supabase functions deploy upsert-comptroller` |
+| VAPID keys | ✅ Set | `supabase secrets set` |
+| outreach_messages migration | ✅ Already applied | — |
+| Truncated secret cleanup | ✅ Done | Removed `TEXAS_COMPTROLLER_API_KE` |
+| Comptroller API key | ⚠️ 403 from upstream | Needs re-provisioning at comptroller.texas.gov |
+
+### OTA Command (all code fixes)
+
+```
+eas update --branch production --message "fix: GPS timeout, BatchReview enrichment routing"
+```
