@@ -14,6 +14,8 @@ import ProspectOutreachModal from '../components/ProspectOutreachModal';
 import { playSoundEffect } from '../utils/soundManager';
 import { recordUserActivityEvent } from '../utils/userLearning';
 import { getStyledMessage } from '../utils/aiPersonality';
+import { enqueueEnrichLead } from '../utils/claudeApi';
+import { processQueue } from '../utils/taskRunner';
 import BetaTracker from '../../utils/betaTracker';
 
 
@@ -437,6 +439,12 @@ export default function BatchReviewScreen({ navigation, route }) {
     );
 
     playSoundEffect('prospect-added').catch(() => {});
+
+    // Enqueue each saved lead for background AI enrichment
+    saved.forEach((lead) => {
+      enqueueEnrichLead(lead).catch(() => {});
+    });
+    processQueue().catch(() => {});
 
     saved.forEach((lead) => {
       recordUserActivityEvent('prospect_added', {
