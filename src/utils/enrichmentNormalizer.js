@@ -3,6 +3,7 @@ import { enrichProspectWithComptroller } from '../services/comptrollerEnrichment
 import { enrichMissingPOC } from './socialEnrichment';
 import { searchHealthViolations } from './healthDepartmentService';
 import { getPropertyRecord } from './propertyRecordsService';
+import { searchContacts as searchContactEnrichment } from '../services/enrichmentProviders';
 
 export function normalizePhone(value) {
   if (!value) return "";
@@ -551,6 +552,35 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
       }
     } catch (e) {
       console.warn("[PublicEnrichment] Comptroller lookup failed:", e.message);
+    }
+  }
+
+  // 3.5. Contact Enrichment Provider (BizCollect, Cleanlist, etc.)
+  // Searches for named POC, email, and phone from third-party data providers.
+  // Runs only if we still lack a primary POC to avoid wasting credits.
+  const hasPOC = sources.some(s => s.poc || s.pocName || s.firstName || s.ownerName || s.contactName);
+  if (!hasPOC && businessName.length > 2) {
+    try {
+      const contactResult = await searchContactEnrichment({
+        businessName,
+        city: business.city,
+        state: business.state,
+        zip: business.zip,
+        phone: business.phone,
+        vertical: business.vertical || business.industry || business.businessType,
+        latitude: business.latitude,
+        longitude: business.longitude,
+      });
+      if (contactResult && contactResult.contact) {
+        sources.push({
+          ...contactResult.contact,
+          source: contactResult.source || "ContactEnrichment",
+          type: "contact_enrichment",
+        });
+        console.log(`[PublicEnrichment] Contact enrichment found: ${contactResult.contact.fullName || contactResult.contact.email || 'contact'}`);
+      }
+    } catch (e) {
+      console.warn("[PublicEnrichment] Contact enrichment failed:", e.message);
     }
   }
 
