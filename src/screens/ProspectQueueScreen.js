@@ -25,6 +25,7 @@ import { showThemedAlert } from '../components/ThemedAlert';
 import { upsertProspect } from '../utils/backendSync';
 import { matchLeadByAnyId, normalizeLead, sortQueueProspects } from '../utils/leadHelpers';
 import { extractLeadsWithDebugFromImage } from '../utils/claudeApi';
+import { checkPermitStatus } from '../utils/txPermitCheck';
 
 const emptyForm = {
   businessName: '',
@@ -61,12 +62,43 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [scrollLocked, setScrollLocked] = useState(false);
   const scrollTimerRef = useRef(null);
   const atBottomRef = useRef(false);
+  const [permitFlags, setPermitFlags] = useState({}); // { [lead.id]: 'inactive' | 'not_found' }
 
   useEffect(() => {
     return () => {
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
   }, []);
+
+  // Run permit checks whenever leads change and the setting is enabled
+  useEffect(() => {
+    const runChecks = async () => {
+      // Read the user's setting preference
+      let prefEnabled = true;
+      try {
+        const raw = await AsyncStorage.getItem('lensSignalPrefs');
+        if (raw) {
+          const prefs = JSON.parse(raw);
+          prefEnabled = prefs?.notify_priority_review ?? true;
+        }
+      } catch {}
+
+      if (!prefEnabled) return;
+
+      const flags = {};
+      for (const lead of leads) {
+        if (!lead.businessName) continue;
+        const zip = lead.zip || lead.zipCode || null;
+        const result = await checkPermitStatus(lead.businessName, zip);
+        if (result.status === 'inactive' || result.status === 'not_found') {
+          flags[lead.id] = result.status;
+        }
+      }
+      setPermitFlags(flags);
+    };
+
+    if (leads.length > 0) runChecks();
+  }, [leads]);
 
   const handleScroll = useCallback((e) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -444,6 +476,13 @@ export default function ProspectQueueScreen({ navigation, route }) {
                     </Text>
                   </View>
                 )}
+                {permitFlags[lead.id] && (
+                  <View style={styles.permitWarningBadge}>
+                    <Text style={styles.permitWarningText}>
+                      ⚠️ {permitFlags[lead.id] === 'not_found' ? 'No TX permit found' : 'Inactive TX permit'}
+                    </Text>
+                  </View>
+                )}
                 {needsLookup(lead) && (
                   <TouchableOpacity style={styles.googleBtn} onPress={() => handleGoogleLookup(lead)} activeOpacity={0.7}>
                     <Text style={styles.googleBtnIcon}>🔍</Text>
@@ -596,6 +635,21 @@ const styles = StyleSheet.create({
     borderColor: COLORS.purple,
   },
   sourceBadgeText: { color: COLORS.purple, fontSize: 11, fontWeight: '600' },
+  permitWarningBadge: {
+    marginTop: 6,
+    backgroundColor: 'rgba(255, 180, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 180, 0, 0.5)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  permitWarningText: {
+    fontSize: 11,
+    color: '#FFB400',
+    fontWeight: '600',
+  },
   googleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
