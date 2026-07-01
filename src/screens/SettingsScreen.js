@@ -1626,24 +1626,6 @@ export default function SettingsScreen({ navigation, route }) {
         </View>
       </Card>
 
-      <SectionLabel>Feature Flags</SectionLabel>
-      <Card>
-        {[
-          { key: 'SCAN_RECOVERY_ENABLED', enabled: SCAN_RECOVERY_ENABLED },
-          { key: 'SCAN_QUEUE_PROCESSING_ENABLED', enabled: SCAN_QUEUE_PROCESSING_ENABLED },
-          { key: 'OCR_IMAGE_OPTIMIZATION_ENABLED', enabled: OCR_IMAGE_OPTIMIZATION_ENABLED },
-          { key: 'SCAN_ENRICHMENT_QUEUE_ENABLED', enabled: SCAN_ENRICHMENT_QUEUE_ENABLED },
-        ].map((flag, idx, arr) => (
-          <View key={flag.key} style={[s.infoRow, idx === arr.length - 1 && s.infoRowNoBorder]}>
-            <Text style={s.infoLabel}>{flag.key}</Text>
-            <Text style={[s.infoValue, { color: flag.enabled ? COLORS.success : COLORS.muted }]}>
-              {flag.enabled ? 'ON' : 'OFF'}
-            </Text>
-          </View>
-        ))}
-        <Text style={s.help}>Edit `src/config/featureFlags.js` to quickly roll back beta scan features.</Text>
-      </Card>
-
       <SectionLabel>Contact & Support</SectionLabel>
       <Card>
         <Text style={s.help}>
