@@ -409,7 +409,7 @@ async function downloadAPK(apkUrl, buildNumber, newVersion) {
     function doDownload(url, hops = 0) {
       if (hops > 5) return reject(new Error('Too many redirects'));
       https.get(url, (res) => {
-        if (res.statusCode === 301 || res.statusCode === 302) {
+        if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
           return doDownload(res.headers.location, hops + 1);
         }
         if (res.statusCode !== 200) {
