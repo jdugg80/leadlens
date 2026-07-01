@@ -1,6 +1,6 @@
 # Changelog
 
-## BETA-52 | 2026-06-30
+## BETA-52 | 2026-07-01
 
 > Released via Project Scarlett — LeadLens_v2.0.52-BETA.52.apk
 
