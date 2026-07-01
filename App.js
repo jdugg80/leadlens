@@ -2,8 +2,8 @@ import 'react-native-url-polyfill/auto';
 import { configurePushNotifications } from './src/utils/pushNotifications';
 configurePushNotifications();
 
-import React, { Component, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, Animated, StyleSheet, AppState, Alert, Linking } from 'react-native';
+import React, { Component, useEffect, useRef, useCallback, useState } from 'react';
+import { View, Text, TouchableOpacity, Animated, StyleSheet, AppState, Alert, Linking, Modal, ScrollView } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -128,7 +128,7 @@ class AppErrorBoundary extends Component {
 // ── UPDATE CHECK ──────────────────────────────────────────────────────────────
 // Reads latest_build from Supabase app_config table.
 // To push an update: increment latest_build row and update apk_url row.
-async function checkForUpdate() {
+async function checkForUpdate(onUpdateAvailable) {
   console.log('[UPDATE] Starting check...');
   try {
     const supabaseUrl = process.env.SCARLETT_SUPABASE_URL || 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
@@ -172,17 +172,12 @@ async function checkForUpdate() {
     console.log('[UPDATE] Latest:', latestBuild, 'Current:', currentBuild);
 
     if (latestBuild > currentBuild) {
-      console.log('[UPDATE] SHOWING ALERT');
-      const notes = cfg.update_message ? `\n\nWhat's new:\n${cfg.update_message}` : '';
-      Alert.alert(
-        'Update Available — BETA-' + latestBuild,
-        `A new build is ready to install.${notes}\n\nDownload and install it now to stay current.`,
-        [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Download Now', onPress: () => cfg.apk_url && Linking.openURL(cfg.apk_url) },
-        ],
-        { cancelable: false }
-      );
+      console.log('[UPDATE] SHOWING UPDATE MODAL');
+      onUpdateAvailable?.({
+        build: latestBuild,
+        apkUrl: cfg.apk_url,
+        notes: cfg.update_message || '',
+      });
     } else {
       console.log('[UPDATE] Already up to date');
     }
@@ -251,6 +246,7 @@ export default function App() {
   const flashAnim = useRef(new Animated.Value(0)).current;
   const appState  = useRef(AppState.currentState);
   const navRef = useRef(null);
+  const [updateModal, setUpdateModal] = useState(null);
 
   useEffect(() => {
     installGlobalErrorHandlers();
@@ -283,7 +279,7 @@ export default function App() {
         }
 
         // ── Check for forced updates ──
-        checkForUpdate().catch((err) => reportGlobalCrash('update_check', err, false));
+        checkForUpdate((data) => setUpdateModal(data)).catch((err) => reportGlobalCrash('update_check', err, false));
 
         // ── Update actual GPS on app launch ──
         updateGlobalLocation().catch((err) => reportGlobalCrash('global_location_startup', err, false));
@@ -413,6 +409,40 @@ export default function App() {
           />
         </Stack.Navigator>
         <FlashOverlay flashAnim={flashAnim} />
+        <Modal visible={!!updateModal} transparent animationType="fade" onRequestClose={() => setUpdateModal(null)}>
+          <View style={ustyles.overlay}>
+            <View style={ustyles.card}>
+              <Text style={ustyles.title}>Update Available</Text>
+              <Text style={ustyles.build}>BETA-{updateModal?.build}</Text>
+              {updateModal?.notes ? (
+                <ScrollView style={ustyles.notesScroll} nestedScrollEnabled>
+                  {updateModal.notes.split('\n').map((line, i) => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return <View key={i} style={{ height: 6 }} />;
+                    if (/^#{1,3}\s/.test(trimmed)) {
+                      return <Text key={i} style={ustyles.heading}>{trimmed.replace(/^#{1,3}\s*/, '')}</Text>;
+                    }
+                    if (/^[-•*]\s/.test(trimmed)) {
+                      return <Text key={i} style={ustyles.bullet}>{trimmed.replace(/^[-•*]\s*/, '\u2022 ')}</Text>;
+                    }
+                    return <Text key={i} style={ustyles.bodyText}>{trimmed}</Text>;
+                  })}
+                </ScrollView>
+              ) : (
+                <Text style={ustyles.bodyText}>Bug fixes and improvements.</Text>
+              )}
+              <TouchableOpacity style={ustyles.downloadBtn} onPress={() => {
+                if (updateModal?.apkUrl) Linking.openURL(updateModal.apkUrl);
+                setUpdateModal(null);
+              }}>
+                <Text style={ustyles.downloadBtnText}>Download Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={ustyles.laterBtn} onPress={() => setUpdateModal(null)}>
+                <Text style={ustyles.laterBtnText}>Later</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </NavigationContainer>
     </SafeAreaProvider>
     </AppErrorBoundary>
@@ -457,3 +487,79 @@ const styles = StyleSheet.create({
 });
 
 AppRegistry.registerComponent('leadlens', () => App);
+
+const ustyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    backgroundColor: '#14161C',
+    borderRadius: 14,
+    width: '100%',
+    maxWidth: 380,
+    maxHeight: '80%',
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#1E2130',
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  build: {
+    color: '#00C9FF',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  notesScroll: {
+    maxHeight: 320,
+    marginBottom: 16,
+  },
+  heading: {
+    color: '#00C9FF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  bullet: {
+    color: '#B8BDD0',
+    fontSize: 13,
+    lineHeight: 20,
+    marginLeft: 8,
+  },
+  bodyText: {
+    color: '#B8BDD0',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  downloadBtn: {
+    backgroundColor: '#00C9FF',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  downloadBtnText: {
+    color: '#000000',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  laterBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  laterBtnText: {
+    color: '#6B7280',
+    fontSize: 13,
+  },
+});

@@ -190,11 +190,15 @@ function parseChangelog() {
     .map(l => l.trim().replace(/^[-•*]\s*/, '• '))
     .join('\n');
 
+  // Fallback: never write empty update_message to Scarlett
+  const updateMessage = changesText || bulletNotes || 'Bug fixes and improvements.';
+
   return {
     buildNumber,
     buildDate,
     changesText,
     bulletNotes,
+    updateMessage,
     version: `BETA-${buildNumber}`,
     tag:     `release-${buildNumber}`,
   };
@@ -565,7 +569,7 @@ async function updateScarlett(buildInfo, newVersion, apkUrl) {
       current_build:  buildInfo.buildNumber,
       version_name:   `v${newVersion}-BETA.${buildInfo.buildNumber}`,
       apk_url:        apkUrl,
-      update_message: buildInfo.changesText,
+      update_message: buildInfo.updateMessage,
       force_update:   true,
       updated_at:     new Date().toISOString(),
     }),
