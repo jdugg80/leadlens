@@ -591,15 +591,15 @@ export default function SettingsScreen({ navigation, route }) {
         style: 'destructive',
         onPress: async () => {
           await AsyncStorage.removeItem(USER_STORAGE_KEY);
+          BetaTracker.setEmail('');
           try {
-            const supabase = createSupabaseClient(supabaseSettings);
-            if (supabase) {
-              const { data: { user: authUser } } = await supabase.auth.getUser();
+            const sb = createSupabaseClient(supabaseSettings);
+            if (sb) {
+              const { data: { user: authUser } } = await sb.auth.getUser();
               if (authUser?.id) await unregisterPushToken(authUser.id);
+              await sb.auth.signOut();
             }
           } catch {}
-          // Push all data before logout
-await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
           navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         },
       },
