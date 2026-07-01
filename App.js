@@ -501,7 +501,7 @@ const ustyles = StyleSheet.create({
     borderRadius: 14,
     width: '100%',
     maxWidth: 380,
-    maxHeight: '80%',
+    maxHeight: '85%',
     padding: 20,
     borderWidth: 1,
     borderColor: '#1E2130',
@@ -521,7 +521,7 @@ const ustyles = StyleSheet.create({
     marginBottom: 14,
   },
   notesScroll: {
-    maxHeight: 320,
+    flexShrink: 1,
     marginBottom: 16,
   },
   heading: {
