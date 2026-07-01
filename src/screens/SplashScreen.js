@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
-  APP_VERSION,
+  getAppVersionString,
   COLORS,
   LEGAL_ACCEPTANCE_KEY,
   PRIVACY_POLICY_VERSION,
@@ -540,7 +540,7 @@ export default function SplashScreen({ navigation }) {
             <Text style={styles.skipArrow}>›</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.version}>{`v${APP_VERSION}-BETA.${Constants.expoConfig?.extra?.betaBuild || '1'}`}</Text>
+        <Text style={styles.version}>{`v${getAppVersionString()}`}</Text>
       </Animated.View>
     </Animated.View>
   );

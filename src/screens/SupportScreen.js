@@ -17,6 +17,7 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import { getAppVersionShort, getBetaBuild } from '../constants';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -24,14 +25,6 @@ const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
 });
-
-function getAppMeta() {
-  const version = Constants.expoConfig?.version || Constants.manifest?.version || '—';
-  const build =
-    Constants.expoConfig?.extra?.betaBuild ||
-    Constants.manifest?.extra?.betaBuild ||
-    Constants.expoConfig?.android?.versionCode ||
-    '—';
   return { version, build };
 }
 
@@ -45,7 +38,8 @@ function getNow() {
 
 export default function SupportScreen({ navigation }) {
   const [user, setUser] = useState(null);
-  const { version, build } = getAppMeta();
+  const version = getAppVersionShort();
+  const build = getBetaBuild();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {

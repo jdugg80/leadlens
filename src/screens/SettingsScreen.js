@@ -28,6 +28,7 @@ import {
   SUPABASE_SETTINGS_KEY,
   USER_STORAGE_KEY,
   APP_VERSION,
+  getAppVersionString,
   SUPPORT_EMAIL,
   SUPPORT_PHONE,
 } from '../constants';
@@ -1614,7 +1615,7 @@ export default function SettingsScreen({ navigation, route }) {
         </View>
         <View style={s.infoRow}>
           <Text style={s.infoLabel}>Version</Text>
-          <Text style={s.infoValue}>v{APP_VERSION}{Constants.expoConfig?.extra?.betaBuild ? `-BETA.${Constants.expoConfig.extra.betaBuild}` : ''}</Text>
+          <Text style={s.infoValue}>v{getAppVersionString()}</Text>
         </View>
         <View style={s.infoRow}>
           <Text style={s.infoLabel}>Build Type</Text>

@@ -26,13 +26,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
 });
 
+import { getAppVersionShort } from '../constants';
+
 const MAX_PHOTOS = 5;
 const MAX_VIDEO_SECS = 30;
-
-function getAppMeta() {
-  const version = Constants.expoConfig?.version || Constants.manifest?.version || '—';
-  return { version };
-}
 
 function getBugConfirmation(repName, bugTitle) {
   const name = repName || 'there';
@@ -50,7 +47,7 @@ export default function BugReportScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const repEmail = route?.params?.repEmail || 'unknown@leadlens.app';
   const repName = route?.params?.repName || 'there';
-  const { version } = getAppMeta();
+  const version = getAppVersionShort();
 
   const [subject, setSubject] = useState('');
   const [details, setDetails] = useState('');

@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+
 export const COLORS = {
   bg:        '#080A0F',
   surface:   '#0E1018',
@@ -182,7 +184,24 @@ export const DEFAULT_BACKEND_EMAIL_SETTINGS = {
   htmlBody: '<strong>Your LeadLens export is ready.</strong>',
 };
 
-export const APP_VERSION = '2.0.1';
+// Canonical version source — reads from native build config (Constants.expoConfig)
+// Never hardcode a version string here; always derive from the binary.
+export function getAppVersionString() {
+  const version = Constants.expoConfig?.version || '0.0.0';
+  const betaBuild = Constants.expoConfig?.extra?.betaBuild;
+  return betaBuild ? `${version}-BETA.${betaBuild}` : version;
+}
+
+export function getAppVersionShort() {
+  return Constants.expoConfig?.version || '0.0.0';
+}
+
+export function getBetaBuild() {
+  return Constants.expoConfig?.extra?.betaBuild || 0;
+}
+
+// Legacy alias — prefer getAppVersionString() in new code
+export const APP_VERSION = Constants.expoConfig?.version || '0.0.0';
 export const PRIVACY_POLICY_VERSION = '1.1';
 export const TERMS_VERSION = '1.1';
 export const SUPPORT_EMAIL = 'theokaymediafam@gmail.com';

@@ -10,7 +10,7 @@
 import { Alert, Linking } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
-import { APP_VERSION } from '../src/constants';
+import { getAppVersionShort } from '../src/constants';
 
 const BETA_URL = process.env.SCARLETT_SUPABASE_URL || 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
 const BETA_KEY = process.env.EXPO_PUBLIC_SCARLETT_ANON_KEY;
@@ -63,7 +63,7 @@ export async function checkForUpdate() {
     // Build the alert
     const title   = '🔴 Update Available';
     const message = update_message ||
-      `A new build of LeadLens is ready.\n\nYou are on ${APP_VERSION}. Please download and install the latest version to continue testing.`;
+      `A new build of LeadLens is ready.\n\nYou are on ${getAppVersionShort()}. Please download and install the latest version to continue testing.`;
 
     const buttons = [
       {

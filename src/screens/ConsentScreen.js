@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
-  APP_VERSION,
+  getAppVersionString,
   COLORS,
   LEGAL_ACCEPTANCE_KEY,
   PRIVACY_POLICY_VERSION,
@@ -27,7 +27,7 @@ export default function ConsentScreen({ navigation, route }) {
       acceptedAt: new Date().toISOString(),
       privacyVersion: PRIVACY_POLICY_VERSION,
       termsVersion: TERMS_VERSION,
-      appVersion: APP_VERSION,
+      appVersion: getAppVersionString(),
       repName: user?.repName || '',
       employeeNum: user?.employeeNum || '',
     };
@@ -45,7 +45,7 @@ export default function ConsentScreen({ navigation, route }) {
 
   return (
     <View style={s.root}>
-      <ScreenHeader title="Before You Continue" badge={`v${APP_VERSION}`} />
+      <ScreenHeader title="Before You Continue" badge={`v${getAppVersionString()}`} />
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 32 }}>
         <Card accent>
           <Text style={s.lead}>LeadLens uses captured images, extracted lead data, local storage, optional automation features, and certain device permissions to support prospect capture and export workflows.</Text>

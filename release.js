@@ -218,8 +218,8 @@ function bumpVersions(buildNumber) {
   const [major, minor] = (appJson.expo.version || '2.0.1').split('.').map(Number);
   const newVersion   = `${major}.${minor}.${targetCode}`;
 
-  if (targetCode <= currentCode) {
-    throw new Error(`Build number ${targetCode} must be greater than current versionCode ${currentCode}`);
+  if (targetCode < currentCode) {
+    throw new Error(`Build number ${targetCode} must not be less than current versionCode ${currentCode}`);
   }
 
   if (DRY_RUN) {
@@ -785,11 +785,8 @@ async function main() {
     console.log(`   Tag:    ${buildInfo.tag}`);
 
     step(3, TOTAL, 'Bumping version numbers');
-    // --apk mode: version already bumped on a prior run, just read it from app.json
-    const newVersion = MANUAL_APK
-      ? JSON.parse(fs.readFileSync(APP_JSON_PATH, 'utf-8')).expo.version
-      : bumpVersions(buildInfo.buildNumber);
-    if (MANUAL_APK) ok(`Using existing version: v${newVersion} (already at build ${buildInfo.buildNumber})`);
+    // Always bump versions — even in --apk mode, app.json must reflect the correct build
+    const newVersion = bumpVersions(buildInfo.buildNumber);
 
     const repoInfo = getGitRepoInfo();
     console.log(`\n   Repo: ${repoInfo.owner}/${repoInfo.repo}`);
