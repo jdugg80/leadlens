@@ -77,7 +77,8 @@ const EAS_GRAPHQL_URL = 'https://api.expo.dev/graphql';
 // Resend tester email list
 const TESTER_EMAILS = [
   'theokaymediafam@gmail.com',
-  // Add more tester emails here
+  'josecbueno22@gmail.com',
+  'ritzob4life@gmail.com',
 ];
 
 // ─── Flags ─────────────────────────────────────────────────────────────────
