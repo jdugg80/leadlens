@@ -96,7 +96,6 @@ import {
   openBatteryOptimizationSettings,
   WORKDAY_PERSIST_MS,
 } from '../utils/backgroundStability';
-import { saveTxApiKey } from '../utils/txPermitCheck';
 
 const DAYS = [
   { value: 1, label: 'Mon' },
@@ -293,8 +292,6 @@ export default function SettingsScreen({ navigation, route }) {
   const [useLocationHistory, setUseLocationHistory] = useState(true);
   const [userGoals, setUserGoals] = useState({ dailyProspects: '' });
   const [lensSignalPrefs, setLensSignalPrefs] = useState(DEFAULT_LENSSIGNAL_PREFS);
-  const [txApiKey, setTxApiKey] = useState('');
-  const [txApiKeySaved, setTxApiKeySaved] = useState(false);
 
   useEffect(() => {
     loadSoundSettings().then((enabled) => setSoundsEnabledState(enabled));
@@ -309,11 +306,6 @@ export default function SettingsScreen({ navigation, route }) {
     }).catch(() => {});
     AsyncStorage.getItem(GOALS_STORAGE_KEY).then((raw) => {
       if (raw) setUserGoals(JSON.parse(raw));
-    });
-
-    // Load TX Comptroller API key
-    AsyncStorage.getItem('TX_COMPTROLLER_API_KEY').then((storedKey) => {
-      if (storedKey) setTxApiKey(storedKey);
     });
 
     if (routeUser?.id) {
@@ -1188,34 +1180,6 @@ await syncAllDataToSupabase(user, supabaseSettings).catch(() => {});
             trackColor={{ true: COLORS.accent }}
           />
         </View>
-        {/* API Key input — only show when toggle is on */}
-        {!!(lensSignalPrefs?.notify_priority_review ?? true) && (
-          <View style={{ marginTop: 10, marginHorizontal: 4 }}>
-            <Text style={[s.switchSub, { marginBottom: 6 }]}>TX Comptroller API Key</Text>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TextInput
-                style={[s.input, { flex: 1, fontSize: 12, color: COLORS.text }]}
-                value={txApiKey}
-                onChangeText={setTxApiKey}
-                placeholder="Paste your API key here"
-                placeholderTextColor={COLORS.muted}
-                secureTextEntry={true}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity
-                style={[s.saveBtn, { paddingHorizontal: 14 }]}
-                onPress={async () => {
-                  await saveTxApiKey(txApiKey.trim());
-                  setTxApiKeySaved(true);
-                  setTimeout(() => setTxApiKeySaved(false), 2000);
-                }}
-              >
-                <Text style={s.saveBtnText}>{txApiKeySaved ? '✓ Saved' : 'Save'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
 
         <View style={s.switchRow}>
           <View style={{ flex: 1 }}>
