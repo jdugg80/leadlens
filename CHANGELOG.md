@@ -1,41 +1,45 @@
-## 2026-06-30
+# Changelog
+
+## BETA-52 | 2026-06-30
+
+> Released via Project Scarlett — LeadLens_v2.0.52-BETA.52.apk
+
+### 🚀 New Features
+- **TX Permit Status Check** — New `txPermitCheck.js` utility with Edge Function integration checks Texas Comptroller permit status for prospects. `SettingsScreen` shows permit status labels; `ProspectQueueScreen` displays queue badges for permit status at a glance.
+- **Pluggable Enrichment Provider Architecture** — New `enrichmentProviders/` module with a `providerInterface.js` contract and `bizcollectProvider.js` as the first pluggable enrichment source. `enrichmentNormalizer.js` updated to route through the provider system.
+- **Background AI Enrichment** — Business card scan leads now route through a background AI enrichment queue after capture, improving data completeness without blocking the scan flow.
+
+### 🔧 Core App
+- **Front & Back Card Scan Merge** — Scanning both sides of a business card now produces one merged prospect instead of two separate entries. `mergeTwoSidedCardLeads()` is now correctly called after both sides are processed.
 - **TaskQueue Observability** — Added logging to the background task processor (`taskRunner.js`): empty queue, task count, per-task execution, success, and failure are now visible in logcat. Previously the processor ran silently with zero log output.
-- **Enrichment Error Propagation** — `enrichLead()` in `claudeApi.js` now re-throws errors instead of silently returning the unchanged lead. Failed enrichments are marked FAILED in the queue (retryable up to 3x) instead of being silently marked COMPLETED.
-- **Edge Function Error Detail** — `extractProspectAI.js` error messages now include the actual HTTP status and response body from the `extract-prospect` Edge Function instead of generic "Extraction failed" strings.
+- **Enrichment Error Propagation** — `enrichLead()` in `claudeApi.js` now re-throws errors instead of silently returning the unchanged lead. Failed enrichments are marked FAILED in the queue (retryable up to 3×) instead of silently marked COMPLETED.
+- **Edge Function Error Detail** — `extractProspectAI.js` error messages now include the actual HTTP status and response body from the `extract-prospect` Edge Function.
+- **Comptroller firstName/lastName Mapping** — Fixed field mapping so Comptroller API results correctly populate POC extraction fields; added `businessName` fallback logic.
 
-## 2026-06-29
-- **Security: VAPID Key Hardening** — Removed hardcoded VAPID private key from `analyze-submission` Edge Function; both keys now read from environment variables with a startup guard that blocks deployment if missing.
-- **Security: Supabase Anon Key Consolidation** — Replaced hardcoded Supabase anon key fallbacks with environment variable references across 9 files (BugReportScreen, FeatureRequestScreen, AdminScreen, App.js, betaTracker, updateChecker, LoginScreen, web supabase.js, web Roadmap.jsx). LeadLens, Scarlett, and web each use their own env vars.
-- **Security: Google Maps API Key Centralization** — Replaced hardcoded Google Maps API key with `process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` in 4 source files (ReviewScreen, TerritoryMapScreen, zipBoundaryCache, nearbySearch). Key removed from 2 doc files.
-- **Security: RLS Policy Hardening** — Tightened overly permissive `USING (true)` policies on 4 Supabase tables: `beta_testers` (own-email-only SELECT), `contact_candidates` (authenticated read-only, service_role write), `lenssignal_records` (authenticated-only, was public), `comptroller_business_records` (authenticated read-only, service_role write).
-- **Comptroller Write Path Fix** — New `upsert-comptroller` Edge Function replaces direct client-side table upserts for Comptroller enrichment cache. `comptrollerEnrichment.ts` now calls the Edge Function via `supabase.functions.invoke()` instead of writing directly (which would fail with RLS).
-- **Bug Report Routing** — Bug reports from the in-app form now route to the `feature_requests` table (with `source: 'in-app'`, `type: 'bug'`) so they reach the NeuroArc triage pipeline. Previously they went to `support_tickets` and were invisible.
-- **Claude Model Update** — Updated Claude model reference from `claude-sonnet-4-20250514` to `claude-haiku-4-5-20251001` across all Edge Functions and the web Roadmap page.
-- **Vercel Deployment Fixes** — Fixed misconfigured root directory (was pointing to `web/web` inside the project), corrected git author email for Vercel builds, deployed edge functions and web app.
-- **Full Repo Audit** — Comprehensive audit report (`AUDIT-REPORT-2026-06-29.md`) covering file structure, dependencies, security, schema, regressions, build pipeline, web portal, and code quality.
+### 🐛 Bug Fixes
+- **Business Card Scan Crash** — Fixed crash in `BatchReviewScreen` where phone numbers returned as structured objects `{number, type, digits}` from `phoneExtraction.js` were rendered directly in `<Text>` components. Now correctly extracts `.number` string before rendering.
+- **ProspectOutreachModal Hooks Violation** — Fixed Rules of Hooks crash: `useCallback` was declared after an early `return null` guard at line 82, causing React to throw "Rendered more hooks than during the previous render" when `prospect` transitioned from null to a value.
+- **False "Leave Scanner?" Prompt** — Scan blocking state (`scanInProgress`, `processing`, `currentCardScanSessionId`) is now cleared before navigating to `BatchReview` instead of after, eliminating a timing window where the navigation guard incorrectly treated a completed scan as still active. Fix applied to single-sided, Front & Back, recovery, gallery, and spreadsheet import paths via new `clearScanBlockingState()` helper.
+- **GPS Indefinite Hang** — Added 5-second `Promise.race` timeout to all unprotected `getCurrentCoords()` calls across `CaptureScreen.js` and remaining screens (`PhotoIngestScreen`, `BatchReviewScreen`, `App.js`, `LeadLockCameraScreen`). Processing pipeline no longer hangs indefinitely on slow or unavailable GPS — falls back gracefully and continues without location.
+- **ExportScreen Clear Bug** — `clearExportedQueueItems` now clears both MMKV and AsyncStorage (matching `SettingsScreen.handleClearQueue`). Previously only MMKV was cleared, causing exported/cleared prospects to reappear from the AsyncStorage fallback after an Expo dev client rebuild.
+- **BetaTracker Email Always Null** — `resolveEmail()` in `betaTracker.js` now reads from MMKV via `storageBridge` instead of raw AsyncStorage. `LoginScreen` writes to MMKV; the previous raw AsyncStorage read always returned null, causing every Scarlett event to show a blank Tester column.
+- **BetaTracker Email Reverts to Stale Account** — Fixed spread order in `LoginScreen.js:349` — `setUser({ ...nextUser, ...saved, repEmail: email })` now pins the auth email last so it can't be overwritten by the cached previous-session user object during account switching.
+- **Comptroller Write Path** — New `upsert-comptroller` Edge Function replaces direct client-side table upserts for Comptroller enrichment cache writes (required after RLS hardening locked `comptroller_business_records` to service_role writes only).
+- **Comptroller Diagnostic Logging** — Added `console.error` logging to all failure paths in `comptroller-lookup` Edge Function so 500/403 errors now surface the actual upstream status and response body in Supabase dashboard logs.
 
-## 2026-06-27
-- Fixed an unspecified issue — reported by a LeadLens user. Thank you!
+### 🏗️ Infrastructure
+- **Security: VAPID Key Hardening** — Removed hardcoded VAPID private/public keys from `analyze-submission` Edge Function; both now read from Supabase secrets with a startup guard.
+- **Security: Supabase Anon Key Consolidation** — Replaced hardcoded anon key fallbacks with environment variable references across 9 files.
+- **Security: Google Maps API Key Centralization** — Replaced hardcoded Google Maps API key with `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` env var across 4 source files and redacted from 2 doc files.
+- **Security: RLS Policy Hardening** — Tightened `USING (true)` policies on 4 Supabase tables: `beta_testers` (own-email-only SELECT), `contact_candidates` (authenticated read-only, service_role write), `lenssignal_records` (authenticated-only), `comptroller_business_records` (authenticated read-only, service_role write). Migrations applied to live database.
+- **Claude Model Update** — Updated model references from deprecated `claude-3-haiku-20240307` to `claude-haiku-4-5-20251001` across Edge Functions and web Roadmap page.
 
-## 2026-06-21
-- Fixed an issue where switching your TargetLens profile to a different business type would still show pest control results on the territory map instead of results for the newly selected profile. — reported by a LeadLens user. Thank you!
-- Fixed an issue where business search on the territory map returned no results — reported by a LeadLens user. Thank you!
-- Fixed an issue on the Support screen where your name and account information weren't showing up in the system information panel. — reported by a LeadLens user. Thank you!
-- Fixed an issue where edits made to prospects in the Prospect Queue were not being saved or persisted correctly. — reported by a LeadLens user. Thank you!
-- Fixed an issue where the Support screen was not displaying the logged-in user's name and account information. — reported by a LeadLens user. Thank you!
-- **Time Display** — Switched all time displays throughout the app from 24-hour format to 12-hour format with AM/PM indicators for easier readability. — reported by a LeadLens user. Thank you!
+### ⚠️ Known Issues
+- **Texas Comptroller API** — `comptroller-lookup` returning 403; pending valid API key activation through the Texas Comptroller developer portal.
+- **Google Places Search** — `NearbySearch` returning "caller does not have permission"; pending Google Cloud billing account restoration.
+- **Single-Sided Scan Lead Duplication** — Scanning a single card occasionally produces duplicate entries; root cause under investigation.
 
-## 2026-06-20
-- **12-Hour Clock Display** — Time values throughout the app now show in 12-hour format with AM/PM instead of 24-hour format. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar or notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `useSafeAreaInsets().top` from `react-native-safe-area-context`, which works correctly on all iOS devices including those with a notch or Dynamic Island. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS devices because `StatusBar.currentHeight` is Android-only. Switched to `useSafeAreaInsets().top` from `react-native-safe-area-context` so top padding works correctly on all iOS devices. — reported by a LeadLens user. Thank you!
-- Fixed iOS header rendering under the status bar/notch on the Support, Bug Report, and Feature Request screens by replacing the Android-only `StatusBar.currentHeight` with `insets.top` from `react-native-safe-area-context`. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS because `StatusBar.currentHeight` is Android-only. Switched to `useSafeAreaInsets().top` from `react-native-safe-area-context` so padding works correctly on all iOS devices. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS devices because `StatusBar.currentHeight` is Android-only and returns `undefined` on iOS. Switched to `useSafeAreaInsets().top` from `react-native-safe-area-context` so top padding works correctly on all devices. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar/notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `useSafeAreaInsets().top` so headers sit correctly on all iOS devices. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS devices because `StatusBar.currentHeight` is Android-only. Replaced it with `useSafeAreaInsets().top` from `react-native-safe-area-context` so top padding works correctly on all iOS devices, including those with notches and Dynamic Island. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on the Support, Bug Report, and Feature Request screens — headers were rendering under the status bar and notch on iOS because `StatusBar.currentHeight` is Android-only. Replaced it with `insets.top` from `react-native-safe-area-context` so the padding works correctly on all devices. — reported by a LeadLens user. Thank you!
-- Fixed iOS header positioning on Support, Bug Report, and Feature Request screens — headers no longer render under the status bar or notch, by replacing the Android-only `StatusBar.currentHeight` with `insets.top` from `react-native-safe-area-context` — reported by a LeadLens user. Thank you!
+---
 
 ## BETA-51 | 2026-06-14
 
@@ -61,7 +65,6 @@
 
 ### 🏗️ Infrastructure
 - API Error Hardening: `claudeApi.js` — wrapped `extractLeadsFromImage`, `extractLeadsWithDebugFromImage`, and `extractRawOcrFromImage` with try/catch for resilient error handling
-
 
 ---
 
