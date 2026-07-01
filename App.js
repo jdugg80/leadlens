@@ -279,7 +279,9 @@ export default function App() {
         }
 
         // ── Check for forced updates ──
-        checkForUpdate((data) => setUpdateModal(data)).catch((err) => reportGlobalCrash('update_check', err, false));
+        if (!__DEV__) {
+          checkForUpdate((data) => setUpdateModal(data)).catch((err) => reportGlobalCrash('update_check', err, false));
+        }
 
         // ── Update actual GPS on app launch ──
         updateGlobalLocation().catch((err) => reportGlobalCrash('global_location_startup', err, false));
