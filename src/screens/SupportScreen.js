@@ -25,8 +25,6 @@ const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
 });
-  return { version, build };
-}
 
 function getNow() {
   const now = new Date();
