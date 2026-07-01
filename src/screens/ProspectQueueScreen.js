@@ -130,27 +130,31 @@ export default function ProspectQueueScreen({ navigation, route }) {
     }, 800);
   }, [scrollLocked]);
 
+  const loadLeads = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setLeads(parsed);
+          return;
+        }
+      }
+      setLeads([]);
+    } catch (e) {
+      console.warn('[ProspectQueue] Load failed:', e.message);
+      setLeads([]);
+    }
+  }, []);
+
   useFocusEffect(useCallback(() => {
     let active = true;
-    (async () => {
-      setLoading(true);
-      let rawLeads = [];
-      try {
-        const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) rawLeads = parsed;
-        }
-      } catch (e) {
-        console.warn('[ProspectQueue] Load failed:', e.message);
-      }
-      if (active) {
-        setLeads(rawLeads);
-        setLoading(false);
-      }
-    })();
+    setLoading(true);
+    loadLeads().finally(() => {
+      if (active) setLoading(false);
+    });
     return () => { active = false; };
-  }, []));
+  }, [loadLeads]));
 
   const openEdit = (lead, idx) => {
     setEditingLead(lead);
@@ -219,11 +223,26 @@ export default function ProspectQueueScreen({ navigation, route }) {
       }
       currentLeads.push(updatedLead);
 
-      setLeads(currentLeads);
+      // Write to storage via storageBridge (MMKV)
+      await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(currentLeads));
 
-      const RawStorageSave = require('@react-native-async-storage/async-storage').default;
-      await RawStorageSave.setItem(LEADS_STORAGE_KEY, JSON.stringify(currentLeads));
-      AsyncStorage.setSync(LEADS_STORAGE_KEY, JSON.stringify(currentLeads));
+      // Read back to confirm write succeeded
+      const readBackRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+      const readBack = readBackRaw ? JSON.parse(readBackRaw) : [];
+      if (!Array.isArray(readBack) || readBack.length !== currentLeads.length) {
+        showThemedAlert('Save Failed', 'Changes could not be saved to device storage. Please try again.');
+        return;
+      }
+
+      const readBackIdx = matchLeadByAnyId(readBack, updatedLead);
+      const readBackLead = readBackIdx !== -1 ? readBack[readBackIdx] : null;
+      if (!readBackLead || readBackLead.updatedAt !== now) {
+        showThemedAlert('Save Failed', 'Changes could not be verified on device. Please try again.');
+        return;
+      }
+
+      // Confirmed — update state from storage read-back
+      setLeads(readBack);
 
       const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
       const settings = supaRaw ? JSON.parse(supaRaw) : {};

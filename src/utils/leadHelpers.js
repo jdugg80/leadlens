@@ -486,3 +486,58 @@ export function matchLeadByAnyId(leads = [], target = {}) {
   return targetId ? leads.findIndex(l => getLeadId(l) === targetId) : -1;
 }
 
+// Merge OCR-extracted data into an existing prospect.
+// Empty fields auto-fill. Filled fields that conflict are flagged.
+// Conflicts default to keeping the existing value.
+export function mergeProspectWithScreenshot(existing, extracted) {
+  if (!existing || !extracted) return { prospect: existing, conflicts: [] };
+
+  const prospect = { ...existing };
+  const conflicts = [];
+  const now = new Date().toISOString();
+
+  const fieldMap = {
+    businessName: 'businessName',
+    phone: 'phone',
+    email: 'email',
+    streetNumber: 'streetNumber',
+    streetName: 'streetName',
+    city: 'city',
+    state: 'state',
+    zip: 'zip',
+    website: 'website',
+    pocFirst: 'pocFirst',
+    pocLast: 'pocLast',
+    notes: 'notes',
+  };
+
+  for (const [targetField, sourceField] of Object.entries(fieldMap)) {
+    const existingVal = String(existing[targetField] || '').trim();
+    const extractedVal = String(extracted[sourceField] || '').trim();
+
+    if (!extractedVal) continue; // nothing extracted for this field
+
+    if (!existingVal) {
+      // Field is empty — auto-fill from extraction
+      prospect[targetField] = extractedVal;
+    } else if (existingVal.toLowerCase() !== extractedVal.toLowerCase()) {
+      // Field is filled and conflicts — flag for manual resolution
+      conflicts.push({
+        field: targetField,
+        label: targetField.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
+        existing: existingVal,
+        extracted: extractedVal,
+      });
+      // Default: keep existing value (no overwrite)
+    }
+  }
+
+  prospect.lastEditedAt = now;
+  prospect.screenshotEnrichedAt = now;
+  if (prospect.captureMethod && !prospect.captureMethod.includes('screenshot')) {
+    prospect.captureMethod = `${prospect.captureMethod}+screenshot`;
+  }
+
+  return { prospect, conflicts };
+}
+
