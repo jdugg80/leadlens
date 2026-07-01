@@ -209,6 +209,15 @@ export function normalizeContactCandidates(...sources) {
       },
       {
         name:
+          source.individualName ||
+          (source.firstName && source.lastName ? `${source.firstName} ${source.lastName}` : null) ||
+          source.firstName ||
+          source.lastName,
+        title: "Comptroller Record Contact",
+        source: source.source || "Texas Comptroller",
+      },
+      {
+        name:
           source.registeredAgent ||
           source.registeredAgentName ||
           source.businessRecord?.registeredAgent ||

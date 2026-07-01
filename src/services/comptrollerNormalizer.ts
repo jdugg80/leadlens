@@ -15,6 +15,9 @@ export type NormalizedComptrollerBusiness = {
   latitude?: number;
   longitude?: number;
   phone?: string;
+  firstName?: string;
+  lastName?: string;
+  individualName?: string;
   badge?: string;
   priority?: "low" | "medium" | "high";
   rawPayload: unknown;
@@ -55,7 +58,7 @@ export function normalizeComptrollerRecord(
     signalType: mode,
     taxpayerId: raw.TAXPAYER_ID,
     locationNumber: raw.LOCATION_NUMBER,
-    businessName: raw.BUSINESS_NAME,
+    businessName: raw.BUSINESS_NAME || raw.LOCATION_NAME,
     locationName: raw.LOCATION_NAME,
     street: raw.STREET,
     city: raw.CITY,
@@ -67,6 +70,9 @@ export function normalizeComptrollerRecord(
     latitude: raw.LATITUDE ? Number(raw.LATITUDE) : undefined,
     longitude: raw.LONGITUDE ? Number(raw.LONGITUDE) : undefined,
     phone: raw.PHONE_NUMBER || raw.PHONE || raw.CONTACT_PHONE || undefined,
+    firstName: raw.FIRST_NAME || undefined,
+    lastName: raw.LAST_NAME || undefined,
+    individualName: raw.INDIVIDUAL_NAME || undefined,
     badge,
     priority,
     rawPayload: raw,
