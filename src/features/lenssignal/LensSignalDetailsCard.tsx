@@ -1,26 +1,19 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Linking,
-  Alert,
   ActivityIndicator
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
 import { LensSignalRecord } from './lenssignalTypes';
 import { COLORS } from '../../constants';
 import { screenHeight } from '../../utils/responsive';
-import { getAlertColor, getPestIconType, getPestEmoji, getSignalMarkerColor } from './lenssignalScoring';
+import { getAlertColor, getPestIconType, getPestEmoji } from './lenssignalScoring';
 import { buildEnrichmentBundle } from '../../utils/enrichmentNormalizer';
 import { formatPestSignal } from '../../utils/pestUtils';
-import { extractLeadsWithDebugFromImage } from '../../utils/claudeApi';
-import { mergeProspectWithScreenshot } from '../../utils/leadHelpers';
-import { storageBridge } from '../../utils/storage';
-import { LEADS_STORAGE_KEY } from '../../constants';
 
 interface Props {
   signal: LensSignalRecord;
@@ -30,7 +23,6 @@ interface Props {
 
 export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) => {
   const insets = useSafeAreaInsets();
-  const [screenshotLoading, setScreenshotLoading] = useState(false);
   const alertColor = getAlertColor(signal.alert_level);
   const layer = signal.signal_layer || signal.signal_type || (signal as any).opening_type || 'Standard Discovery';
 
@@ -73,99 +65,6 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
   const phoneSource = enrichmentBundle.phoneCandidates?.find(p => p.phone === displayPhone)?.source || "";
 
   const displayContacts = enrichmentBundle.contacts || [];
-
-  const handleSearchBusiness = () => {
-    const name = signal.establishment_name || signal.business_name || '';
-    const zip = (signal as any).zip || (signal as any).zipCode || '';
-    const query = [name, zip, 'pest control'].filter(Boolean).join(' ');
-    const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
-    Linking.openURL(url).catch(() => {
-      Alert.alert('Cannot Open Maps', 'Unable to open Google Maps on this device.');
-    });
-  };
-
-  const handleAddScreenshot = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow access to your photo library.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        base64: true,
-      });
-
-      if (result.canceled || !result.assets?.length) return;
-
-      const asset = result.assets[0];
-      setScreenshotLoading(true);
-
-      let b64 = asset.base64;
-      if (!b64 && asset.uri) {
-        const FileSystem = require('expo-file-system');
-        b64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      }
-
-      if (!b64) {
-        Alert.alert('Error', 'Could not read the selected image.');
-        return;
-      }
-
-      const extraction = await extractLeadsWithDebugFromImage(b64, 'image/jpeg', {
-        captureMethod: 'screenshot-enrichment',
-      });
-
-      const extracted = extraction?.leads?.[0];
-      if (!extracted) {
-        Alert.alert('No Data Found', 'Could not extract business information from this screenshot.');
-        return;
-      }
-
-      const existingLead = (signal as any).prospect || (signal as any).business || signal;
-      const { prospect: merged, conflicts } = mergeProspectWithScreenshot(existingLead, extracted);
-
-      if (conflicts.length > 0) {
-        const conflictMsg = conflicts
-          .map(c => `${c.label}:\n  Existing: ${c.extracted ? c.existing : '(empty)'}\n  Screenshot: ${c.extracted}`)
-          .join('\n\n');
-        Alert.alert(
-          'Conflicts Found',
-          `The screenshot has different values for:\n\n${conflictMsg}\n\nExisting values were kept. Edit the prospect manually to resolve.`,
-          [{ text: 'OK' }]
-        );
-      }
-
-      // Update the prospect in storage
-      const raw = await storageBridge.getItem(LEADS_STORAGE_KEY);
-      const leads = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(leads)) {
-        const idx = leads.findIndex((l: any) =>
-          l.id === merged.id || l.leadId === merged.leadId || l.queueId === merged.queueId
-        );
-        if (idx !== -1) {
-          leads[idx] = merged;
-        } else {
-          leads.push(merged);
-        }
-        await storageBridge.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
-      }
-
-      const msg = conflicts.length > 0
-        ? `Updated with screenshot data (${conflicts.length} conflict(s) kept existing values).`
-        : `Screenshot data merged successfully.`;
-      Alert.alert('Screenshot Enriched', msg);
-    } catch (err: any) {
-      console.error('[LensSignalDetailsCard] Screenshot enrichment failed:', err);
-      Alert.alert('Enrichment Failed', err?.message || 'Could not process the screenshot.');
-    } finally {
-      setScreenshotLoading(false);
-    }
-  };
 
   return (
     <View style={[styles.card, { bottom: insets.bottom + 16, maxHeight: screenHeight * 0.55 }]}>
@@ -318,23 +217,6 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
           <Text style={styles.primaryBtnText}>Add to Queue</Text>
         </TouchableOpacity>
 
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.halfBtn} onPress={handleSearchBusiness}>
-            <Text style={styles.halfBtnText}>Search Business</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.halfBtn, screenshotLoading && styles.halfBtnDisabled]}
-            onPress={handleAddScreenshot}
-            disabled={screenshotLoading}
-          >
-            {screenshotLoading ? (
-              <ActivityIndicator size="small" color={COLORS.accent} />
-            ) : (
-              <Text style={styles.halfBtnText}>Add Screenshot</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
         <TouchableOpacity style={styles.secondaryBtnFull} onPress={onClose}>
           <Text style={styles.secondaryBtnText}>Dismiss</Text>
         </TouchableOpacity>
@@ -441,28 +323,6 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: '800',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 10,
-  },
-  halfBtn: {
-    flex: 1,
-    backgroundColor: COLORS.surface2,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  halfBtnDisabled: {
-    opacity: 0.5,
-  },
-  halfBtnText: {
-    color: COLORS.text,
-    fontSize: 13,
-    fontWeight: '700',
   },
   secondaryBtnFull: {
     backgroundColor: COLORS.surface2,

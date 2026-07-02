@@ -23,7 +23,7 @@ import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { showThemedAlert } from '../components/ThemedAlert';
 import { upsertProspect } from '../utils/backendSync';
-import { matchLeadByAnyId, normalizeLead, sortQueueProspects } from '../utils/leadHelpers';
+import { matchLeadByAnyId, normalizeLead, sortQueueProspects, mergeProspectWithScreenshot } from '../utils/leadHelpers';
 import { extractLeadsWithDebugFromImage } from '../utils/claudeApi';
 import { checkPermitStatus } from '../utils/txPermitCheck';
 
@@ -51,6 +51,7 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [screenshotLoading, setScreenshotLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
@@ -258,6 +259,139 @@ export default function ProspectQueueScreen({ navigation, route }) {
       showThemedAlert('Save Failed', err.message || 'Could not save changes. Please try again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSearchBusiness = () => {
+    if (!editingLead) return;
+    const name = editingLead.businessName || '';
+    const zip = editingLead.zip || editingLead.zipCode || '';
+    const query = [name, zip, 'pest control'].filter(Boolean).join(' ');
+    const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
+    Linking.openURL(url).catch(() => {
+      showThemedAlert('Cannot Open Maps', 'Unable to open Google Maps on this device.');
+    });
+  };
+
+  const handleAddScreenshot = async () => {
+    if (!editingLead) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showThemedAlert('Permission needed', 'Please allow access to your photo library.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      setScreenshotLoading(true);
+
+      let b64 = asset.base64;
+      if (!b64 && asset.uri) {
+        b64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+
+      if (!b64) {
+        showThemedAlert('Error', 'Could not read the selected image.');
+        return;
+      }
+
+      const extraction = await extractLeadsWithDebugFromImage(b64, 'image/jpeg', {
+        captureMethod: 'screenshot-enrichment',
+      });
+
+      const extracted = extraction?.leads?.[0];
+      if (!extracted) {
+        showThemedAlert('No Data Found', 'Could not extract business information from this screenshot.');
+        return;
+      }
+
+      const { prospect: merged, conflicts } = mergeProspectWithScreenshot(editingLead, extracted);
+
+      if (conflicts.length > 0) {
+        const conflictMsg = conflicts
+          .map(c => `${c.label}:\n  Existing: ${c.extracted ? c.existing : '(empty)'}\n  Screenshot: ${c.extracted}`)
+          .join('\n\n');
+        showThemedAlert(
+          'Conflicts Found',
+          `The screenshot has different values for:\n\n${conflictMsg}\n\nExisting values were kept. Edit the prospect manually to resolve.`
+        );
+      }
+
+      // Write via storageBridge and read back to verify, same pattern as handleSave
+      const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+      const currentLeads = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(currentLeads)) {
+        showThemedAlert('Save Failed', 'Could not read leads from storage.');
+        return;
+      }
+
+      const storageIdx = matchLeadByAnyId(currentLeads, editingLead);
+      if (storageIdx !== -1) {
+        currentLeads.splice(storageIdx, 1);
+      }
+      currentLeads.push(merged);
+
+      await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(currentLeads));
+
+      const readBackRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
+      const readBack = readBackRaw ? JSON.parse(readBackRaw) : [];
+      if (!Array.isArray(readBack) || readBack.length !== currentLeads.length) {
+        showThemedAlert('Save Failed', 'Screenshot merge could not be verified on device.');
+        return;
+      }
+
+      const readBackIdx = matchLeadByAnyId(readBack, merged);
+      const readBackLead = readBackIdx !== -1 ? readBack[readBackIdx] : null;
+      if (!readBackLead) {
+        showThemedAlert('Save Failed', 'Merged prospect could not be verified on device.');
+        return;
+      }
+
+      // Update state from verified read-back
+      setLeads(readBack);
+      setEditingLead(readBackLead);
+      setForm({
+        businessName: readBackLead.businessName || '',
+        phone: readBackLead.phone || '',
+        email: readBackLead.email || '',
+        streetNumber: readBackLead.streetNumber || '',
+        streetName: readBackLead.streetName || '',
+        city: readBackLead.city || '',
+        state: readBackLead.state || '',
+        zip: readBackLead.zip || '',
+        notes: readBackLead.notes || '',
+      });
+
+      try {
+        const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
+        const settings = supaRaw ? JSON.parse(supaRaw) : {};
+        const syncResult = await upsertProspect(readBackLead, user, settings);
+        if (!syncResult?.ok) {
+          console.warn('[ProspectQueue] Supabase sync issue after screenshot merge:', syncResult?.reason);
+        }
+      } catch (syncErr) {
+        console.warn('[ProspectQueue] Screenshot sync error (non-blocking):', syncErr.message);
+      }
+
+      const msg = conflicts.length > 0
+        ? `Updated with screenshot data (${conflicts.length} conflict(s) kept existing values).`
+        : 'Screenshot data merged successfully.';
+      showThemedAlert('Screenshot Enriched', msg);
+    } catch (err) {
+      console.error('[ProspectQueue] Screenshot enrichment failed:', err);
+      showThemedAlert('Enrichment Failed', err?.message || 'Could not process the screenshot.');
+    } finally {
+      setScreenshotLoading(false);
     }
   };
 
@@ -565,16 +699,30 @@ export default function ProspectQueueScreen({ navigation, route }) {
             </ScrollView>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={closeEdit} disabled={saving}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <Text style={styles.saveBtnText}>Save</Text>
-                )}
-              </TouchableOpacity>
+              <View style={styles.enrichBtnRow}>
+                <TouchableOpacity style={styles.enrichBtn} onPress={handleSearchBusiness} disabled={saving || screenshotLoading}>
+                  <Text style={styles.enrichBtnText}>Search Business</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.enrichBtn, screenshotLoading && styles.enrichBtnDisabled]} onPress={handleAddScreenshot} disabled={saving || screenshotLoading}>
+                  {screenshotLoading ? (
+                    <ActivityIndicator size="small" color={COLORS.accent} />
+                  ) : (
+                    <Text style={styles.enrichBtnText}>Add Screenshot</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+              <View style={styles.saveBtnRow}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={closeEdit} disabled={saving || screenshotLoading}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving || screenshotLoading}>
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <Text style={styles.saveBtnText}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -751,11 +899,36 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12 },
   halfField: { flex: 1 },
   modalActions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 12,
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
+  },
+  enrichBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  saveBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  enrichBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  enrichBtnDisabled: {
+    opacity: 0.5,
+  },
+  enrichBtnText: {
+    color: COLORS.text,
+    fontWeight: '700',
+    fontSize: 14,
   },
   cancelBtn: {
     flex: 1,
