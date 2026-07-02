@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, memo, useRef, useMemo } from 'react';
 import { View, Text, FlatList, TouchableOpacity, Switch, StyleSheet, ActivityIndicator, ScrollView, PanResponder, Animated } from 'react-native';
 import Constants from 'expo-constants';
 import { storageBridge as AsyncStorage } from '../utils/storage';
-import { COLORS, LEADS_STORAGE_KEY, GOOGLE_PLACES_API_KEY } from '../constants';
+import { COLORS, LEADS_STORAGE_KEY } from '../constants';
 import { searchGooglePlacesByText } from '../utils/nearbySearch';
 import { getCurrentCoords } from '../utils/geoEnrich';
 import { ScreenHeader, FieldInput, PrimaryButton, Card, SectionLabel, SecondaryButton } from '../components/UI';
@@ -18,6 +18,8 @@ import { enqueueEnrichLead } from '../utils/claudeApi';
 import { processQueue } from '../utils/taskRunner';
 import BetaTracker from '../../utils/betaTracker';
 
+
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 const getGoogleMapsKey = () => {
   const config = Constants?.expoConfig || Constants?.manifest || {};
@@ -360,26 +362,14 @@ export default function BatchReviewScreen({ navigation, route }) {
   }, []);
 
   const saveAll = async () => {
-    // Read from MMKV first, then fall back to raw AsyncStorage if MMKV returns empty.
-    // MMKV can silently return null/[] on some devices — this prevents new scans
-    // from overwriting the existing queue instead of appending to it.
-    let existing = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
-    if (!existing || !existing.length) {
-      try {
-        const RawStorage = require('@react-native-async-storage/async-storage').default;
-        const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length) {
-            existing = parsed;
-            console.log('[BatchReview] MMKV empty — recovered', parsed.length, 'leads from AsyncStorage');
-          }
-        }
-      } catch (e) {
-        console.warn('[BatchReview] AsyncStorage fallback read failed:', e.message);
-      }
+    // Read through storageBridge so we get the reconciled MMKV + AsyncStorage value.
+    let existing = [];
+    try {
+      existing = await AsyncStorage.getJSON(LEADS_STORAGE_KEY, []);
+      console.log('[BatchReview][SAVE_DEBUG] reconciled read:', JSON.stringify(existing?.length), 'leads');
+    } catch (e) {
+      console.warn('[BatchReview] reconciled read failed:', e.message);
     }
-    console.log('[BatchReview][SAVE_DEBUG] MMKV read:', JSON.stringify(existing?.length), 'leads');
     console.log('[BatchReview][SAVE_DEBUG] LEADS_STORAGE_KEY:', LEADS_STORAGE_KEY);
     const nextQueue = [...existing];
     const duplicates = [];
@@ -430,13 +420,8 @@ export default function BatchReviewScreen({ navigation, route }) {
 
     if (!saved.length) return;
 
-    // Primary write via MMKV (sync, instant)
-    AsyncStorage.setJSONSync(LEADS_STORAGE_KEY, nextQueue);
-    // Safety backup via raw AsyncStorage — guarantees persistence if MMKV silent-failed
-    const RawStorage = require('@react-native-async-storage/async-storage').default;
-    RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(nextQueue)).catch((e) =>
-      console.warn('[BatchReview] AsyncStorage backup write failed:', e.message)
-    );
+    // Write through storageBridge so both MMKV and AsyncStorage stay in sync.
+    await AsyncStorage.setJSON(LEADS_STORAGE_KEY, nextQueue);
 
     playSoundEffect('prospect-added').catch(() => {});
 

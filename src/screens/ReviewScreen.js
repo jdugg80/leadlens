@@ -406,16 +406,11 @@ export default function ReviewScreen({ navigation, route }) {
     }
   };
 const persistLead = async (ignoreDuplicate = false) => {
-    // Bypass MMKV entirely — use raw AsyncStorage as source of truth for leads.
-    // MMKV is not persisting on this device so all reads/writes go direct.
+    // Read through storageBridge so we get the reconciled MMKV + AsyncStorage value.
     let leads = [];
     try {
-      const RawStorage = require('@react-native-async-storage/async-storage').default;
-      const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) leads = parsed;
-      }
+      const parsed = await AsyncStorage.getJSON(LEADS_STORAGE_KEY, []);
+      if (Array.isArray(parsed)) leads = parsed;
       console.log('[Review] Read', leads.length, 'existing leads');
     } catch (e) {
       console.warn('[Review] leads read failed:', e.message);
@@ -511,9 +506,8 @@ const persistLead = async (ignoreDuplicate = false) => {
       leads.push({ ...baseLead, ...calculateLeadViability(baseLead) });
     }
 
-    // Write directly to AsyncStorage — bypass MMKV
-    const RawStorageSave = require('@react-native-async-storage/async-storage').default;
-    await RawStorageSave.setItem(LEADS_STORAGE_KEY, JSON.stringify(leads));
+    // Write through storageBridge so both MMKV and AsyncStorage stay in sync.
+    await AsyncStorage.setJSON(LEADS_STORAGE_KEY, leads);
 
     // AUTO-SYNC to Supabase
     try {
@@ -1200,9 +1194,7 @@ const persistLead = async (ignoreDuplicate = false) => {
                       if (!lead.id) return;
                       await logOutreachActivity(lead.id, type.key);
                       // Refresh lead state to show new entry
-                      const RawStorage = require('@react-native-async-storage/async-storage').default;
-                      const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
-                      const leads_ = raw ? JSON.parse(raw) : [];
+                      const leads_ = await AsyncStorage.getJSON(LEADS_STORAGE_KEY, []);
                       const updated = leads_.find(l => l.id === lead.id);
                       if (updated) setLead(prev => ({ ...prev, outreachHistory: updated.outreachHistory, lastOutreachAt: updated.lastOutreachAt }));
                     }}

@@ -20,9 +20,8 @@ export function buildOutreachEntry(type, note = '') {
 
 export async function logOutreachActivity(leadId, type, note = '') {
   try {
-    // Use sync API for instant activity logging
-    const raw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
-    const leads = raw ? JSON.parse(raw) : [];
+    // Use the reconciled read so we don't lose data if MMKV was not flushed.
+    const leads = await AsyncStorage.getJSON(LEADS_STORAGE_KEY, []);
     const idx = leads.findIndex(l => l.id === leadId);
     if (idx === -1) return { ok: false, reason: 'lead-not-found' };
 
@@ -38,8 +37,8 @@ export async function logOutreachActivity(leadId, type, note = '') {
       lastOutreachType: type,
     };
 
-    // Use sync API for instant save
-    AsyncStorage.setSync(LEADS_STORAGE_KEY, JSON.stringify(leads));
+    // Use the async set so both MMKV and AsyncStorage are updated.
+    await AsyncStorage.setJSON(LEADS_STORAGE_KEY, leads);
     return { ok: true, entry };
   } catch (err) {
     return { ok: false, reason: err?.message };

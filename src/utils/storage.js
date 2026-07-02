@@ -33,6 +33,51 @@ let _storage = null;
 let _fallback = false;
 const _jsonCache = new Map(); // Simple cache for frequently accessed JSON
 
+// ─── Cross-store consistency helpers ───────────────────────────────────────
+// MMKV is fast but uses mmap; a hard kill can lose unflushed writes. We keep
+// AsyncStorage as a durable mirror and use it as a fallback / tie-breaker.
+
+function getLatestUpdatedAt(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      let latest = null;
+      for (const item of parsed) {
+        if (item && item.updatedAt && (!latest || item.updatedAt > latest)) {
+          latest = item.updatedAt;
+        }
+      }
+      return latest;
+    }
+    if (parsed && parsed.updatedAt) return parsed.updatedAt;
+  } catch {
+    // Not JSON
+  }
+  return null;
+}
+
+// Choose the more durable/recent value when MMKV and AsyncStorage differ.
+function reconcileValues(mmkvValue, asyncValue) {
+  // Only one source has data → use it
+  if (asyncValue === null || asyncValue === undefined) return mmkvValue;
+  if (mmkvValue === null || mmkvValue === undefined) return asyncValue;
+
+  // Identical → either is fine
+  if (mmkvValue === asyncValue) return mmkvValue;
+
+  // Compare updatedAt timestamps for arrays/objects
+  const mmkvLatest = getLatestUpdatedAt(mmkvValue);
+  const asyncLatest = getLatestUpdatedAt(asyncValue);
+  if (mmkvLatest && asyncLatest) {
+    return asyncLatest > mmkvLatest ? asyncValue : mmkvValue;
+  }
+
+  // Cannot determine recency: prefer AsyncStorage for durability. This is
+  // conservative; if MMKV lost data on force-close, AsyncStorage is the backup.
+  return asyncValue;
+}
+
 function getStorage() {
   if (_fallback) return null;
   if (_storage) return _storage;
@@ -71,26 +116,28 @@ export const storage = {
   },
 
   /**
-   * Set a value synchronously. Returns immediately, no await needed.
-   * Falls back to AsyncStorage write when MMKV is unavailable.
+   * Set a value synchronously. Writes to MMKV immediately and also schedules
+   * an AsyncStorage mirror write for durability. If MMKV is unavailable, only
+   * the AsyncStorage write is attempted.
    * @param {string} key
    * @param {string} value
    */
   setSync: (key, value) => {
+    const strValue = String(value);
     try {
       const s = getStorage();
       if (s) {
-        s.set(key, String(value));
-        return;
+        s.set(key, strValue);
       }
     } catch (err) {
       console.warn(`[Storage] setSync error for key "${key}":`, err.message);
       _fallback = true;
       _storage = null;
     }
-    // AsyncStorage fallback — MMKV unavailable, fire-and-forget async write
-    AsyncStorage.setItem(key, String(value)).catch((e) =>
-      console.warn(`[Storage] setSync AsyncStorage fallback error for "${key}":`, e.message)
+    // Always mirror to AsyncStorage for durability. Fire-and-forget keeps the
+    // sync API non-blocking; use setItem() if you need to await the mirror.
+    AsyncStorage.setItem(key, strValue).catch((e) =>
+      console.warn(`[Storage] setSync AsyncStorage mirror error for "${key}":`, e.message)
     );
   },
 
@@ -104,16 +151,15 @@ export const storage = {
       const s = getStorage();
       if (s) {
         s.delete(key);
-        return;
       }
     } catch (err) {
       console.warn(`[Storage] removeSync error for key "${key}":`, err.message);
       _fallback = true;
       _storage = null;
     }
-    // AsyncStorage fallback
+    // Always mirror removal to AsyncStorage
     AsyncStorage.removeItem(key).catch((e) =>
-      console.warn(`[Storage] removeSync AsyncStorage fallback error for "${key}":`, e.message)
+      console.warn(`[Storage] removeSync AsyncStorage mirror error for "${key}":`, e.message)
     );
   },
 
@@ -151,7 +197,8 @@ export const storage = {
   },
 
   /**
-   * Set JSON value synchronously. Automatically stringifies.
+   * Set JSON value synchronously. Automatically stringifies and mirrors to
+   * AsyncStorage for durability.
    * @param {string} key
    * @param {*} obj Object to stringify and store
    */
@@ -167,29 +214,46 @@ export const storage = {
 
   // ─── ASYNC API (Backward compatible) ───────────────────────────────────
   /**
-   * Get a value asynchronously. Wrapper around getSync for compatibility.
+   * Get a value asynchronously. Reads from MMKV first, then from AsyncStorage,
+   * and returns the more recent/durable value. This protects against MMKV
+   * losing unflushed mmap data when the app is force-killed.
    * @param {string} key
    * @returns {Promise<string | null>}
    */
   getItem: async (key) => {
     const mmkvVal = storage.getSync(key);
-    if (mmkvVal !== null && mmkvVal !== undefined) return mmkvVal;
-    // MMKV returned nothing — fall back to AsyncStorage
     try {
-      return await AsyncStorage.getItem(key);
+      const asyncVal = await AsyncStorage.getItem(key);
+      return reconcileValues(mmkvVal, asyncVal);
     } catch {
-      return null;
+      return mmkvVal;
     }
   },
 
   /**
-   * Set a value asynchronously. Wrapper around setSync for compatibility.
+   * Set a value asynchronously. Writes to MMKV and awaits the AsyncStorage
+   * mirror so callers can be sure the durable backup is committed.
    * @param {string} key
    * @param {string} value
    * @returns {Promise<void>}
    */
   setItem: async (key, value) => {
-    return storage.setSync(key, value);
+    const strValue = String(value);
+    try {
+      const s = getStorage();
+      if (s) {
+        s.set(key, strValue);
+      }
+    } catch (err) {
+      console.warn(`[Storage] setItem MMKV error for "${key}":`, err.message);
+      _fallback = true;
+      _storage = null;
+    }
+    try {
+      await AsyncStorage.setItem(key, strValue);
+    } catch (e) {
+      console.warn(`[Storage] setItem AsyncStorage mirror error for "${key}":`, e.message);
+    }
   },
 
   /**
@@ -210,7 +274,8 @@ export const storage = {
   },
 
   /**
-   * Get JSON value asynchronously with fallback.
+   * Get JSON value asynchronously with fallback. Uses the reconciled getItem
+   * so it benefits from the AsyncStorage mirror.
    * @param {string} key
    * @param {*} fallback
    * @returns {Promise<*>}
@@ -226,13 +291,29 @@ export const storage = {
   },
 
   /**
-   * Set JSON value asynchronously.
+   * Set JSON value asynchronously. Mirrors to both MMKV and AsyncStorage.
    * @param {string} key
    * @param {*} obj
    * @returns {Promise<void>}
    */
   setJSON: async (key, obj) => {
-    return storage.setJSONSync(key, obj);
+    const json = JSON.stringify(obj);
+    try {
+      const s = getStorage();
+      if (s) {
+        s.set(key, json);
+      }
+    } catch (err) {
+      console.warn(`[Storage] setJSON MMKV error for "${key}":`, err.message);
+      _fallback = true;
+      _storage = null;
+    }
+    try {
+      await AsyncStorage.setItem(key, json);
+      _jsonCache.set(key, obj);
+    } catch (e) {
+      console.warn(`[Storage] setJSON AsyncStorage mirror error for "${key}":`, e.message);
+    }
   },
 
   // ─── BATCH OPERATIONS (More efficient) ───────────────────────────────────
