@@ -12,6 +12,7 @@
 
 ### 🐛 Bug Fixes
 - **Prospect Queue Data Loss on Force-Close** — Fixed by the storageBridge dual-write + recency reconciliation above.
+- **Version Label Instability** — Settings displayed a stale hardcoded `APP_VERSION` constant, and support tickets read a different version source, so three different version numbers appeared across the app. `release.js` now always calls `bumpVersions()` in `--apk` mode, and both Settings and the bug-report screen now read from a single canonical `getAppVersionString()` helper sourced from `Constants.expoConfig`.
 
 ### ⚠️ Known Issues
 - (carried forward from BETA-52)
