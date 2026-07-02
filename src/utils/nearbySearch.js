@@ -69,52 +69,36 @@ function normalizeRadius(radiusMeters) {
 
 export const BUSINESS_TYPE_BUCKETS = {
   ALL: 'All',
-  FOOD_HOSPITALITY: 'Food & Hospitality',
-  RETAIL: 'Retail',
-  OFFICE_PROFESSIONAL: 'Office & Professional',
-  MULTI_FAMILY_RESIDENTIAL_ADJACENT: 'Multi-Family & Residential-Adjacent',
-  INDUSTRIAL_LOGISTICS: 'Industrial & Logistics',
-  INSTITUTIONAL: 'Institutional',
-  OTHER: 'Other',
+  FOOD_HOSPITALITY: 'Food / Hospitality',
+  RETAIL_CONSUMER: 'Retail / Consumer',
+  INDUSTRIAL_LOGISTICS: 'Industrial / Logistics',
+  OFFICE_PROFESSIONAL: 'Office / Professional',
+  PUBLIC_FACILITIES: 'Public / Facilities',
 };
 
 const BUCKET_MAPPING = {
   [BUSINESS_TYPE_BUCKETS.FOOD_HOSPITALITY]: [
-    'restaurant', 'cafe', 'bar', 'bakery', 'food', 'meal_takeaway', 'meal_delivery',
-    'hotel', 'lodging', 'motel', 'resort', 'night_club'
+    'restaurant', 'cafe', 'bar', 'bakery', 'food', 'meal_takeaway', 'hotel', 'lodging'
   ],
-  [BUSINESS_TYPE_BUCKETS.RETAIL]: [
+  [BUSINESS_TYPE_BUCKETS.RETAIL_CONSUMER]: [
     'store', 'convenience_store', 'hardware_store', 'electronics_store', 'clothing_store',
-    'grocery_store', 'supermarket', 'gas_station', 'shopping_mall', 'department_store',
-    'jewelry_store', 'shoe_store', 'home_goods_store', 'furniture_store', 'pet_store',
-    'book_store', 'bicycle_store', 'florist', 'liquor_store', 'laundry'
-  ],
-  [BUSINESS_TYPE_BUCKETS.OFFICE_PROFESSIONAL]: [
-    'corporate_office', 'business_center', 'coworking_space', 'consultant',
-    'accounting', 'bank', 'real_estate_agency', 'insurance_agency', 'lawyer',
-    'doctor', 'dentist', 'physiotherapist', 'veterinary_care', 'health',
-    'medical', 'financial', 'atm'
-  ],
-  [BUSINESS_TYPE_BUCKETS.MULTI_FAMILY_RESIDENTIAL_ADJACENT]: [
-    'apartment_building', 'apartment_complex', 'condominium_complex', 'condo',
-    'townhouse', 'assisted_living', 'senior_living', 'retirement_home', 'nursing_home',
-    'residential', 'housing_complex'
+    'grocery_store', 'gas_station', 'car_repair', 'auto_parts_store', 'beauty_salon',
+    'hair_care'
   ],
   [BUSINESS_TYPE_BUCKETS.INDUSTRIAL_LOGISTICS]: [
     'manufacturer', 'supplier', 'storage', 'warehouse_store', 'wholesaler',
     'transportation_service', 'truck_stop', 'transit_depot', 'moving_company',
-    'shipping_service', 'logistics', 'distribution_center', 'factory', 'industrial',
-    'farm', 'ranch', 'car_repair', 'auto_parts_store', 'car_dealer', 'car_wash'
+    'shipping_service', 'farm', 'ranch'
   ],
-  [BUSINESS_TYPE_BUCKETS.INSTITUTIONAL]: [
-    'school', 'university', 'college', 'hospital', 'government_office', 'local_government_office',
-    'post_office', 'fire_station', 'police', 'church', 'courthouse', 'library', 'museum',
-    'amphitheater', 'community_center', 'place_of_worship', 'synagogue', 'mosque', 'hindu_temple'
+  [BUSINESS_TYPE_BUCKETS.OFFICE_PROFESSIONAL]: [
+    'corporate_office', 'business_center', 'coworking_space', 'consultant',
+    'accounting', 'bank', 'real_estate_agency', 'insurance_agency', 'lawyer',
+    'doctor', 'dentist'
   ],
-  [BUSINESS_TYPE_BUCKETS.OTHER]: [
-    'parking', 'car_rental', 'travel_agency', 'gas_station', 'electrician', 'plumber',
-    'roofing_contractor', 'general_contractor', 'locksmith', 'painter', 'handyman',
-    'car_repair', 'auto_parts_store', 'farm', 'ranch'
+  [BUSINESS_TYPE_BUCKETS.PUBLIC_FACILITIES]: [
+    'school', 'university', 'hospital', 'government_office', 'local_government_office',
+    'post_office', 'fire_station', 'police', 'church', 'apartment_building',
+    'courthouse'
   ],
 };
 
@@ -154,8 +138,8 @@ function normalizeGoogleNewPlace(place) {
     googleMapsUri: place.googleMapsUri || '',
     website: place.websiteUri || '',
     phone: place.internationalPhoneNumber || '',
-    rating: place.rating != null ? Number(place.rating) : null,
-    user_ratings_total: place.userRatingCount != null ? Number(place.userRatingCount) : 0,
+    rating: place.rating || null,
+    user_ratings_total: place.userRatingCount || 0,
     opening_hours: place.regularOpeningHours ? {
       weekday_text: place.regularOpeningHours.weekdayDescriptions || []
     } : null,
@@ -243,7 +227,7 @@ async function searchGooglePlacesNew({ center, radiusMeters, includedTypes = [],
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': apiKey,
         'X-Goog-FieldMask':
-          'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.types,places.businessStatus,places.primaryType,places.googleMapsUri,places.rating,places.userRatingCount',
+          'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.types,places.businessStatus,places.primaryType,places.googleMapsUri',
       },
       body: JSON.stringify(body),
     });

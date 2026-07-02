@@ -77,6 +77,7 @@ const _toNormalizedZipEntry = (entry, defaults = {}) => {
 import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
 import { useFocusEffect } from '@react-navigation/native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
+import HomeownerFilterPanel from '../components/HomeownerFilterPanel';
 import HomeownerSignalCard from '../components/HomeownerSignalCard';
 import {
   COLORS,
@@ -160,62 +161,23 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const [lowMemoryMode, setLowMemoryMode] = useState(false);
 
-  // Mode state — defaults to the active profile's defaultMode when loaded
-  const [targetLensMode, setTargetLensMode] = useState('commercial');
+  // Homeowner mode state
+  const [targetLensMode, setTargetLensMode] = useState('business');
+  const [homeownerFilter, setHomeownerFilter] = useState('all');
+  const [lookbackWindow, setLookbackWindow] = useState('90d');
   const [homeownerProspects, setHomeownerProspects] = useState([]);
   const [selectedHomeowner, setSelectedHomeowner] = useState(null);
 
   const DEFAULT_FILTERS = {
-    mode: 'commercial',
-    // Universal filters
-    prospectStatus: [],
-    radiusMiles: 5,
-    contactCompleteness: false,
-    lastActivityDate: [],
-    newSinceLastScan: false,
-    // Commercial-only filters
     businessType: 'All Businesses',
     leadStatus: 'All',
-    businessRatingMin: 0,
-    commercialPropertyTypes: [],
-    // Residential-only filters
-    lookbackWindow: '90d',
-    estimatedHomeValueMin: null,
-    estimatedHomeValueMax: null,
-    squareFootageMin: null,
-    squareFootageMax: null,
-    occupancyTypes: [],
-    residentialPropertyTypes: [],
-    // Legacy signals (kept for backward compatibility)
     signalsOnly: false,
     signals: { lensSignal: true, contactSignal: true, pest: true, opening: true, priority: true },
     matchStrength: 'Show All',
-    // LensSignal filters (commercial)
-    lensSignalFilters: {
-      newBusinessOpenings: true,
-      ownershipChanges: true,
-      healthCodeViolations: true,
-      complianceScoreMin: 0,
-      starRatingMin: 0,
-    },
-    // Residential signal filters
-    residentialSignalFilters: {
-      newHomeowner: true,
-      buildingRenovationPermit: true,
-      newConstructionPermit: true,
-      estimatedHomeValueMin: null,
-    },
   };
 
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const isInitializedRef = useRef(false);
-
-  // Keep targetLensMode in sync with filters.mode when the user toggles in the filter panel
-  useEffect(() => {
-    if (filters.mode && filters.mode !== targetLensMode) {
-      setTargetLensMode(filters.mode);
-    }
-  }, [filters.mode, targetLensMode]);
 
   // Persistence Effects
   useEffect(() => {
@@ -262,19 +224,14 @@ export default function TerritoryMapScreen({ navigation, route }) {
     };
   }, []);
 
-  // Load saved TargetLens profile on mount and set default mode from it
+  // Load saved TargetLens profile on mount
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(TARGET_LENS_PROFILES_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed?.category) {
-            setActiveProfile(parsed);
-            const defaultMode = parsed?.defaultMode === 'residential' ? 'residential' : 'commercial';
-            setTargetLensMode(defaultMode);
-            setFilters(prev => ({ ...prev, mode: defaultMode }));
-          }
+          if (parsed?.category) setActiveProfile(parsed);
         }
         const modeRaw = await AsyncStorage.getItem(TARGET_LENS_SEARCH_MODE_KEY);
         if (modeRaw) setSearchMode(modeRaw);
@@ -306,140 +263,40 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   useEffect(() => { BetaTracker.screen('TerritoryMapScreen'); }, []);
 
-  // Residential data loading: prospects + permit signals
-  const loadResidentialSignals = useCallback(async () => {
+  // Homeowner data loading
+  useEffect(() => {
+    if (targetLensMode !== 'homeowner') return;
+    loadHomeownerProspects();
+  }, [targetLensMode, homeownerFilter, lookbackWindow]);
+
+  async function loadHomeownerProspects() {
     try {
       const { createSupabaseClient } = require('../utils/supabaseClient');
       const supaRaw = await AsyncStorage.getItem('@leadlens_supabase_settings');
       const settings = supaRaw ? JSON.parse(supaRaw) : {};
-      const supabaseClient = createSupabaseClient(settings);
-      if (!supabaseClient) return;
+      const supabase = createSupabaseClient(settings);
+      if (!supabase) return;
 
-      const rf = filters || {};
-      const rsf = rf.residentialSignalFilters || {};
-
-      let prospectQuery = supabaseClient
+      let query = supabase
         .from('targetlens_prospects')
         .select('*')
         .not('lat', 'is', null)
         .not('lng', 'is', null)
-        .eq('lookback_bucket', rf.lookbackWindow || '90d')
+        .eq('lookback_bucket', lookbackWindow)
         .order('efficiency_score', { ascending: false })
         .limit(200);
 
-      // Occupancy type filter
-      const occupancy = Array.isArray(rf.occupancyTypes) ? rf.occupancyTypes : [];
-      if (occupancy.length > 0) {
-        const mapped = [];
-        if (occupancy.includes('owner_occupied')) mapped.push('new_homeowner', 'current_homeowner');
-        if (occupancy.includes('rental')) mapped.push('rental');
-        if (occupancy.includes('leased')) mapped.push('leased');
-        if (mapped.length) prospectQuery = prospectQuery.in('prospect_type', mapped);
-      }
+      if (homeownerFilter === 'new_owner') query = query.eq('prospect_type', 'new_homeowner');
+      if (homeownerFilter === 'current_owner') query = query.eq('prospect_type', 'current_homeowner');
+      if (homeownerFilter === 'rental') query = query.eq('prospect_type', 'rental');
 
-      // Residential property type filter
-      const resTypes = Array.isArray(rf.residentialPropertyTypes) ? rf.residentialPropertyTypes : [];
-      if (resTypes.length > 0) {
-        const classMap = {
-          'Single-Family Home': ['single_family'],
-          'Multi-Family (2-4 units)': ['duplex', 'triplex', 'fourplex', 'multi_family'],
-          'Condo/Townhouse': ['condo', 'townhouse'],
-          'Mobile/Manufactured Home': ['mobile_home', 'manufactured_home'],
-          'New Construction': ['new_construction'],
-        };
-        const mappedClasses = resTypes.flatMap(t => classMap[t] || []);
-        if (mappedClasses.length) prospectQuery = prospectQuery.in('property_class', mappedClasses);
-      }
-
-      // Estimated home value range
-      if (rf.estimatedHomeValueMin && !Number.isNaN(Number(rf.estimatedHomeValueMin))) {
-        prospectQuery = prospectQuery.gte('home_value_estimated', Number(rf.estimatedHomeValueMin));
-      }
-      if (rf.estimatedHomeValueMax && !Number.isNaN(Number(rf.estimatedHomeValueMax))) {
-        prospectQuery = prospectQuery.lte('home_value_estimated', Number(rf.estimatedHomeValueMax));
-      }
-
-      // Square footage range
-      if (rf.squareFootageMin && !Number.isNaN(Number(rf.squareFootageMin))) {
-        prospectQuery = prospectQuery.gte('home_sq_footage', Number(rf.squareFootageMin));
-      }
-      if (rf.squareFootageMax && !Number.isNaN(Number(rf.squareFootageMax))) {
-        prospectQuery = prospectQuery.lte('home_sq_footage', Number(rf.squareFootageMax));
-      }
-
-      // New homeowner signal filtering
-      if (rsf.newHomeowner === false) {
-        prospectQuery = prospectQuery.not('prospect_type', 'eq', 'new_homeowner');
-      }
-
-      // Residential signal value filter
-      if (rsf.estimatedHomeValueMin && !Number.isNaN(Number(rsf.estimatedHomeValueMin))) {
-        prospectQuery = prospectQuery.gte('home_value_estimated', Number(rsf.estimatedHomeValueMin));
-      }
-      if (rsf.estimatedHomeValueMax && !Number.isNaN(Number(rsf.estimatedHomeValueMax))) {
-        prospectQuery = prospectQuery.lte('home_value_estimated', Number(rsf.estimatedHomeValueMax));
-      }
-
-      const [prospectResult, permitResult] = await Promise.all([
-        prospectQuery,
-        loadResidentialPermitSignals(supabaseClient, rf, rsf),
-      ]);
-
-      if (prospectResult.error) throw prospectResult.error;
-      const prospects = prospectResult.data || [];
-      const permits = permitResult || [];
-      setHomeownerProspects([...prospects, ...permits]);
+      const { data, error } = await query;
+      if (error) throw error;
+      setHomeownerProspects(data || []);
     } catch (err) {
-      console.error('[ResidentialSignalLoad]', err?.message || err);
+      console.error('[HomeownerLoad]', err.message);
     }
-  }, [filters]);
-
-  async function loadResidentialPermitSignals(supabaseClient, rf, rsf) {
-    const requestedTypes = [];
-    if (rsf.buildingRenovationPermit !== false) requestedTypes.push('building', 'renovation');
-    if (rsf.newConstructionPermit !== false) requestedTypes.push('new_construction');
-    if (requestedTypes.length === 0) return [];
-
-    let query = supabaseClient
-      .from('targetlens_permits')
-      .select('*')
-      .not('lat', 'is', null)
-      .not('lng', 'is', null)
-      .in('permit_type', requestedTypes)
-      .order('permit_date', { ascending: false })
-      .limit(200);
-
-    const resTypes = Array.isArray(rf.residentialPropertyTypes) ? rf.residentialPropertyTypes : [];
-    if (resTypes.includes('New Construction')) {
-      query = query.eq('permit_type', 'new_construction');
-    }
-
-    const { data, error } = await query;
-    if (error) {
-      console.warn('[ResidentialPermitLoad]', error.message);
-      return [];
-    }
-    return (data || []).map(p => ({
-      ...p,
-      id: p.id,
-      lat: p.lat,
-      lng: p.lng,
-      grantee_name: p.raw_payload?.owner_name || p.source,
-      owner_name: p.raw_payload?.owner_name || p.source,
-      prospect_type: 'new_homeowner',
-      property_class: 'new_construction',
-      home_value_estimated: null,
-      home_sq_footage: null,
-      isPermitSignal: true,
-      permitType: p.permit_type,
-      permitDate: p.permit_date,
-    }));
   }
-
-  useEffect(() => {
-    if (targetLensMode !== 'residential') return;
-    loadResidentialSignals();
-  }, [targetLensMode, filters, loadResidentialSignals]);
 
   const moveMapTo = useCallback((target, duration = 800) => {
     if (!target?.latitude || !target?.longitude) return;
@@ -666,24 +523,15 @@ export default function TerritoryMapScreen({ navigation, route }) {
         const mergedFilters = {
           ...DEFAULT_FILTERS,
           ...storedFilters,
-          mode: targetLensMode, // Always reset mode from active profile default on screen load
           signals: {
             ...DEFAULT_FILTERS.signals,
             ...(storedFilters.signals || {}),
-          },
-          lensSignalFilters: {
-            ...DEFAULT_FILTERS.lensSignalFilters,
-            ...(storedFilters.lensSignalFilters || {}),
-          },
-          residentialSignalFilters: {
-            ...DEFAULT_FILTERS.residentialSignalFilters,
-            ...(storedFilters.residentialSignalFilters || {}),
           },
         };
         setFilters(mergedFilters);
         console.log('[TerritoryMap] loaded stored filters', mergedFilters);
       } else {
-        setFilters({ ...DEFAULT_FILTERS, mode: targetLensMode });
+        setFilters(DEFAULT_FILTERS);
       }
       isInitializedRef.current = true;
       if (storedNearby) {
@@ -942,7 +790,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!isAppActive || !filters) return;
-    if (targetLensMode === 'residential') {
+    if (targetLensMode === 'homeowner') {
       setClusters([]);
       return;
     }
@@ -951,26 +799,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const points = [];
       filteredLeadMarkers.forEach(l => { if (l?.coords && isFinite(l.coords.longitude) && isFinite(l.coords.latitude)) points.push({ type: 'Feature', properties: { cluster: false, lead: l, isLead: true }, geometry: { type: 'Point', coordinates: [l.coords.longitude, l.coords.latitude] } }); });
       if (showNearby) safeNearbyPlaces.forEach(p => { if (p?.coordinate && isFinite(p.coordinate.longitude) && isFinite(p.coordinate.latitude)) points.push({ type: 'Feature', properties: { cluster: false, place: p, isNearby: true }, geometry: { type: 'Point', coordinates: [p.coordinate.longitude, p.coordinate.latitude] } }); });
-      const lsf = filters.lensSignalFilters || {};
-      if (filters.signals?.lensSignal && targetLensMode === 'commercial' && Array.isArray(lensSignalRecords)) {
+      if (filters.signals?.lensSignal && Array.isArray(lensSignalRecords)) {
         const beforeFilter = lensSignalRecords.length;
-        const filteredAll = lensSignalRecords.filter(s => {
-          const layer = s.signal_layer || s.signal_type || '';
-          const isOpening = layer === 'Opening Signal';
-          const isCompliance = layer === 'Compliance Signal';
-          const isOwnership = isOpening && /ownership|transfer|change/i.test(String(s.opening_status || s.raw_record || ''));
-          const isNewBusiness = isOpening && !isOwnership;
-          const hasHealthViolation = isCompliance && (s.pest_indicator || s.pest_details || s.grade === 'red' || s.alert_level === 'Priority Review' || s.violation_text);
-          const score = Number(s.score ?? s.compliance_score ?? s.grade_numeric ?? 0);
-          const rating = Number(s.rating ?? s.star_rating ?? 0);
-
-          if (lsf.newBusinessOpenings === false && isNewBusiness) return false;
-          if (lsf.ownershipChanges === false && isOwnership) return false;
-          if (lsf.healthCodeViolations === false && hasHealthViolation) return false;
-          if (lsf.complianceScoreMin > 0 && score < Number(lsf.complianceScoreMin)) return false;
-          if (lsf.starRatingMin > 0 && rating < Number(lsf.starRatingMin)) return false;
-          return true;
-        });
+        const filteredAll = lensSignalRecords.filter(s => !['apartment', 'condo', 'residential'].some(k => (s.establishment_name || '').toLowerCase().includes(k)));
         const filtered = (MAP_SAFE_MODE && (region?.latitudeDelta || 0) > 0.12)
           ? filteredAll.slice(0, 120)
           : filteredAll;
@@ -1313,8 +1144,33 @@ export default function TerritoryMapScreen({ navigation, route }) {
     <View style={s.root}>
       <ScreenHeader title="Territory Map" onBack={() => navigation.goBack()} badge={(totalLoadedZips || 0) + " ZIPS"} />
 
-      {/* Address search bar with autocomplete — moved to top of map */}
-      <View style={{ marginHorizontal: 12, marginTop: 8, marginBottom: 8, zIndex: 100 }}>
+      {/* Profile Mode Switcher */}
+      <View style={s.profileSwitcher}>
+        <TouchableOpacity
+          style={[s.profileTab, targetLensMode === 'business' && s.profileTabActive]}
+          onPress={() => setTargetLensMode('business')}
+        >
+          <Text style={s.profileTabText}>Business</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.profileTab, targetLensMode === 'homeowner' && s.profileTabActive]}
+          onPress={() => setTargetLensMode('homeowner')}
+        >
+          <Text style={s.profileTabText}>Homeowner</Text>
+        </TouchableOpacity>
+      </View>
+
+      {targetLensMode === 'homeowner' && (
+        <HomeownerFilterPanel
+          ownershipFilter={homeownerFilter}
+          setOwnershipFilter={setHomeownerFilter}
+          lookbackWindow={lookbackWindow}
+          setLookbackWindow={setLookbackWindow}
+        />
+      )}
+
+      {/* Address search bar with autocomplete */}
+      <View style={{ marginHorizontal: 12, marginVertical: 8, zIndex: 100 }}>
         <View style={s.searchBar}>
           <TextInput
             style={s.searchInput}
@@ -1363,8 +1219,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
           onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
         >
           {/* ZIP Boundary Polygons — business mode only */}
-          {targetLensMode === 'commercial' && !lowMemoryMode && zipBoundaryOverlays}
-          {targetLensMode === 'commercial' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
+          {targetLensMode === 'business' && !lowMemoryMode && zipBoundaryOverlays}
+          {targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;
             if (!isFinite(lat) || !isFinite(lng)) return null;
@@ -1385,7 +1241,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             }} activeProfile={activeProfile} />;
             return null;
           }).filter(Boolean) : []}
-          {targetLensMode === 'commercial' && !lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
+          {targetLensMode === 'business' && !lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
             <LensSignalMapMarker
               key={`sig-fallback-${signal?.id || idx}`}
               signal={signal}
@@ -1402,32 +1258,26 @@ export default function TerritoryMapScreen({ navigation, route }) {
               activeProfile={activeProfile}
             />
           ))}
-          {targetLensMode === 'commercial' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+          {targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
 
-          {/* Residential mode pins */}
-          {targetLensMode === 'residential' && homeownerProspects
+          {/* Homeowner mode pins */}
+          {targetLensMode === 'homeowner' && homeownerProspects
             .filter(p => {
               if (!p.lat || !p.lng) return false;
-              const occupancy = Array.isArray(filters.occupancyTypes) ? filters.occupancyTypes : [];
-              if (occupancy.length === 0) return true;
-              const isOwner = p.prospect_type === 'new_homeowner' || p.prospect_type === 'current_homeowner';
-              const isRental = p.prospect_type === 'rental';
-              const isLeased = p.prospect_type === 'leased';
-              if (occupancy.includes('owner_occupied') && isOwner) return true;
-              if (occupancy.includes('rental') && isRental) return true;
-              if (occupancy.includes('leased') && isLeased) return true;
-              return false;
+              if (homeownerFilter === 'all') return true;
+              if (homeownerFilter === 'new_owner') return p.prospect_type === 'new_homeowner';
+              if (homeownerFilter === 'current_owner') return p.prospect_type === 'current_homeowner';
+              if (homeownerFilter === 'rental') return p.prospect_type === 'rental';
+              return true;
             })
             .map((prospect, i) => {
               const isNewProp = prospect.prospect_type === 'new_homeowner';
               const isRental = prospect.prospect_type === 'rental';
-              const isLeased = prospect.prospect_type === 'leased';
-              const isPermit = prospect.isPermitSignal;
-              const pinColor = isPermit ? '#00E5A0' : isNewProp ? '#00C9FF' : isRental ? '#CC1040' : isLeased ? '#FFC800' : '#7B3FBE';
-              const pinEmoji = isPermit ? '�\uDFD7' : isNewProp ? '\uD83D\uDD11' : isRental ? '\uD83D\uDCCB' : isLeased ? '�\uDCDC' : '\uD83C\uDFE0';
+              const pinColor = isNewProp ? '#00C9FF' : isRental ? '#CC1040' : '#7B3FBE';
+              const pinEmoji = isNewProp ? '\uD83D\uDD11' : isRental ? '\uD83D\uDCCB' : '\uD83C\uDFE0';
               return (
                 <Marker
-                  key={`residential-${prospect.id || i}`}
+                  key={`homeowner-${prospect.id || i}`}
                   coordinate={{ latitude: prospect.lat, longitude: prospect.lng }}
                   onPress={() => setSelectedHomeowner(prospect)}
                   tracksViewChanges={false}
@@ -1640,16 +1490,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         {showNearby && !!nearbyPlaces.length && !selectedPlace && (
           <View style={[s.nearbyBatchCard, { bottom: insets.bottom + 12 }]}><Text style={s.cardDetail}>{nearbyPlaces.length} discovered businesses</Text><View style={s.actionRow}><TouchableOpacity style={s.cardBtn} onPress={() => setSelectedNearbyIds(nearbyPlaces.map(p => getNearbyPlaceId(p)))}><Text style={s.cardBtnText}>Select All</Text></TouchableOpacity><TouchableOpacity style={s.cardBtn} onPress={() => { setShowNearby(false); setNearbyPlaces([]); }}><Text style={s.cardBtnText}>Clear</Text></TouchableOpacity><TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent }]} onPress={() => addSelectedNearbyToQueue()} disabled={!selectedNearbyIds.length}><Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text></TouchableOpacity></View></View>
         )}
-        <Modal visible={targetLensVisible} transparent animationType="slide" onRequestClose={() => setTargetLensVisible(false)}><View style={s.modal}><View style={s.modalContent}><TargetLensProfileSelector onProfileChange={(p, m) => {
-          setActiveProfile(p);
-          setSearchMode(m);
-          setTargetLensVisible(false);
-          if (p?.defaultMode) {
-            const nextMode = p.defaultMode === 'residential' ? 'residential' : 'commercial';
-            setTargetLensMode(nextMode);
-            setFilters(prev => ({ ...prev, mode: nextMode }));
-          }
-        }} /><TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}><Text style={s.closeBtnText}>Close</Text></TouchableOpacity></View></View></Modal>
+        <Modal visible={targetLensVisible} transparent animationType="slide" onRequestClose={() => setTargetLensVisible(false)}><View style={s.modal}><View style={s.modalContent}><TargetLensProfileSelector onProfileChange={(p, m) => { setActiveProfile(p); setSearchMode(m); setTargetLensVisible(false); }} /><TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}><Text style={s.closeBtnText}>Close</Text></TouchableOpacity></View></View></Modal>
         <LeadFiltersBottomSheet visible={filtersVisible} onClose={() => setFiltersVisible(false)} filters={filters || DEFAULT_FILTERS} onApply={f => setFilters(f)} onReset={() => setFilters(DEFAULT_FILTERS)} />
         {!!selectedLensSignalRecord && (
           <View style={{ position: 'absolute', zIndex: 180, top: 0, bottom: 0, left: 0, right: 0, pointerEvents: 'box-none' }}>
@@ -1695,7 +1536,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         )}
 
         {/* Homeowner signal card */}
-        {targetLensMode === 'residential' && selectedHomeowner && (
+        {targetLensMode === 'homeowner' && selectedHomeowner && (
           <HomeownerSignalCard
             prospect={selectedHomeowner}
             onClose={() => setSelectedHomeowner(null)}
@@ -1703,9 +1544,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               try {
                 const lead = {
                   id: `homeowner_${Date.now()}`,
-                  businessName: p.isPermitSignal
-                    ? `${p.permitType === 'new_construction' ? 'New Construction' : 'Renovation'} — ${p.address || 'Residential'}`
-                    : (p.grantee_name || p.owner_name || 'Homeowner'),
+                  businessName: p.grantee_name || p.owner_name || 'Homeowner',
                   address: p.address,
                   city: p.city,
                   state: p.state,
@@ -1714,7 +1553,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
                   email: p.owner_email || '',
                   latitude: p.lat,
                   longitude: p.lng,
-                  captureMethod: p.isPermitSignal ? 'TargetLens_Permit' : 'TargetLens_Homeowner',
+                  captureMethod: 'TargetLens_Homeowner',
                   status: 'New',
                   propertyType: 'Residential',
                 };
