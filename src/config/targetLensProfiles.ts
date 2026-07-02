@@ -14,6 +14,7 @@ export interface TargetLensProfile {
   category: string;
   label: string;
   division: 'Commercial' | 'Residential' | 'Mixed';
+  defaultMode: 'commercial' | 'residential';
   description: string;
   primaryProspectTypes: string[];
   secondaryProspectTypes: string[];
@@ -42,6 +43,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'HVAC / Mechanical',
     label: 'Commercial HVAC',
     division: 'Commercial',
+    defaultMode: 'commercial',
     description: 'Targeting large-scale mechanical systems, chillers, and industrial HVAC.',
     primaryProspectTypes: ['Warehouse', 'Manufacturing', 'Hospital', 'Hotel'],
     secondaryProspectTypes: ['Office Building', 'Retail Center'],
@@ -61,6 +63,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'HVAC / Mechanical',
     label: 'Residential HVAC',
     division: 'Residential',
+    defaultMode: 'residential',
     description: 'Targeting home AC repair, replacement, and maintenance.',
     primaryProspectTypes: ['Single Family Home', 'Townhome'],
     secondaryProspectTypes: ['Apartment Complex'],
@@ -82,6 +85,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Security / Access Control',
     label: 'Commercial Security',
     division: 'Commercial',
+    defaultMode: 'commercial',
     description: 'Enterprise-grade surveillance, access control, and monitoring.',
     primaryProspectTypes: ['Office Park', 'Data Center', 'Logistics Center'],
     secondaryProspectTypes: ['Retail Store', 'Bank'],
@@ -101,6 +105,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Security / Access Control',
     label: 'Residential Security',
     division: 'Residential',
+    defaultMode: 'residential',
     description: 'Smart home security and residential monitoring solutions.',
     primaryProspectTypes: ['High-end Residential', 'Gated Communities'],
     secondaryProspectTypes: ['Rental Property'],
@@ -122,6 +127,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Solar & Energy',
     label: 'Commercial Solar',
     division: 'Commercial',
+    defaultMode: 'commercial',
     description: 'Commercial roof-mount and ground-mount solar installations.',
     primaryProspectTypes: ['Industrial Warehouse', 'Cold Storage', 'Retail Mall'],
     secondaryProspectTypes: ['Farm', 'School'],
@@ -141,6 +147,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Solar & Energy',
     label: 'Residential Solar',
     division: 'Residential',
+    defaultMode: 'residential',
     description: 'Residential rooftop solar and battery backup systems.',
     primaryProspectTypes: ['Homeowner'],
     secondaryProspectTypes: ['HOA'],
@@ -160,6 +167,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Solar & Energy',
     label: 'Solar Maintenance / Cleaning',
     division: 'Mixed',
+    defaultMode: 'commercial',
     description: 'Panel cleaning, system diagnostics, and repair services.',
     primaryProspectTypes: ['Existing Solar Site', 'Solar Farm'],
     secondaryProspectTypes: ['Commercial Rooftop Solar'],
@@ -181,6 +189,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Real Estate / Property Services',
     label: 'Realtor / Agent Prospecting',
     division: 'Mixed',
+    defaultMode: 'residential',
     description: 'Tools for agents to find listings and manage client leads.',
     primaryProspectTypes: ['Homeowner', 'FSBO'],
     secondaryProspectTypes: ['Expired Listing'],
@@ -200,6 +209,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Real Estate / Property Services',
     label: 'Property Management Services',
     division: 'Commercial',
+    defaultMode: 'commercial',
     description: 'Managing commercial and multi-family residential properties.',
     primaryProspectTypes: ['Apartment Complex', 'Office Building', 'Shopping Center'],
     secondaryProspectTypes: ['HOA Management'],
@@ -219,6 +229,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Real Estate / Property Services',
     label: 'Builder / Construction Services',
     division: 'Mixed',
+    defaultMode: 'commercial',
     description: 'General contracting, new construction, and renovation services.',
     primaryProspectTypes: ['Vacant Land', 'Development Site', 'Fixer Upper'],
     secondaryProspectTypes: ['Commercial Build-out'],
@@ -238,6 +249,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Real Estate / Property Services',
     label: 'Home Inspection Services',
     division: 'Residential',
+    defaultMode: 'residential',
     description: 'Pre-sale and post-sale residential inspections.',
     primaryProspectTypes: ['Homes Under Contract', 'New Listing'],
     secondaryProspectTypes: ['Commercial Inspection'],
@@ -259,6 +271,7 @@ export const TARGET_LENS_PROFILES: TargetLensProfile[] = [
     category: 'Pest Control',
     label: 'Standard Pest Control',
     division: 'Mixed',
+    defaultMode: 'residential',
     description: 'Existing pest control discovery and compliance logic.',
     primaryProspectTypes: ['Commercial', 'Residential'],
     secondaryProspectTypes: [],

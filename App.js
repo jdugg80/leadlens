@@ -309,23 +309,53 @@ export default function App() {
     })();
 
     // ── AppState listener: task queue + beta session tracking ──
+    let activeDebounceTimer = null;
+    let backgroundDebounceTimer = null;
+    const SESSION_DEBOUNCE_MS = 2000;
+
     const sub = AppState.addEventListener('change', async (nextState) => {
       try {
         const prev = appState.current;
         appState.current = nextState;
 
         if (nextState === 'active') {
+          // Cancel any pending background endSession
+          if (backgroundDebounceTimer) {
+            clearTimeout(backgroundDebounceTimer);
+            backgroundDebounceTimer = null;
+          }
+
+          // Fire immediately (fire-and-forget)
           recordLastActiveAt();
           processQueue().catch((err) => reportGlobalCrash('task_queue_resume', err, false));
           updateGlobalLocation().catch((err) => reportGlobalCrash('global_location_resume', err, false));
-          await BetaTracker.init();
+
+          // Debounce BetaTracker.init() — only fire if app stays active past the window
+          if (activeDebounceTimer) clearTimeout(activeDebounceTimer);
+          activeDebounceTimer = setTimeout(() => {
+            activeDebounceTimer = null;
+            BetaTracker.init().catch((err) => reportGlobalCrash('betatracker_init', err, false));
+          }, SESSION_DEBOUNCE_MS);
         }
 
         if (prev === 'active' && nextState.match(/inactive|background/)) {
+          // Cancel any pending active init
+          if (activeDebounceTimer) {
+            clearTimeout(activeDebounceTimer);
+            activeDebounceTimer = null;
+          }
+
+          // Fire immediately (fire-and-forget)
           const routeName = navRef.current?.getCurrentRoute?.()?.name;
           recordLastActiveAt();
           if (routeName) recordLastActiveRoute(routeName);
-          await BetaTracker.endSession();
+
+          // Debounce BetaTracker.endSession() — only fire if app stays backgrounded past the window
+          if (backgroundDebounceTimer) clearTimeout(backgroundDebounceTimer);
+          backgroundDebounceTimer = setTimeout(() => {
+            backgroundDebounceTimer = null;
+            BetaTracker.endSession().catch((err) => reportGlobalCrash('betatracker_end_session', err, false));
+          }, SESSION_DEBOUNCE_MS);
         }
       } catch (err) {
         reportGlobalCrash('app_state_listener', err, false);
@@ -343,6 +373,8 @@ export default function App() {
     return () => {
       sub.remove();
       memSub?.remove?.();
+      if (activeDebounceTimer) clearTimeout(activeDebounceTimer);
+      if (backgroundDebounceTimer) clearTimeout(backgroundDebounceTimer);
     };
   }, []);
 

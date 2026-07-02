@@ -28,6 +28,7 @@ let _sessionStart = null;
 let _testerEmail  = null;
 let _deviceId     = null;
 let _ready        = false;
+let _lastSessionStartTime = null; // debounce: prevents rapid duplicate session_start inserts
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function uuid() {
@@ -102,12 +103,27 @@ const BetaTracker = {
    *   BetaTracker will also try to read it from AsyncStorage automatically.
    */
   async init(email) {
+    // Guard: if a session is already active, don't create a duplicate
+    if (_ready && _sessionId) {
+      console.log('[BetaTracker] init() skipped — session already active:', _sessionId);
+      return;
+    }
+
+    // Debounce: suppress duplicate session_start if last one was < 5 s ago
+    // (protects against rapid active↔background cycling in dev-client / Fast Refresh)
+    const now = Date.now();
+    if (_lastSessionStartTime && (now - _lastSessionStartTime) < 5000) {
+      console.log('[BetaTracker] init() skipped — too soon since last session_start');
+      return;
+    }
+
     // Refresh email — prefer the argument, fall back to stored value
     _testerEmail = email || (await resolveEmail()) || _testerEmail;
     _deviceId    = _deviceId || (await resolveDeviceId());
     _sessionId   = uuid();
-    _sessionStart = Date.now();
+    _sessionStart = now;
     _ready        = true;
+    _lastSessionStartTime = now;
 
     await insert({
       session_id:   _sessionId,
