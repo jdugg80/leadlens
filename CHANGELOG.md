@@ -1,5 +1,23 @@
 # Changelog
 
+## BETA-53 | 2026-07-02
+
+> Unreleased / development build
+
+### 🔧 Core App
+- **Screenshot Enrichment Moved to Prospect Queue** — The "Search Business" and "Add Screenshot" fallback enrichment actions were removed from the map signal details card and added to the per-prospect edit view in `ProspectQueueScreen`. Merging now targets the unambiguous `editingLead` and leaves the edit Modal open so the user can review the merged data before saving.
+- **MMKV Persistence Hardening** — `storageBridge` now dual-writes to MMKV and AsyncStorage and reconciles reads by recency (timestamp). This fixes prospect data loss that occurred when the app was force-closed and MMKV was not flushed.
+- **Prospect Queue Save Verification** — `ProspectQueueScreen` saves now read back from storage and verify the write before updating state, preventing silent save failures.
+- **Screenshot Merge Durability** — Screenshot enrichment in the prospect queue uses the same verified storageBridge write + read-back pattern as the regular save, and also syncs the merged prospect to Supabase via `upsertProspect`.
+
+### 🐛 Bug Fixes
+- **Prospect Queue Data Loss on Force-Close** — Fixed by the storageBridge dual-write + recency reconciliation above.
+
+### ⚠️ Known Issues
+- (carried forward from BETA-52)
+
+---
+
 ## BETA-52 | 2026-07-01
 
 > Released via Project Scarlett — LeadLens_v2.0.52-BETA.52.apk
