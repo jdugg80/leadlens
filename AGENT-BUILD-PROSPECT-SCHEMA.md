@@ -18,23 +18,25 @@ Do not skip Step 0. The `targetlens_permits` schema mismatch from the reverted T
 
 ---
 
-## Migration (only after Step 0 is reported)
+## Migration (only after Step 0 is reported) — REVISED per confirmed diagnosis
 
-Add the following columns to the prospects table, all nullable with sensible defaults so existing rows and existing code paths are unaffected:
+Diagnosis confirmed: `source_type`, `duplicate_of`, and `enrichment_status` already exist on `prospects` (all currently NULL). Only 2 columns need to be added:
 
-- `source_type` — text/enum. Values: `card_scan`, `leadlock`, `manual`, `territory_auto`. Default for existing rows: infer from whatever data is available (e.g. if a row has OCR-derived fields populated, default to the most likely prior source; otherwise `manual`). Report your inference logic before applying it — don't guess silently on existing production data.
 - `discovery_signal` — text/enum, nullable. Values: `new_registration`, `building_permit`, `health_permit`, `ownership_change`. Only ever set when `source_type = territory_auto`. Null for all existing rows.
 - `confidence_score` — numeric, nullable. No default needed; only populated going forward by the dedupe/match stage.
-- `duplicate_of` — nullable foreign key referencing the prospects table itself (`id`). Used when a record is flagged pending a rep's merge-or-keep-separate decision.
-- `enrichment_status` — text/enum, nullable. Suggested values: `not_started`, `partial`, `complete`, `failed`. Used to surface records that stalled partway through the cascade (e.g. Places matched but Place Details failed because the legacy API isn't enabled yet).
 
-For each new column, add an explicit migration file (not a manual dashboard edit) so it's tracked in version control and can be rolled back.
+Add an explicit migration file (not a manual dashboard edit) so it's tracked in version control and can be rolled back.
+
+For the 3 pre-existing columns, no DDL is needed — only backfill/population logic:
+
+- `source_type`: the table has a `capture_method` column with 9 distinct values. Report the full list of those 9 values and a proposed mapping to `source_type`'s four categories (`card_scan`/`leadlock`/`manual`/`territory_auto`) before applying anything. Any value that doesn't map cleanly to one of the four gets `unknown`, not a forced guess.
+- `duplicate_of` / `enrichment_status`: leave null on existing rows — these only get populated going forward by the dedupe stage and cascade tracking respectively, neither of which existed when these historical rows were created.
 
 ## Backfill
 
-- For `source_type` on existing rows: apply the inference logic reported and confirmed in Step 0 above.
-- Do not backfill `confidence_score`, `discovery_signal`, or `enrichment_status` — leave null for historical rows. These only have meaning going forward.
-- After backfill, run a count-by-value check on `source_type` and report the distribution (e.g. "X rows manual, Y rows card_scan, Z inferred/unknown") so the inference can be sanity-checked against known beta history.
+- For `source_type` via `capture_method` mapping: apply the mapping reported and confirmed in the Migration section above.
+- Do not backfill `confidence_score`, `discovery_signal`, `duplicate_of`, or `enrichment_status` — leave null for historical rows. These only have meaning going forward.
+- After backfill, run a count-by-value check on `source_type` and report the distribution (e.g. "X rows manual, Y rows card_scan, Z unknown") so the mapping can be sanity-checked against known beta history.
 
 ## Verification
 
@@ -47,6 +49,7 @@ For each new column, add an explicit migration file (not a manual dashboard edit
 - No emoji in any PowerShell output/scripts.
 - PowerShell syntax for any shell instructions.
 - Do not touch any enrichment API integration code in this pass — schema only.
+- **Zero external API calls against the existing 1582 rows.** This migration is schema DDL plus a SQL backfill sourced entirely from the existing `capture_method` column — nothing here should call Google Places, BizCollect, CAD, Comptroller, or Claude. If any step of this briefing seems to require an external call to backfill a value, stop and report back rather than making the call — that's a sign the row should stay null/unknown instead.
 - Do not start the manual-entry cascade refactor (step 2 in the build sequence) until this migration is verified and reported back.
 
 ## Close-out
@@ -60,5 +63,4 @@ Report: final column list added, backfill distribution for `source_type`, and co
 - **Existing 11 columns from migration `20260528`**: Step 0.2 above already requires checking for overlapping-purpose columns before adding new ones. Treat this as the primary thing to resolve in Step 0 — if any of the 11 already serve a purpose one of the 5 new columns would duplicate, reuse/rename the existing column instead of adding a new one. Report this explicitly rather than adding all 5 regardless.
 - **Same table, not a new one**: all 5 columns (`source_type`, `discovery_signal`, `confidence_score`, `duplicate_of`, `enrichment_status`) are additive columns on the existing `prospects` table.
 - **`source_type` backfill**: infer a value for every existing row using the signals described in the Backfill section (presence of OCR-derived fields suggests `card_scan`/`leadlock`; absence suggests `manual`). Do not leave rows null. If a row is genuinely ambiguous, use an explicit `unknown` value rather than null, so it stays queryable and distinguishable from rows that predate this migration entirely. Report the full distribution (including any `unknown` count) before considering backfill complete.
-- **Dedupe threshold (used by later pipeline steps, defined here since it affects schema validation logic)**: fixed value, not rep-configurable yet. Rule: `place_id` exact match = high-confidence flag; otherwise, normalized-name similarity (Levenshtein ratio) ≥ 0.85 AND same ZIP or within a small geo radius = flag for review; below that threshold, create as new without flagging. This is a starting value to be revisited after real duplicate data accumulates — do not build in rep-facing configurability for it yet.
-
+- **Dedupe threshold (used by later pipeline steps, defined here since it affects schema validation logic)**: fixed value, not rep-configurable yet. Rule: `place_id` exact match = high-confidence flag; otherwise, normalized-name similarity (Levenshtein ratio) >= 0.85 AND same ZIP or within a small geo radius = flag for review; below that threshold, create as new without flagging. This is a starting value to be revisited after real duplicate data accumulates — do not build in rep-facing configurability for it yet.
