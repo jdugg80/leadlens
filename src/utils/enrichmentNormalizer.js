@@ -1135,6 +1135,9 @@ export function buildProspectUpdatesFromLookup(prospect, enrichmentResult) {
   const businessMatchScore = enrichmentResult.business_match_score ?? safeProspect.business_match_score ?? null;
   const businessMatchLabel = enrichmentResult.business_match_label || safeProspect.business_match_label || null;
 
+  // Property records source: 'hcad' (verified) or 'ai_estimate' (fallback)
+  const propertyRecordsSource = enrichmentResult.enrichment?.propertyRisk?.dataSource || safeProspect.property_records_source || null;
+
   return {
     ...safeProspect,
     ...updates,
@@ -1144,6 +1147,7 @@ export function buildProspectUpdatesFromLookup(prospect, enrichmentResult) {
     enrichment_notes: enrichmentNotes,
     business_match_score: businessMatchScore,
     business_match_label: businessMatchLabel,
+    property_records_source: propertyRecordsSource,
     contactCandidates,
     enrichment_suggestions: Object.keys(suggestions).length > 0 ? suggestions : null,
     enrichment: {

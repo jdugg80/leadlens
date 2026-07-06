@@ -1175,6 +1175,59 @@ const persistLead = async (ignoreDuplicate = false) => {
                       )}
                     </View>
                   )}
+
+                  {/* Property details */}
+                  {!!businessProfile.enrichment?.propertyRisk?.property && (() => {
+                    const prop = businessProfile.enrichment.propertyRisk.property;
+                    const src = businessProfile.enrichment.propertyRisk.dataSource;
+                    const isHcad = src === 'hcad';
+                    return (
+                      <View style={{ marginTop: 12, padding: 10, backgroundColor: isHcad ? 'rgba(46,204,113,0.05)' : 'rgba(241,196,15,0.05)', borderRadius: 8, borderWidth: 1, borderColor: isHcad ? 'rgba(46,204,113,0.2)' : 'rgba(241,196,15,0.2)' }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <Text style={{ color: COLORS.accent, fontSize: 11, fontWeight: '700' }}>PROPERTY DETAILS</Text>
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isHcad ? 'rgba(46,204,113,0.15)' : 'rgba(241,196,15,0.15)' }}>
+                            <Text style={{ color: isHcad ? COLORS.success : '#f1c40f', fontSize: 9, fontWeight: '700' }}>
+                              {isHcad ? 'HCAD VERIFIED' : 'AI ESTIMATED'}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {!!prop.yearBuilt && (
+                            <View>
+                              <Text style={{ color: COLORS.muted, fontSize: 9 }}>Year Built</Text>
+                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.yearBuilt}</Text>
+                            </View>
+                          )}
+                          {!!prop.buildingAge && (
+                            <View>
+                              <Text style={{ color: COLORS.muted, fontSize: 9 }}>Age</Text>
+                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.buildingAge} yrs</Text>
+                            </View>
+                          )}
+                          {!!prop.squareFeet && (
+                            <View>
+                              <Text style={{ color: COLORS.muted, fontSize: 9 }}>Square Feet</Text>
+                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{Number(prop.squareFeet).toLocaleString()}</Text>
+                            </View>
+                          )}
+                          {!!prop.stories && (
+                            <View>
+                              <Text style={{ color: COLORS.muted, fontSize: 9 }}>Stories</Text>
+                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.stories}</Text>
+                            </View>
+                          )}
+                        </View>
+                        {!!prop.landUse && (
+                          <Text style={{ color: COLORS.muted, fontSize: 10, marginTop: 4 }}>Land Use: {prop.landUse}</Text>
+                        )}
+                        {!isHcad && (
+                          <Text style={{ color: '#f1c40f', fontSize: 9, fontWeight: '600', marginTop: 4 }}>
+                            Estimate only — not from county records. Verify before sharing with homeowner.
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </View>
               )}
             </Card>
