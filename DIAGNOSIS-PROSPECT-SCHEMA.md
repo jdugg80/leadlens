@@ -1,8 +1,43 @@
 # DIAGNOSIS-PROSPECT-SCHEMA.md
 
 **Generated:** 2026-07-06
-**Scope:** Step 0 diagnostic for enrichment stack schema migration
+**Scope:** Step 0 diagnostic + Step 1 migration execution for enrichment stack schema
 **Supabase project:** `qkbvwryucaakkkqaqvka`
+**Migration status:** COMPLETE — all steps verified
+
+---
+
+## Step 1 — Migration execution results
+
+### Columns added
+- `discovery_signal` (text, nullable) — ADDED
+- `confidence_score` (numeric, nullable) — ADDED
+
+### Backfill results (source_type from capture_method)
+
+| source_type | Count | Source |
+|-------------|-------|--------|
+| `manual` | 1505 | `spreadsheet-import` (1503) + `manual` (2) |
+| `unknown` | 45 | `image` (ambiguous capture method) |
+| `card_scan` | 13 | `business-card` (7) + `ai-scan` (6) |
+| `territory_auto` | 11 | `LensSignal` (5) + `map-prospect` (3) + `Nearby Search` (3) |
+| `leadlock` | 8 | `LEADLOCK_PHOTO` (8) |
+| **Total** | **1582** | All rows backfilled, 0 NULL |
+
+### Round-trip verification
+
+| Test | Result |
+|------|--------|
+| Insert with all fields populated | PASS — values round-tripped correctly |
+| Insert with all fields NULL | PASS — NULLs round-tripped correctly |
+| Read existing real row | PASS — new columns accessible, no crash |
+
+### Migration file
+`supabase/migrations/20260706000000_add_enrichment_stack_columns.sql`
+
+---
+
+## Step 0 diagnostic (pre-migration)
 
 ---
 
