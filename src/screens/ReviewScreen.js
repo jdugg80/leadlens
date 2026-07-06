@@ -1181,6 +1181,8 @@ const persistLead = async (ignoreDuplicate = false) => {
                     const prop = businessProfile.enrichment.propertyRisk.property;
                     const src = businessProfile.enrichment.propertyRisk.dataSource;
                     const isHcad = src === 'hcad';
+                    const displayAge = prop.yearBuilt || prop.buildingAge || prop.estimatedAge;
+                    const ageLabel = prop.yearBuilt ? `Built ${prop.yearBuilt}` : prop.buildingAge ? `${prop.buildingAge} yrs old` : prop.estimatedAge ? `~${prop.estimatedAge} yrs old (est.)` : null;
                     return (
                       <View style={{ marginTop: 12, padding: 10, backgroundColor: isHcad ? 'rgba(46,204,113,0.05)' : 'rgba(241,196,15,0.05)', borderRadius: 8, borderWidth: 1, borderColor: isHcad ? 'rgba(46,204,113,0.2)' : 'rgba(241,196,15,0.2)' }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1192,16 +1194,10 @@ const persistLead = async (ignoreDuplicate = false) => {
                           </View>
                         </View>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                          {!!prop.yearBuilt && (
-                            <View>
-                              <Text style={{ color: COLORS.muted, fontSize: 9 }}>Year Built</Text>
-                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.yearBuilt}</Text>
-                            </View>
-                          )}
-                          {!!prop.buildingAge && (
+                          {!!ageLabel && (
                             <View>
                               <Text style={{ color: COLORS.muted, fontSize: 9 }}>Age</Text>
-                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.buildingAge} yrs</Text>
+                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{ageLabel}</Text>
                             </View>
                           )}
                           {!!prop.squareFeet && (
@@ -1214,6 +1210,12 @@ const persistLead = async (ignoreDuplicate = false) => {
                             <View>
                               <Text style={{ color: COLORS.muted, fontSize: 9 }}>Stories</Text>
                               <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.stories}</Text>
+                            </View>
+                          )}
+                          {!!prop.propertyType && prop.propertyType !== 'COMMERCIAL' && (
+                            <View>
+                              <Text style={{ color: COLORS.muted, fontSize: 9 }}>Type</Text>
+                              <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '600' }}>{prop.propertyType}</Text>
                             </View>
                           )}
                         </View>
