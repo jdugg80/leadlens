@@ -11223,3 +11223,342 @@ Found 116 modified files:
 ==================================================
 
 
+=== LeadLens Audit Report - 2026-07-06 ===
+=== FULL PROJECT AUDIT & INTEGRITY SWEEP ===
+
+PROJECT: LeadLens v2.0.53 (BETA-53)
+BRANCH: main (commit f7c893df, 2026-07-02)
+REMOTE: https://github.com/jdugg80/leadlens.git
+SCOPE: Full codebase audit (security, code quality, git integrity)
+
+----------------------------------------------------------------------
+FINDINGS ORDERED BY IMPORTANCE (CRITICAL -> LOW)
+----------------------------------------------------------------------
+
+*** CRITICAL SEVERITY ***
+
+[C1] GIT-TRACKED KEYSTORE + PLAINTEXT CREDENTIALS
+  Files: @jdugg80__leadlens.jks, credentials.json
+  credentials.json contains plaintext password "JJ.0324!!!!"
+  Anyone with repo access can sign APKs as the developer identity.
+  .gitignore has *.jks but these were committed before the rule.
+  ACTION: git rm --cached both files, rotate keystore passwords immediately.
+
+[C2] HARDCODED ADMIN PASSWORD IN CLIENT CODE
+  File: src/screens/SettingsScreen.js:272
+  Password "JJ.0324!!!!" is hardcoded in plaintext JavaScript.
+  Visible to anyone who decompiles the APK.
+  Same password as the Android keystore credentials.
+  ACTION: Move to server-side check or use hashed comparison.
+
+[C3] ANTHROPIC API KEY EXPOSED TO CLIENT VIA EXPO_PUBLIC_ PREFIX
+  Files: src/utils/claudeApi.js:6, src/utils/businessCardEnricher.js:8,
+  src/utils/buildingPermitsService.js:13, src/utils/healthDepartmentService.js:15,
+  src/utils/multiBusinessDetection.js:13, src/utils/propertyRecordsService.js:12
+  EXPO_PUBLIC_ANTHROPIC_API_KEY embeds the full Claude API key in the client bundle.
+  Anyone decompiling the APK can extract and abuse it.
+  The claude-proxy and extract-prospect Edge Functions already exist for this.
+  ACTION: Move all Anthropic calls to Edge Functions, remove client-side key.
+
+[C4] UNAUTHENTICATED CLAUDE-PROXY EDGE FUNCTION
+  File: supabase/functions/claude-proxy/index.ts
+  No JWT verification, CORS wildcard (*), accepts any request body.
+  An attacker could run up a massive Anthropic bill by calling this endpoint.
+  ACTION: Add authentication check, restrict CORS to own domains.
+
+[C5] PIN STORED IN PLAINTEXT ASYNCSTORAGE
+  File: src/screens/LoginScreen.js:547
+  User login PIN stored as plaintext in AsyncStorage.
+  Trivially accessible on rooted/jailbroken devices.
+  ACTION: Hash PIN before storing, compare hashes.
+
+[C6] 13+ PRODUCTION SECRETS IN .env FILE
+  File: .env (not tracked by git, but present on disk)
+  Contains: Supabase service role keys (x2), GitHub PAT, Expo token,
+  Netlify auth token, Resend API key, Anthropic API key, Google Places key.
+  If ever leaked (backup, screen share, CI misconfig), all services compromised.
+  ACTION: Consider using a secrets manager, audit access.
+
+*** HIGH SEVERITY ***
+
+[H1] WILDCARD CORS ON ALL 11 SUPABASE EDGE FUNCTIONS
+  All functions use Access-Control-Allow-Origin: *
+  Functions: ai-welcome, upsert-comptroller, extract-prospect, signal-ingest,
+  send-support-ticket, send-push-alert, process-leadlock-capture,
+  comptroller-lookup, compliance-ingest, maps-proxy, claude-proxy
+  Any website can call these functions from a browser.
+  ACTION: Restrict CORS to own domains only.
+
+[H2] UNAUTHENTICATED NETLIFY SEND-EMAIL FUNCTION
+  File: netlify/functions/send-email.js
+  Accepts any to/subject/html payload, sends via Resend with no auth.
+  Can be abused to send arbitrary emails from your domain.
+  ACTION: Add authentication or API key check.
+
+[H3] ENRICH-LEAD-BATCH USES ANON KEY (BYPASSES RLS)
+  File: supabase/functions/enrich-lead-batch/index.ts:50
+  Uses supabaseAnonKey instead of service role key. Combined with no auth
+  and CORS *, this could allow unauthenticated batch operations.
+  ACTION: Use service role key and add authentication.
+
+[H4] SENSITIVE DATA LEAKED VIA console.log (100+ instances)
+  High-risk: OAuth URLs with tokens (src/utils/auth.js:119,240),
+  user emails (src/screens/LoginScreen.js:412,456),
+  Supabase URL + anon key prefix (src/utils/territoryZipLoader.js:178-179),
+  full auth failure responses (LoginScreen.js:418,450),
+  session IDs (cardScan storage files).
+  ACTION: Remove all console.log from production code.
+
+[H5] UPSTREAM API ERRORS LEAKED TO CLIENTS
+  Files: supabase/functions/ai-welcome/index.ts:106-111,
+  supabase/functions/analyze-submission/index.ts:163,
+  supabase/functions/send-support-ticket/index.ts:119,
+  supabase/functions/extract-prospect/index.ts:176-183,
+  supabase/functions/maps-proxy/index.ts:107
+  Full error responses from Anthropic, Resend, Google Maps returned to clients.
+  ACTION: Return generic error messages, log details server-side.
+
+[H6] ZERO TEST FILES IN ENTIRE PROJECT
+  No .test.js, .test.ts, .spec.js, .spec.ts, or __tests__/ directories found.
+  No test script in package.json.
+  ACTION: Add test infrastructure, write critical-path tests.
+
+[H7] DUPLICATE normalizePhone DEFINED IN 5 FILES
+  Files: src/utils/enrichmentNormalizer.js:8, src/utils/leadHelpers.js:3,
+  src/utils/leadProcessing.js:3, src/utils/leadLockOcrPipeline.js:32,
+  src/utils/phoneExtraction.js:12
+  Also: normalizeEmail, normalizeFixedFieldValue, normalizeState, normalizeZip
+  each duplicated in leadHelpers.js and leadProcessing.js.
+  ACTION: Consolidate into a single canonical module.
+
+[H8] 39 EMPTY CATCH BLOCKS (SILENT ERROR SWALLOWING)
+  28 instances of catch {} (no variable), 11 of catch (_) {} or catch (e) {}
+  Worst: SettingsScreen.js:421,445,454,603; TerritoryMapScreen.js:930,991;
+  territoryZipLoader.js:149,154,393; tutorialManager.js:23,30,39,46
+  ACTION: Add proper error handling or at minimum log the error.
+
+[H9] ~70 SWALLOWED ERRORS VIA .catch(() => {})
+  Heaviest: DashboardScreen.js (~25), CaptureScreen.js (~15),
+  BatchReviewScreen.js (~6), ExportScreen.js (~4)
+  Includes: signOut().catch(() => {}), data removal failures ignored.
+  ACTION: Add proper error handling to each.
+
+[H10] 21 FILES EXCEED 500 LINES (8 EXCEED 1000)
+  Largest: CaptureScreen.js (2,002 lines), SettingsScreen.js (1,950),
+  TerritoryMapScreen.js (1,527), DashboardScreen.js (1,438),
+  ReviewScreen.js (1,346), enrichmentNormalizer.js (1,038),
+  LoginScreen.js (1,007), LeadLockCameraScreen.js (1,002)
+  ACTION: Break into smaller components/modules.
+
+*** MEDIUM SEVERITY ***
+
+[M1] DUPLICATE LensSignalMapMarker COMPONENT (.js AND .tsx)
+  Files: src/features/lenssignal/LensSignalMapMarker.js (102 lines)
+  src/features/lenssignal/LensSignalMapMarker.tsx (145 lines)
+  ACTION: Remove the unused duplicate.
+
+[M2] DUPLICATE betaTracker.js AT ROOT AND SRC LEVEL
+  Files: utils/betaTracker.js and src/utils/betaTracker.js
+  ACTION: Consolidate to one location.
+
+[M3] DUPLICATE 5 EXAMPLE FILES NEVER IMPORTED
+  Files: src/examples/DashboardScreen.example.js,
+  SettingsScreen.example.js, ProspectQueueScreen.example.js,
+  TerritoryMapScreen.example.js, TerritoryMap_static_activity_example.js
+  Zero imports found anywhere.
+  ACTION: Remove dead files or document their purpose.
+
+[M4] HARDCODED SUPABASE URLs IN 10+ SOURCE FILES
+  Notable: release.js:69,72, LoginScreen.js:565, utils/updateChecker.js:15,
+  utils/betaTracker.js:19, scripts/generate-changelog.js:16
+  URLs: dlntgyhfxxbcwwcxaorn.supabase.co, qkbvwryucaakkkqaqvka.supabase.co
+  ACTION: Centralize in a config module.
+
+[M5] HARDCODED API BASE URLs IN SOURCE
+  Files: src/constants/index.js:181 (Netlify send-email URL),
+  src/screens/SettingsScreen.js:158 (same URL duplicated),
+  src/utils/businessCardEnricher.js:7, src/utils/claudeApi.js:5
+  ACTION: Centralize in environment config.
+
+[M6] 44 EXCESSIVE any TYPES IN TYPESCRIPT FILES
+  Worst: LensSignalDetailsCard.tsx (~20 instances),
+  targetLensMatcher.ts (5), supabase.ts (4)
+  ACTION: Add proper TypeScript interfaces.
+
+[M7] 604 CONSOLE.* CALLS ACROSS src/ (~279 console.log)
+  Heaviest: enrichmentNormalizer.js (~30), leadLockUpdates.js (~20),
+  geoEnrich.js (~10), bizcollectProvider.js (~10)
+  ACTION: Remove from production, use a logging abstraction.
+
+[M8] FLOATING PROMISES (missing await/.catch)
+  15+ instances of recordUserActivityEvent() called without await/catch
+  in AdminScreen, BatchReviewScreen, DashboardScreen, ExportScreen, ReviewScreen.
+  ACTION: Add await or .catch() to all async calls.
+
+[M9] 15+ MAGIC NUMBERS / INLINE LITERALS
+  Cache TTLs: 14*24*60*60*1000 (buildingPermitsService.js:16),
+  24*60*60*1000 (addressGeocoder.js:9), 30*24*60*60*1000 (zipBoundaryCache.js:13)
+  Scoring weights: scattered across geoEnrich.js, enrichmentNormalizer.js
+  ACTION: Extract to named constants.
+
+[M10] HTTP (NON-TLS) URL FOR EXTERNAL SERVICE
+  File: src/services/lensSignal/lensSignalSourceRegistry.ts:44
+  Uses http://houston-tx.healthinspections.us/ (cleartext).
+  ACTION: Upgrade to HTTPS.
+
+[M11] INCONSISTENT IMPORT STYLES
+  Some files use storageBridge as AsyncStorage, some use storage,
+  some use require() directly.
+  ACTION: Standardize imports.
+
+[M12] .exec() ON USER-INFLUENCED PATTERNS (REGEX DOS RISK)
+  File: src/utils/socialEnrichment.js:95,274,288,291,296,502,537
+  Multiple regex.exec() on user-supplied/scraped HTML.
+  ACTION: Audit regex patterns for ReDoS vulnerabilities.
+
+[M13] child_process USAGE IN SCRIPTS
+  Files: scripts/generate-changelog.js:12, scripts/release.js:16,
+  release.js:31
+  Build/release scripts only, but if any user input reaches these,
+  it could enable command injection.
+  ACTION: Sanitize inputs, use spawn instead of exec.
+
+[M14] WIDE-BLANKET .catch(() => {}) MASKING SECURITY FAILURES
+  Including: auth.js sign-out, data removal operations, storage cleanup.
+  ACTION: Log errors at minimum, handle where possible.
+
+[M15] WEB/.IDEA/ FILES TRACKED DESPITE .GITIGNORE
+  Files: web/.idea/.gitignore, web/.idea/caches/deviceStreaming.xml,
+  web/.idea/modules.xml, web/.idea/vcs.xml, web/.idea/web.iml
+  Committed before web/.gitignore rule was added.
+  ACTION: git rm --cached web/.idea/
+
+*** LOW SEVERITY ***
+
+[L1] NO PRETTIER CONFIGURATION
+  No .prettierrc or prettier.config.js anywhere.
+  ACTION: Add Prettier config for consistent formatting.
+
+[L2] NO TYPECHECK SCRIPT IN package.json
+  TypeScript files exist but no tsc/typecheck script defined.
+  ACTION: Add "typecheck": "tsc --noEmit" script.
+
+[L3] NO FORMAT SCRIPT IN package.json
+  ACTION: Add "format": "prettier --write ." script.
+
+[L4] CRLF WARNING ON change-log.txt
+  Benign with core.autocrlf=true but consider adding text eol rules.
+
+[L5] STALE GIT STASH FROM BETA-49 ERA
+  stash@{0}: WIP on main: e4e89c01 BETA-49
+  ACTION: Run git stash drop stash@{0}
+
+[L6] assets/zip_boundaries.json IS 4.3 MB
+  Large JSON blob in repo. Consider hosting externally.
+  ACTION: Move to CDN or Supabase Storage.
+
+[L7] assets/NeuroArc_splashscreen.mp4 IS 5.1 MB
+  Consider Git LFS or external hosting for video assets.
+  ACTION: Use Git LFS for media assets.
+
+[L8] android/app/debug.keystore IS TRACKED
+  Low risk (debug keystore), but should be gitignored.
+  ACTION: git rm --cached android/app/debug.keystore
+
+[L9] ONE TODO COMMENT
+  File: src/features/lenssignal/lenssignalScoring.ts:63
+  "TODO: Add support for active profile emoji once state is available here"
+  ACTION: Address or track in issue tracker.
+
+[L10] feature/targetlens-homeowner BRANCH EXISTS
+  Both local and remote. Verify if still active.
+  ACTION: Merge or delete if stale.
+
+----------------------------------------------------------------------
+GIT REPOSITORY STATUS
+----------------------------------------------------------------------
+
+Current Branch: main
+Tracking: Up to date with origin/main
+Latest Commit: f7c893df -- chore(release): BETA-53 -- 2026-07-02
+Unstaged Changes: change-log.txt (55 lines - this audit report)
+Untracked Files: None
+Stale Stash: 1 (from BETA-49 era)
+Branches: main, feature/targetlens-homeowner
+
+----------------------------------------------------------------------
+SUMMARY
+----------------------------------------------------------------------
+
+Total Findings: 39
+  CRITICAL: 6  (keystore leak, admin password in code, Anthropic key on client,
+                unauthenticated proxy, plaintext PIN, secrets concentration)
+  HIGH:     10 (wildcard CORS x11, unauthenticated email function, anon key
+                bypass, console.log leaks, API error leakage, zero tests,
+                duplicate normalizers, empty catches, swallowed errors, 1000+ line files)
+  MEDIUM:   15 (duplicate components, hardcoded URLs, any types, console spam,
+                floating promises, magic numbers, HTTP URLs, import chaos,
+                ReDoS risk, child_process, error masking, IDE files tracked)
+  LOW:      10 (no prettier, no typecheck script, CRLF, stale stash,
+                large assets, debug keystore, TODO, stale branch)
+
+----------------------------------------------------------------------
+END OF AUDIT REPORT
+----------------------------------------------------------------------
+
+
+=== LeadLens Scan - 2026-07-03 17:01:21 ===
+Found 41 modified files:
+  07/03 08:32 - \.git\opencode
+  07/02 17:55 - \.git\refs\tags\release-53
+  07/02 17:34 - \.git\logs\refs\remotes\origin\main
+  07/02 17:34 - \.git\refs\remotes\origin\main
+  07/02 17:34 - \.git\objects\83\74cb24334a2d7cf028b9896ea3bbe6c3b8ba7b
+  07/02 17:34 - \.git\logs\refs\heads\main
+  07/02 17:34 - \.git\refs\heads\main
+  07/02 17:34 - \.git\logs\HEAD
+  07/02 17:34 - \.git\objects\f7\c893df09dd98e45fc352ca7afba573c745a655
+  07/02 17:34 - \.git\COMMIT_EDITMSG
+  07/02 17:34 - \.git\index
+  07/02 17:34 - \.git\objects\19\6debb2fc76228555163e1dc59cbf9ec983c4df
+  07/02 17:34 - \.git\objects\44\df086e5608e41056f55a52f2d00106dee0e116
+  07/02 17:34 - \.git\objects\89\295b9df67951f70f19e1b0f18a40f934c6b40f
+  07/02 17:34 - \builds\LeadLens_v2.0.53-BETA.53.apk
+  07/02 17:22 - \android\app\src\main\res\values\strings.xml
+  07/02 17:22 - \android\app\src\main\AndroidManifest.xml
+  07/02 17:21 - \package.json
+  07/02 17:21 - \app.json
+  07/02 17:14 - \.git\objects\2e\a7ecb4f4a41b43095ed77024159c44f295e03f
+  07/02 17:14 - \.git\objects\32\6a113d9e10f9531b072867b452123c46d011a5
+  07/02 17:14 - \.git\objects\15\22ed3b6cacfa6c7abd93e2d04a29cb343ad50e
+  07/02 17:14 - \CHANGELOG.md
+  07/02 17:09 - \.git\objects\a4\d4bbe8dba5807809a731f3b53f7c7f4cf416e6
+  07/02 17:09 - \.git\objects\a5\bdd1e3a268ef4e411bdf0a108fa3f0f31550c5
+  07/02 17:09 - \.git\objects\c7\3dd655a759960121aec667a07c3689d472def9
+  07/02 17:09 - \.git\objects\4b\71987c25d295ac87b2600d2c2b738522bf8e2a
+  07/02 17:09 - \.git\objects\36\7b2a9a79aaa31583f6972109941b9a01a238c5
+  07/02 17:09 - \.git\objects\6a\feb48d2da565c97f4357fd72847e11d4cfe960
+  07/02 17:09 - \.git\objects\55\41090610d1330b57649e252232488706bd3bc7
+  07/02 17:09 - \.git\objects\pack\pack-0b219ce094400689035e54e23afe362d890adf70.pack
+  07/02 17:09 - \.git\objects\c4\f3bd63412ed626d1864f483af3d383707d929a
+  07/02 17:09 - \.git\objects\82\8de4c38efb37b279b6b8e27e733341a37adb0f
+  07/02 17:09 - \.git\objects\fc\b2316a84fbba4c1f67ae4dc187d63c30e3e570
+  07/02 17:09 - \.git\objects\9b\e7a6f2713f6ebc3b70ad85a26f91a249dbe216
+  07/02 17:09 - \.git\objects\cb\ad8031903dce54750f12937e70023fdc722bda
+  07/02 17:08 - \src\utils\nearbySearch.js
+  07/02 17:08 - \src\screens\TerritoryMapScreen.js
+  07/02 17:08 - \src\config\targetLensProfiles.ts
+  07/02 17:08 - \src\components\LeadFiltersBottomSheet.js
+  07/02 17:01 - \change-log.txt
+
+==================================================
+
+
+=== LeadLens Scan - 2026-07-04 17:01:21 ===
+Found 2 modified files:
+  07/03 19:58 - \.git\opencode
+  07/03 17:01 - \change-log.txt
+
+==================================================
+
+
