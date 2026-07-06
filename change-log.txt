@@ -11562,3 +11562,178 @@ Found 2 modified files:
 ==================================================
 
 
+=== LeadLens Scan - 2026-07-06 17:01:15 ===
+Found 139 modified files:
+  07/06 13:31 - \dist\_expo\static\js\ios\AppEntry-74cd3abe6d4bed509bf50ebbe6186597.hbc.map
+  07/06 13:31 - \dist\_expo\static\js\android\AppEntry-165a24b15c2b819da7596ba9943c3cab.hbc.map
+  07/06 13:31 - \dist\_expo\static\js\ios\AppEntry-74cd3abe6d4bed509bf50ebbe6186597.hbc
+  07/06 13:31 - \dist\_expo\static\js\android\AppEntry-165a24b15c2b819da7596ba9943c3cab.hbc
+  07/06 13:31 - \dist\assets\2f552408f4c074c88ec56738b0580913
+  07/06 13:31 - \dist\assets\b62641afc9ab487008e996a5c5865e56
+  07/06 13:31 - \dist\assets\cdd04e13d4ec83ff0cd13ec8dabdc341
+  07/06 13:31 - \dist\assets\f7c53c47a66934504fcbc7cc164895a7
+  07/06 13:31 - \dist\assets\e20945d7c929279ef7a6f1db184a4470
+  07/06 13:31 - \dist\metadata.json
+  07/06 13:31 - \dist\debug.html
+  07/06 13:31 - \dist\assets\f5b790e2ac193b3d41015edb3551f9b8
+  07/06 13:31 - \dist\assets\d2285965fe34b05465047401b8595dd0
+  07/06 13:31 - \dist\assets\c79c3606a1cf168006ad3979763c7e0c
+  07/06 13:31 - \dist\assets\b06871f281fee6b241d60582ae9369b9
+  07/06 13:31 - \dist\assets\adec7d6f310bc577f05e8fe06a5daccf
+  07/06 13:31 - \dist\assets\a76d309774d33d9856f650bed4292a23
+  07/06 13:31 - \dist\assets\8765deb8491507d0bbac46e29218bdb9
+  07/06 13:31 - \dist\assets\b49ae8ab2dbccb02c4d11caaacf09eab
+  07/06 13:31 - \dist\assets\7d40544b395c5949f4646f5e150fe020
+  07/06 13:31 - \dist\assets\a132ecc4ba5c1517ff83c0fb321bc7fc
+  07/06 13:31 - \dist\assets\3dedd0e8197d6a879d52fcf5bcbf0a70
+  07/06 13:31 - \dist\assets\778ffc9fe8773a878e9c30a6304784de
+  07/06 13:31 - \dist\assets\605ed7926cf39a2ad5ec2d1f9d391d3d
+  07/06 13:31 - \dist\assets\56c8d80832e37783f12c05db7c8849e2
+  07/06 13:31 - \dist\assets\6148e7019854f3bde85b633cb88f3c25
+  07/06 13:31 - \dist\assets\4e85bc9ebe07e0340c9c4fc2f6c38908
+  07/06 13:31 - \dist\assets\5223c8d9b0d08b82a5670fb5f71faf78
+  07/06 13:31 - \dist\assets\35ba0eaec5a4f5ed12ca16fabeae451d
+  07/06 13:31 - \dist\assets\31b5ffea3daddc69dd01a1f3d6cf63c5
+  07/06 13:31 - \dist\assets\1f77739ca9ff2188b539c36f30ffa2be
+  07/06 13:31 - \dist\assets\370dd5af19f8364907b6e2c41f45dbbf
+  07/06 13:31 - \dist\assets\3b89dd103490708d19a95adcae52210e
+  07/06 13:31 - \dist\assets\3a2ba31570920eeb9b1d217cabe58315
+  07/06 13:31 - \dist\assets\376d6a4c7f622917c39feb23671ef71d
+  07/06 13:31 - \dist\assets\140c53a7643ea949007aa9a282153849
+  07/06 13:31 - \dist\assets\1681f34aaca71b8dfb70756bca331eb2
+  07/06 13:31 - \dist\assets\0ea69b5077e7c4696db85dbcba75b0e1
+  07/06 13:31 - \dist\assetmap.json
+  07/06 13:31 - \dist\assets\02bc1fa7c0313217bde2d65ccbff40c9
+  07/06 13:27 - \.git\logs\refs\remotes\origin\main
+  07/06 13:27 - \.git\refs\remotes\origin\main
+  07/06 13:27 - \.git\logs\refs\heads\main
+  07/06 13:27 - \.git\logs\HEAD
+  07/06 13:27 - \.git\refs\heads\main
+  07/06 13:27 - \.git\objects\24\30735f2a36984b18ffae55c8601b980af297cf
+  07/06 13:27 - \.git\COMMIT_EDITMSG
+  07/06 13:27 - \.git\index
+  07/06 13:27 - \.git\objects\2f\00694112499419e17258d02ae5574a1d0f3e3f
+  07/06 13:27 - \.git\objects\ac\4b1db5a10fb0ae44b58b467a4b2ea4a95a27bd
+  07/06 13:27 - \.git\objects\5d\97878a69dc0ff0104552d1b3001719c42fd685
+  07/06 13:27 - \.git\objects\c9\3ecb0bebd0e98ef1625b878b1dd2c418e60f1d
+  07/06 13:27 - \.git\objects\50\5165c9bf90a4ca42f2f5500b6fb78f7d0dd310
+  07/06 13:27 - \.git\objects\d7\190d85ef44686ac5c763329881126802a51bdb
+  07/06 13:27 - \.git\objects\eb\9c8af501dcdb3dc204dd857298dc1722d88b1e
+  07/06 13:27 - \.git\objects\22\dc5f678eecc890b2a2922b7766d87e0eb5def2
+  07/06 13:27 - \.git\objects\3a\114edd8a74c7794ec14956a52e4e47985625b7
+  07/06 13:27 - \src\screens\ReviewScreen.js
+  07/06 13:26 - \src\utils\enrichmentNormalizer.js
+  07/06 13:25 - \supabase\migrations\20260706000002_add_property_records_source.sql
+  07/06 13:21 - \.git\objects\b1\6278c9fdd03e5dcfed3ba6ef78f6a14c8c2bde
+  07/06 13:21 - \.git\objects\7a\44171947714f5b712ce23d03e715caef672df3
+  07/06 13:21 - \.git\objects\21\1e8660e178aad86ca7e6404c46e48d700c413d
+  07/06 13:21 - \ENRICHMENT-STACK-DESIGN.md
+  07/06 13:19 - \.expo\devices.json
+  07/06 13:10 - \.git\objects\dd\cc23688cdce168bf656cc3fcf2f9e68d2210f4
+  07/06 13:10 - \.git\objects\61\282136cb6111e75eca65310f6f4f57d94dd85e
+  07/06 13:10 - \.git\objects\27\3f6bac48ed17efcea718ece9a2ff47d093acb9
+  07/06 13:10 - \DIAGNOSIS-PROPERTY-SOURCE-FLAG.md
+  07/06 12:54 - \.git\objects\8c\909beeb6e32677deecca8bfdd1d49c86d4d568
+  07/06 12:54 - \.git\objects\fa\7493d619cf6fc2aa707531d52100223968025b
+  07/06 12:54 - \.git\objects\cb\c224ada57bb4b9f3054b77bc875e81c47052d9
+  07/06 12:53 - \AGENT-REFATOR-MANUAL-ENTRY-CASCADE.md
+  07/06 12:44 - \.git\objects\a7\b1fccd5dccca2382bc1c605550d4707e7d2394
+  07/06 12:44 - \.git\objects\38\75b4b84567181bd5a9fdd126599aa1e142b3b0
+  07/06 12:44 - \.git\objects\ee\7767d0ff341fff4c67ba41aec03ded6abb1d32
+  07/06 12:44 - \.git\objects\0d\6f08b2bc7f09de5d64c3d08cde308f2ed53023
+  07/06 12:44 - \.git\objects\9c\3d5214471c6308a91b82a07663bb9c1dfa7d42
+  07/06 12:44 - \.git\objects\9b\fef52d5b719fafce08e2adaa830be2cfcca1a1
+  07/06 12:43 - \supabase\migrations\20260706000001_fix_source_type_map_capture.sql
+  07/06 12:35 - \.git\objects\4b\001e6c643f214f4f608c24e53884961acb33e1
+  07/06 12:35 - \.git\objects\10\8e2c60d76f69727d4660ac778a72701fe8db1c
+  07/06 12:35 - \.git\objects\b7\c1165710e93a8fb0c0224baa32f3d5113e6e70
+  07/06 12:35 - \.git\objects\10\599d9b35ebdba36a280d1f2e9fcb85343a8c54
+  07/06 12:35 - \.git\objects\01\37ce1d996f11f67023d565afb1a4305b0c1af3
+  07/06 12:35 - \.git\objects\f1\0ec4e891675b8c7ae507cd403589dac0277369
+  07/06 12:35 - \DIAGNOSIS-PROSPECT-SCHEMA.md
+  07/06 12:28 - \supabase\migrations\20260706000000_add_enrichment_stack_columns.sql
+  07/06 12:21 - \.git\objects\d6\fb53ff035bca06e6752e9027cc67065f11411f
+  07/06 12:21 - \.git\objects\bc\809424196d19ad59524c9e7c2aa6c995e61044
+  07/06 12:21 - \.git\objects\5f\a96130e601c37c3b15ea65d313d2d0f0c8d6b0
+  07/06 12:21 - \.git\objects\b2\d85e07fbb29410c7ad87df2f3c4fd5e6fd2f17
+  07/06 12:20 - \AGENT-BUILD-PROSPECT-SCHEMA.md
+  07/06 12:06 - \.git\objects\info\packs
+  07/06 12:06 - \.git\info\refs
+  07/06 12:06 - \.git\objects\pack\multi-pack-index
+  07/06 12:06 - \.git\objects\pack\pack-f05bc0d3e30759c3eee491d8bccafeb4ea161e9d.rev
+  07/06 12:06 - \.git\objects\pack\pack-f05bc0d3e30759c3eee491d8bccafeb4ea161e9d.idx
+  07/06 12:06 - \.git\objects\pack\pack-f05bc0d3e30759c3eee491d8bccafeb4ea161e9d.pack
+  07/06 10:55 - \DIAGNOSIS-ENRICHMENT-METHODS.md
+  07/06 10:44 - \app.json
+  07/06 10:18 - \android\app\build.gradle
+  07/06 10:18 - \android\settings.gradle
+  07/06 10:18 - \android\build.gradle
+  07/06 10:18 - \android\app\src\main\res\values-night\colors.xml
+  07/06 10:18 - \android\app\src\main\res\values\styles.xml
+  07/06 10:18 - \android\app\src\main\res\values\strings.xml
+  07/06 10:18 - \android\app\src\main\res\values\colors.xml
+  07/06 10:18 - \android\gradle.properties
+  07/06 10:18 - \android\app\src\main\AndroidManifest.xml
+  07/06 10:18 - \android\app\src\main\res\drawable-xxxhdpi\splashscreen_image.png
+  07/06 10:18 - \android\app\src\main\res\drawable-xxhdpi\splashscreen_image.png
+  07/06 10:18 - \android\app\src\main\res\drawable-xhdpi\splashscreen_image.png
+  07/06 10:18 - \android\app\src\main\res\drawable-hdpi\splashscreen_image.png
+  07/06 10:18 - \android\app\src\main\res\drawable-mdpi\splashscreen_image.png
+  07/06 10:18 - \android\app\src\main\res\drawable\splashscreen.xml
+  07/06 10:18 - \android\app\src\main\res\mipmap-anydpi-v26\ic_launcher.xml
+  07/06 10:18 - \android\app\src\main\res\mipmap-anydpi-v26\ic_launcher_round.xml
+  07/06 10:18 - \android\app\src\main\res\mipmap-xxxhdpi\ic_launcher_foreground.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xhdpi\ic_launcher_foreground.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-hdpi\ic_launcher_foreground.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-mdpi\ic_launcher_foreground.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xxhdpi\ic_launcher_foreground.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xxxhdpi\ic_launcher_round.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-hdpi\ic_launcher_round.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xxhdpi\ic_launcher_round.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xhdpi\ic_launcher_round.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-mdpi\ic_launcher_round.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xxhdpi\ic_launcher.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xxxhdpi\ic_launcher.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-xhdpi\ic_launcher.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-mdpi\ic_launcher.png
+  07/06 10:18 - \android\app\src\main\res\mipmap-hdpi\ic_launcher.png
+  07/06 10:18 - \android\app\src\main\java\com\okaymedia\leadlens\MainApplication.kt
+  07/06 10:18 - \android\app\src\main\java\com\okaymedia\leadlens\MainActivity.kt
+  07/06 09:28 - \src\screens\TerritoryMapScreen.js
+  07/06 08:47 - \AUDIT-REPORT-2026-07-06.md
+  07/06 08:17 - \change-log.txt
+  07/06 08:09 - \.git\opencode
+
+==================================================
+
+--- ENRICHMENT STACK BUILD (2026-07-06) ---
+
+Step 1: Schema migration
+- Added discovery_signal (text, nullable) column to prospects
+- Added confidence_score (numeric, nullable) column to prospects
+- Backfilled source_type from capture_method (1582 rows, 0 NULL remaining)
+- Reclassified 11 rows from territory_auto to map_capture (rep-driven map/search adds)
+- Final source_type distribution: manual 1505, unknown 45, card_scan 13, map_capture 11, leadlock 8, territory_auto 0
+
+Step 1.5: Property source flag fix
+- Added property_records_source (text, nullable) column to prospects
+- Extracted dataSource from enrichment.propertyRisk in buildProspectUpdatesFromLookup
+- Added property details section on ReviewScreen with HCAD VERIFIED / AI ESTIMATED badge
+- NOTE: propertyRisk data not rendering on device yet -- needs investigation
+
+Files changed:
+- supabase/migrations/20260706000000_add_enrichment_stack_columns.sql (new)
+- supabase/migrations/20260706000001_fix_source_type_map_capture.sql (new)
+- supabase/migrations/20260706000002_add_property_records_source.sql (new)
+- src/utils/enrichmentNormalizer.js (extract property_records_source)
+- src/screens/ReviewScreen.js (property details section with source badge)
+- ENRICHMENT-STACK-DESIGN.md (new -- full design spec)
+- AGENT-BUILD-PROSPECT-SCHEMA.md (new -- step 1 briefing)
+- AGENT-REFATOR-MANUAL-ENTRY-CASCADE.md (new -- step 2 brief)
+- DIAGNOSIS-PROSPECT-SCHEMA.md (new -- step 0 diagnostic)
+- DIAGNOSIS-ENRICHMENT-METHODS.md (new -- enrichment methods diagnostic)
+- DIAGNOSIS-PROPERTY-SOURCE-FLAG.md (new -- property source flag diagnostic)
+- AUDIT-REPORT-2026-07-06.md (new -- full project audit)
+
+---
+
