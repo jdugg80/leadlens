@@ -160,6 +160,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const [lowMemoryMode, setLowMemoryMode] = useState(false);
+  const [region, setRegion] = useState(DEFAULT_TERRITORY_REGION);
+  const regionRef = useRef(null);
 
   // Homeowner mode state
   const [targetLensMode, setTargetLensMode] = useState('business');
@@ -255,8 +257,6 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [addressSearching, setAddressSearching] = useState(false);
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState([]);
   const autocompleteTimerRef = useRef(null);
-  const [region, setRegion] = useState(DEFAULT_TERRITORY_REGION);
-  const regionRef = useRef(null);
   const lastFetchedCoordsRef = useRef({ lat: 0, lng: 0 });
   const initialLocationAppliedRef = useRef(false);
   const [clusters, setClusters] = useState([]);
