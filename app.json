@@ -12,7 +12,7 @@
       "fallbackToCacheTimeout": 0,
       "checkAutomatically": "ON_LOAD"
     },
-    "runtimeVersion": "2.0.51",
+    "runtimeVersion": "2.0.53",
     "splash": {
       "image": "./assets/leadlens/LeadLens_splash_static_v3.png",
       "resizeMode": "contain",
