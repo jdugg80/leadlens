@@ -71,7 +71,7 @@ When a new capture or discovery matches an existing prospect above the fuzzy-mat
 
 **Standing principle for every step below: enrichment cascades run on new/incoming records only. Never bulk-run Pipeline A or B enrichment (Places, BizCollect, CAD, Comptroller) against the existing 1582+ historical rows without an explicit, separate, cost-scoped decision to do so.** A backfill job that "also enriches while it's at it" is an easy way to rack up unplanned API costs across paid sources (BizCollect, CAD's paid tier) — if a retroactive enrichment pass is ever wanted, it should be its own briefing with an explicit row count and cost estimate, not a side effect of building the pipeline.
 
-- `source_type`: `card_scan` / `leadlock` / `manual` / `territory_auto`
+- `source_type`: `card_scan` / `leadlock` / `manual` / `map_capture` / `territory_auto`
 - `discovery_signal`: nullable, only set when `source_type = territory_auto`
 - `confidence_score`: numeric, from the dedupe/match stage
 - `duplicate_of`: nullable FK, set when a record is flagged and awaiting rep merge decision
