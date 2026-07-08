@@ -220,7 +220,13 @@ export default function LeadFiltersBottomSheet({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={s.scroll}
+                contentContainerStyle={s.scrollContent}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
                 {/* ── Residential / Commercial Toggle ───────────────── */}
                 <Text style={s.sectionTitle}>Prospect Type</Text>
                 <View style={s.toggleRow}>
@@ -557,7 +563,8 @@ const s = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '90%',
-    paddingBottom: 34,
+    width: '100%',
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
@@ -577,7 +584,11 @@ const s = StyleSheet.create({
     color: COLORS.muted,
   },
   scroll: {
+    flex: 1,
+  },
+  scrollContent: {
     padding: 16,
+    paddingBottom: 16,
   },
   sectionTitle: {
     fontSize: 12,
