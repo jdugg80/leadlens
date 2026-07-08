@@ -1,5 +1,29 @@
 # Changelog
 
+## BETA-54 | 2026-07-08
+
+> Unreleased / development build
+
+### 🗺️ Territory Map
+- **TerritoryMap Filter Spec Implementation** — Rewrote `LeadFiltersBottomSheet` with a Residential/Commercial toggle, universal filters (status, radius, contact completeness, activity window, new-since-last-scan, signals), commercial filters (business type, rating), and residential filters (home value, sqft, occupancy, property type). Wired the filter state to `TerritoryMapScreen.isLeadVisible` and `safeNearbyPlaces`.
+- **Commercial + Residential Taxonomy** — Replaced the old Google Places type mapping in `nearbySearch.js` with explicit commercial buckets (Food/Hospitality, Retail/Consumer, Industrial/Logistics, Office/Professional, Public/Facilities, Multi-Family/Residential-Adjacent, Institutional, Other) and added `classifyResidentialProperty` for residential property types.
+- **Map Search Radius** — `searchNearbyBusinesses` now uses the selected filter radius (up to 25 mi / 50 km) instead of a fixed 2500 m radius.
+
+### 🔧 Core App
+- **LeadLock Business Data Pipeline** — New `businessDataPipeline.js` normalizes and persists Google Places results to a new `business_data` table. `enrichmentNormalizer.js` updated to flatten place fields and fire-and-forget upserts. Added a Google Places API health check and detailed logging across the zip-to-business pipeline.
+
+### 🏗️ Infrastructure
+- **New `business_data` Table** — Created `supabase/migrations/20260708000000_create_business_data.sql` with indexes, RLS, and an updated_at trigger; pushed to the live database.
+- **Filter Schema Migration** — Added commercial/residential signal columns to `lenssignal_records` and `targetlens_prospects` via `20260708000001_add_filter_columns_for_signals_and_residential.sql`; applied to the live database.
+
+### 🐛 Bug Fixes
+- **Prospect Queue Header Safe Area** — Fixed the header being cut off by the status bar/notch in `ProspectQueueScreen` by switching to `react-native-safe-area-context` `SafeAreaView` with `edges={['top']}`, wrapping the entire screen content, and setting explicit ScrollView `contentInset`/`scrollIndicatorInsets`.
+
+### ⚠️ Known Issues
+- (carried forward from BETA-53)
+
+---
+
 ## BETA-53 | 2026-07-02
 
 > Unreleased / development build
