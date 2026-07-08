@@ -2,6 +2,7 @@
 -- Date: 2026-05-28
 
 alter table prospects
+add column if not exists address text,
 add column if not exists latitude double precision,
 add column if not exists longitude double precision,
 add column if not exists photo_zip text,

@@ -184,6 +184,7 @@ export function normalizeLead(raw = {}) {
     pocLast: normalizePersonName(lead.pocLast),
     phone: normalizePhone(lead.phone),
     email: normalizeEmail(lead.email),
+    address: String(lead.address || '').trim(),
     website: String(lead.website || '').trim(),
     facebookUrl: String(lead.facebookUrl || '').trim(),
     instagramUrl: String(lead.instagramUrl || '').trim(),
@@ -388,6 +389,7 @@ export function sortLeadsNewestFirst(leads = []) {
 
 export function hasUsableAddress(prospect) {
   return Boolean(
+    prospect.address ||
     prospect.fullAddress ||
     prospect.formattedAddress ||
     (

@@ -9,13 +9,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  Alert, ActivityIndicator, Platform, KeyboardAvoidingView,
+  ActivityIndicator, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { getAppVersionShort } from '../constants';
+import useToast from '../hooks/useToast';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -45,10 +46,11 @@ export default function FeatureRequestScreen({ navigation, route }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const { showToast } = useToast();
 
   const submit = async () => {
     if (!title.trim() || !description.trim()) {
-      Alert.alert('Missing info', 'Please fill in a title and describe the feature.');
+      showToast('Please fill in a title and describe the feature.', 'error');
       return;
     }
     setSubmitting(true);
@@ -69,21 +71,20 @@ export default function FeatureRequestScreen({ navigation, route }) {
       if (error) throw error;
 
       const message = getFeatureConfirmation(repName, title.trim());
-      Alert.alert('Idea submitted', message, [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      showToast(message, 'success');
+      setTimeout(() => navigation.goBack(), 1800);
     } catch (err) {
       console.error('[FeatureRequestScreen] Error:', err);
-      Alert.alert('Submission failed', err.message || 'Check your connection and try again.');
+      showToast(`Submission failed: ${err.message || 'Check your connection and try again.'}`, 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <View style={[styles.safe, { paddingTop: insets.top }]}>
+    <View style={styles.safe}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backArrow}>‹</Text>
         </TouchableOpacity>

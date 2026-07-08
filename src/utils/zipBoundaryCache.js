@@ -260,6 +260,7 @@ export async function getBulkZipBounds(zips) {
       .filter((zip) => zip.length === 5)
   )];
 
+  console.log('[ZipBoundaryCache] getBulkZipBounds called for zips:', cleanZips);
   const bulkMarkers = await fetchZipBoundariesBulk(cleanZips).catch(() => ({}));
   const resolved = {};
 
@@ -271,6 +272,7 @@ export async function getBulkZipBounds(zips) {
   }
 
   const missing = cleanZips.filter((zip) => !resolved[zip]);
+  console.log('[ZipBoundaryCache] getBulkZipBounds resolved:', Object.keys(resolved).length, '/', cleanZips.length, 'initial; missing:', missing);
   if (!missing.length) return resolved;
 
   const fallbackResults = await Promise.all(missing.map(async zip => [zip, await getZipBounds(zip)]));
@@ -278,5 +280,6 @@ export async function getBulkZipBounds(zips) {
     if (bounds) resolved[zip] = bounds;
   }
 
+  console.log('[ZipBoundaryCache] getBulkZipBounds final resolved:', Object.keys(resolved).length, '/', cleanZips.length);
   return resolved;
 }

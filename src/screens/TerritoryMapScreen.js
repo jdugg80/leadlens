@@ -88,6 +88,7 @@ import {
   MAP_NEARBY_PLACES_KEY,
   TARGET_LENS_PROFILES_KEY,
   TARGET_LENS_SEARCH_MODE_KEY,
+  TARGET_LENS_MODE_KEY,
 } from '../constants';
 import { ScreenHeader } from '../components/UI';
 import {
@@ -163,19 +164,31 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [region, setRegion] = useState(DEFAULT_TERRITORY_REGION);
   const regionRef = useRef(null);
 
-  // Homeowner mode state
-  const [targetLensMode, setTargetLensMode] = useState('business');
-  const [homeownerFilter, setHomeownerFilter] = useState('all');
-  const [lookbackWindow, setLookbackWindow] = useState('90d');
   const [homeownerProspects, setHomeownerProspects] = useState([]);
   const [selectedHomeowner, setSelectedHomeowner] = useState(null);
 
   const DEFAULT_FILTERS = {
+    targetLensMode: 'business',
     businessType: 'All Businesses',
     leadStatus: 'All',
+    statuses: ['All'],
+    radiusMiles: 5,
+    minRating: 0,
+    contactCompleteness: 'all', // 'all' | 'enriched' | 'has_phone'
+    activityWindow: 'all', // 'all' | 'never' | '7d' | '30d' | '90d' | 'stale'
+    newSinceLastScan: false,
     signalsOnly: false,
     signals: { lensSignal: true, contactSignal: true, pest: true, opening: true, priority: true },
     matchStrength: 'Show All',
+    // Residential-specific
+    homeownerFilter: 'all',
+    lookbackWindow: '90d',
+    minHomeValue: 0,
+    maxHomeValue: 10000000,
+    minSqFt: 0,
+    maxSqFt: 10000,
+    occupancyTypes: ['all'],
+    residentialPropertyTypes: ['all'],
   };
 
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -185,6 +198,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
   useEffect(() => {
     if (isInitializedRef.current && filters) {
       AsyncStorage.setItem(MAP_FILTERS_KEY, JSON.stringify(filters)).catch(() => {});
+      if (filters.targetLensMode) {
+        AsyncStorage.setItem(TARGET_LENS_MODE_KEY, filters.targetLensMode).catch(() => {});
+      }
     }
   }, [filters]);
 
@@ -243,6 +259,27 @@ export default function TerritoryMapScreen({ navigation, route }) {
     })();
   }, []);
 
+  // Load saved TargetLens mode and default it from active profile if available
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedMode = await AsyncStorage.getItem(TARGET_LENS_MODE_KEY);
+        let mode = savedMode || null;
+        if (!mode && activeProfile?.division) {
+          mode = activeProfile.division === 'Residential' ? 'homeowner' : 'business';
+        }
+        if (mode) {
+          setFilters(prev => ({
+            ...prev,
+            targetLensMode: mode === 'homeowner' ? 'homeowner' : 'business',
+          }));
+        }
+      } catch (e) {
+        console.warn('[TerritoryMap] Failed to load saved TargetLens mode:', e);
+      }
+    })();
+  }, [activeProfile]);
+
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [targetLensVisible, setTargetLensVisible] = useState(false);
   const [activeProfile, setActiveProfile] = useState(null);
@@ -265,9 +302,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   // Homeowner data loading
   useEffect(() => {
-    if (targetLensMode !== 'homeowner') return;
+    if (filters?.targetLensMode !== 'homeowner') return;
     loadHomeownerProspects();
-  }, [targetLensMode, homeownerFilter, lookbackWindow]);
+  }, [filters?.targetLensMode, filters?.homeownerFilter, filters?.lookbackWindow, filters?.minHomeValue, filters?.maxHomeValue, filters?.minSqFt, filters?.maxSqFt, filters?.occupancyTypes, filters?.residentialPropertyTypes]);
 
   async function loadHomeownerProspects() {
     try {
@@ -277,18 +314,61 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const supabase = createSupabaseClient(settings);
       if (!supabase) return;
 
+      const {
+        homeownerFilter,
+        lookbackWindow,
+        minHomeValue,
+        maxHomeValue,
+        minSqFt,
+        maxSqFt,
+        occupancyTypes,
+        residentialPropertyTypes,
+      } = filters || {};
+
       let query = supabase
         .from('targetlens_prospects')
         .select('*')
         .not('lat', 'is', null)
         .not('lng', 'is', null)
-        .eq('lookback_bucket', lookbackWindow)
+        .eq('lookback_bucket', lookbackWindow || '90d')
         .order('efficiency_score', { ascending: false })
         .limit(200);
 
       if (homeownerFilter === 'new_owner') query = query.eq('prospect_type', 'new_homeowner');
       if (homeownerFilter === 'current_owner') query = query.eq('prospect_type', 'current_homeowner');
       if (homeownerFilter === 'rental') query = query.eq('prospect_type', 'rental');
+
+      if (typeof minHomeValue === 'number') query = query.gte('home_value_estimated', minHomeValue);
+      if (typeof maxHomeValue === 'number') query = query.lte('home_value_estimated', maxHomeValue);
+      if (typeof minSqFt === 'number') query = query.gte('home_sq_footage', minSqFt);
+      if (typeof maxSqFt === 'number') query = query.lte('home_sq_footage', maxSqFt);
+
+      if (occupancyTypes && !occupancyTypes.includes('all')) {
+        const mapped = occupancyTypes.map(o => {
+          if (o === 'owner_occupied') return 'current_homeowner';
+          if (o === 'rental') return 'rental';
+          if (o === 'leased') return 'rental'; // current schema only has rental
+          return o;
+        }).filter(Boolean);
+        if (mapped.length) query = query.in('prospect_type', mapped);
+      }
+
+      if (residentialPropertyTypes && !residentialPropertyTypes.includes('all')) {
+        // property_class mapping is approximate; refine as taxonomy is finalized
+        const mapped = residentialPropertyTypes.map(t => {
+          if (t === 'single_family') return ['Single Family', 'Single-Family', 'RESIDENTIAL', 'R'];
+          if (t === 'multi_family') return ['Multi-Family', 'Duplex', 'Triplex', 'Fourplex'];
+          if (t === 'condo_townhouse') return ['Condo', 'Townhouse'];
+          if (t === 'mobile_home') return ['Mobile Home', 'Manufactured'];
+          if (t === 'new_construction') return ['New Construction'];
+          return [t];
+        }).flat();
+        if (mapped.length) {
+          // Use ILIKE on property_class; Supabase .in is exact, so we use .or with ilike
+          const orClause = mapped.map(m => `property_class.ilike.%${m}%`).join(',');
+          query = query.or(orClause);
+        }
+      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -470,10 +550,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
     })();
   }, []);
 
-  async function loadMap() {
+  async function loadMap({ silent = false } = {}) {
     if (loadingRef.current) return false;
     loadingRef.current = true;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       console.log('[TerritoryMap] loadMap() started, fetching zips...');
       const [myZips, rawGoals, storedFilters, storedRegion, storedNearby] = await Promise.all([
@@ -519,28 +599,32 @@ export default function TerritoryMapScreen({ navigation, route }) {
         }
       } catch (e) { console.warn('[TerritoryMap] Leads load error:', e); }
 
-      if (storedFilters) {
-        const mergedFilters = {
-          ...DEFAULT_FILTERS,
-          ...storedFilters,
-          signals: {
-            ...DEFAULT_FILTERS.signals,
-            ...(storedFilters.signals || {}),
-          },
-        };
-        setFilters(mergedFilters);
-        console.log('[TerritoryMap] loaded stored filters', mergedFilters);
-      } else {
-        setFilters(DEFAULT_FILTERS);
+      if (!silent) {
+        if (storedFilters) {
+          const mergedFilters = {
+            ...DEFAULT_FILTERS,
+            ...storedFilters,
+            signals: {
+              ...DEFAULT_FILTERS.signals,
+              ...(storedFilters.signals || {}),
+            },
+          };
+          setFilters(mergedFilters);
+          console.log('[TerritoryMap] loaded stored filters', mergedFilters);
+        } else {
+          setFilters(DEFAULT_FILTERS);
+        }
+        isInitializedRef.current = true;
       }
-      isInitializedRef.current = true;
-      if (storedNearby) {
-        setNearbyPlaces(storedNearby);
-        setShowNearby(true);
-      }
+      if (!silent) {
+        if (storedNearby) {
+          setNearbyPlaces(storedNearby);
+          setShowNearby(true);
+        }
 
-      if (storedRegion) {
-        setSafeRegion(storedRegion);
+        if (storedRegion) {
+          setSafeRegion(storedRegion);
+        }
       }
 
       const goal = Math.max(1, Number(rawGoals?.dailyProspects) || 10);
@@ -585,6 +669,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         const normalizedEntries = entries
           .map((entry) => _toNormalizedZipEntry(entry))
           .filter(Boolean);
+        console.log('[TerritoryMap] buildMarkersFromZipEntries called for mode:', filters.targetLensMode, 'entries:', normalizedEntries.length);
         const boundsMap = await getBulkZipBounds(normalizedEntries.map((entry) => entry.zip)).catch(() => ({}));
         // Pre-compute activity for all zips in one pass instead of per-zip O(N*M)
         const allActivity = buildZipActivity(normalizedEntries, rawLeads || []);
@@ -596,7 +681,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
         for (const normalizedEntry of normalizedEntries) {
           const zip = normalizedEntry.zip;
           const bounds = boundsMap?.[zip] || null;
-          if (!bounds?.center) continue;
+          if (!bounds?.center) {
+            console.warn('[TerritoryMap] No boundary center for zip:', zip);
+            continue;
+          }
           const act = activityByZip[zip] || null;
           const level = act?.heatLevel || 'none';
           markers.push({
@@ -608,6 +696,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             activity: act,
           });
         }
+        console.log('[TerritoryMap] buildMarkersFromZipEntries produced markers:', markers.length);
         return markers.filter((m) => isFinite(m?.coords?.latitude) && isFinite(m?.coords?.longitude));
       };
 
@@ -674,20 +763,20 @@ export default function TerritoryMapScreen({ navigation, route }) {
         }
       }
 
-      console.log('[TerritoryMap] ZIP source selected:', zipSource, 'count:', finalZipMarkers.length, '| totalLoadedZips:', zipEntriesToRender.length);
+      console.log('[TerritoryMap] ZIP source selected:', zipSource, 'count:', finalZipMarkers.length, '| totalLoadedZips:', zipEntriesToRender.length, '| mode:', filters.targetLensMode);
       if (finalZipMarkers.length > 0) {
         console.log('[TerritoryMap] First marker sample:', JSON.stringify(finalZipMarkers[0]).slice(0, 300));
       } else if (zipEntriesToRender.length > 0) {
         console.warn('[TerritoryMap] WARNING:', zipEntriesToRender.length, 'ZIPs loaded but 0 rendered - getZipBounds may be failing');
       }
       setZipMarkers(finalZipMarkers);
-      if (finalZipMarkers.length > 0) {
+      if (finalZipMarkers.length > 0 && !silent) {
         fitMapToZipMarkers(finalZipMarkers);
       }
       return true;
     } catch (err) { console.warn('[TerritoryMap] loadMap failed:', err); }
     finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
       loadingRef.current = false;
       const safeFetchRegion = regionRef.current || region || DEFAULT_TERRITORY_REGION;
       if (isAppActive && lastFetchedCoordsRef.current.lat === 0 && safeFetchRegion?.latitude && Math.abs(safeFetchRegion.latitude) > 0.1) {
@@ -698,6 +787,20 @@ export default function TerritoryMapScreen({ navigation, route }) {
     }
     return false;
   }
+
+  // Refetch ZIP boundaries when the territory mode changes so the polygon layer is rebuilt fresh
+  const loadMapRef = useRef(loadMap);
+  loadMapRef.current = loadMap;
+  useEffect(() => {
+    const mode = filters?.targetLensMode;
+    if (!mode || !hasLoadedMapRef.current) return;
+    console.log('[TerritoryMap] targetLensMode changed to', mode, '- refreshing ZIP boundaries');
+    const refresh = async () => {
+      loadingRef.current = false;
+      await loadMapRef.current({ silent: true });
+    };
+    refresh();
+  }, [filters?.targetLensMode]);
 
   const fetchLensSignals = async (lat, lng) => {
     if (!isAppActive) {
@@ -732,52 +835,194 @@ export default function TerritoryMapScreen({ navigation, route }) {
     } finally { setLoadingLensSignal(false); }
   };
 
+  const lastScanTimeRef = useRef(null);
+  useEffect(() => {
+    AsyncStorage.getItem('leadlens_last_scan_time').then(v => {
+      if (v) lastScanTimeRef.current = new Date(v).getTime();
+    }).catch(() => {});
+  }, []);
+
+  const distanceInMiles = (lat1, lon1, lat2, lon2) => {
+    if (!isFinite(lat1) || !isFinite(lon1) || !isFinite(lat2) || !isFinite(lon2)) return Infinity;
+    const R = 3958.8;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const matchesActivityWindow = (lead, window) => {
+    if (!window || window === 'all') return true;
+    const raw = lead.lastActivity || lead.updated_at || lead.created_at || lead.scanned_at || lead.last_scanned_at;
+    if (!raw) return window === 'never';
+    const t = new Date(raw).getTime();
+    if (!isFinite(t)) return window === 'never';
+    const now = Date.now();
+    const days = (now - t) / (1000 * 60 * 60 * 24);
+    if (window === 'never') return false;
+    if (window === 'stale') return days >= 90;
+    const matchDays = { '7d': 7, '30d': 30, '90d': 90 }[window];
+    return days <= matchDays;
+  };
+
+  const matchesContactCompleteness = (lead, mode) => {
+    if (!mode || mode === 'all') return true;
+    const phone = (lead.phone || lead.phoneNumber || lead.formatted_phone_number || lead.e164 || lead.bestPhone || '').toString().trim();
+    const hasPhone = phone.length >= 7;
+    const website = (lead.website || lead.url || lead.business_url || '').trim();
+    const hasWebsite = website.length > 0;
+    if (mode === 'has_phone') return hasPhone;
+    if (mode === 'enriched') return hasPhone || hasWebsite || !!lead.enriched || !!lead.business_data_id;
+    return true;
+  };
+
+  const matchesSignals = (leadSignals, filterSignals) => {
+    const selectedKeys = Object.entries(filterSignals || {}).filter(([k, v]) => v).map(([k]) => k);
+    if (selectedKeys.length === 0) return true;
+    return selectedKeys.some(k => leadSignals[k]);
+  };
+
+  const matchesMatchStrength = (score, strength) => {
+    if (!strength || strength === 'Show All') return true;
+    if (!isFinite(score)) return strength === 'Needs Review';
+    if (strength === 'Strong Matches') return score >= 0.8;
+    if (strength === 'High Opportunity') return score >= 0.6;
+    if (strength === 'Needs Review') return score < 0.6;
+    return true;
+  };
+
   const isLeadVisible = useCallback((lead) => {
     if (!lead?.coords || !filters) return false;
+    const mode = filters.targetLensMode || 'business';
+    const isResidential = lead.type === 'homeowner' || lead.type === 'residential' || lead.prospect_type === 'homeowner';
+    if (mode === 'homeowner' && !isResidential) return false;
+    if (mode === 'business' && isResidential) return false;
+    const isBusinessMode = mode === 'business';
+
+    const statuses = Array.isArray(filters.statuses) ? filters.statuses : ['All'];
+    if (!statuses.includes('All')) {
+      const leadStatus = (lead.status || 'Suspect').toString();
+      if (!statuses.includes(leadStatus)) return false;
+    }
+
+    if (filters.radiusMiles && filters.radiusMiles > 0 && region?.latitude && region?.longitude) {
+      const d = distanceInMiles(region.latitude, region.longitude, lead.coords.latitude, lead.coords.longitude);
+      if (d > filters.radiusMiles) return false;
+    }
+
+    if (isBusinessMode) {
+      const type = classifyGooglePlace(lead);
+      if (filters.businessType !== 'All Businesses' && type !== filters.businessType) return false;
+      const rating = parseFloat(lead.rating || lead.google_rating || lead.user_rating_total);
+      if (filters.minRating && rating < filters.minRating) return false;
+    }
+
+    if (!matchesContactCompleteness(lead, filters.contactCompleteness)) return false;
+    if (!matchesActivityWindow(lead, filters.activityWindow)) return false;
+
+    if (filters.newSinceLastScan && lastScanTimeRef.current) {
+      const t = new Date(lead.created_at || lead.updated_at || lead.scanned_at || lead.last_scanned_at).getTime();
+      if (!isFinite(t) || t <= lastScanTimeRef.current) return false;
+    }
+
+    const leadSignals = {
+      lensSignal: !!(lead.lensSignal || lead.lens_signal_id || lead.signal_id),
+      contactSignal: !!lead.contactSignal,
+      pest: !!(lead.lensSignal?.pest_indicator || lead.pest_indicator || lead.pest_signal),
+      opening: (lead.lensSignal?.signal_layer || lead.lensSignal?.signal_type || lead.signal_type || lead.signal_layer) === 'Opening Signal',
+      priority: (lead.lensSignal?.alert_level || lead.alert_level || lead.priority) === 'Priority Review',
+    };
+    const signalFilterActive = filters.signalsOnly || Object.values(filters.signals || {}).some(v => !v);
+    if (signalFilterActive && !matchesSignals(leadSignals, filters.signals)) return false;
+
+    const score = lead.score ?? lead.match_score ?? lead.confidence ?? (lead.lensSignal ? 0.75 : 0);
+    if (!matchesMatchStrength(score, filters.matchStrength)) return false;
+
+    if (!isBusinessMode) {
+      const hv = parseFloat(lead.home_value || lead.estimated_value || lead.market_value || 0);
+      if (filters.minHomeValue && hv < filters.minHomeValue) return false;
+      if (filters.maxHomeValue && hv > filters.maxHomeValue) return false;
+      const sqft = parseFloat(lead.sqft || lead.square_feet || lead.living_area || 0);
+      if (filters.minSqFt && sqft < filters.minSqFt) return false;
+      if (filters.maxSqFt && sqft > filters.maxSqFt) return false;
+      const occ = (lead.occupancy_type || lead.occupancy || 'all').toString().toLowerCase();
+      const occTypes = Array.isArray(filters.occupancyTypes) ? filters.occupancyTypes : ['all'];
+      if (!occTypes.includes('all')) {
+        if (!occTypes.includes(occ)) return false;
+      }
+      const propType = (lead.property_type || lead.property_class || lead.residential_type || 'all').toString().toLowerCase();
+      const resTypes = Array.isArray(filters.residentialPropertyTypes) ? filters.residentialPropertyTypes : ['all'];
+      if (!resTypes.includes('all')) {
+        if (!resTypes.includes(propType)) return false;
+      }
+      if (filters.homeownerFilter && filters.homeownerFilter !== 'all') {
+        const owner = (lead.owner_occupied || lead.owner_occupied_flag || lead.ownership || '').toString().toLowerCase();
+        const isOwner = owner === 'true' || owner === 'yes' || owner === 'owner_occupied' || owner === 'owner';
+        if (filters.homeownerFilter === 'owner' && !isOwner) return false;
+        if (filters.homeownerFilter === 'non-owner' && isOwner) return false;
+      }
+      if (filters.lookbackWindow && filters.lookbackWindow !== 'all') {
+        if (!matchesActivityWindow(lead, filters.lookbackWindow)) return false;
+      }
+    }
+
     if (!activeProfile) return true;
     const rawV = String(lead.vertical || '').trim();
     const leadV = (rawV || classifyVertical(lead).vertical || 'Other').toLowerCase().trim();
     const profC = String(activeProfile.category || '').toLowerCase().trim();
     if (profC && profC !== 'pest control' && leadV && leadV !== profC && !leadV.includes(profC) && !profC.includes(leadV)) return false;
-    if (!activeProfile || activeProfile.category === 'Pest Control') {
-      if (filters.signalsOnly) {
-        const hasLens = !!(lead.lensSignal || lead.lens_signal_id);
-        const hasContact = !!lead.contactSignal;
-        if (!hasLens && !hasContact) return false;
-      }
-      return true;
-    }
-    const type = classifyGooglePlace(lead);
-    if (filters.businessType !== 'All Businesses' && type !== filters.businessType) return false;
-    if (filters.leadStatus !== 'All' && (lead.status || 'Suspect') !== filters.leadStatus) return false;
-    if (filters.signalsOnly && !(lead.lensSignal || lead.lens_signal_id || lead.contactSignal)) return false;
     return true;
-  }, [activeProfile, filters]);
+  }, [activeProfile, filters, region]);
 
   const filteredLeadMarkers = useMemo(() => leadMarkers.filter(isLeadVisible), [leadMarkers, isLeadVisible]);
 
   const safeNearbyPlaces = useMemo(() => {
     const raw = Array.isArray(nearbyPlaces) ? nearbyPlaces : [];
+    if ((filters.targetLensMode || 'business') === 'homeowner') return [];
     return raw.map(p => {
       if (!p || !filters) return null;
       const type = classifyGooglePlace(p);
       let sig = null;
+      let matchScore = 0;
       if (Array.isArray(lensSignalRecords)) {
         const matches = lensSignalRecords.map(r => ({ r, ...calculateMatchConfidence(r, { name: p.name, address: p.address, latitude: p.coords?.latitude, longitude: p.coords?.longitude }) })).filter(m => m.score >= 0.4).sort((a, b) => b.score - a.score);
-        sig = matches[0]?.r || null;
+        const best = matches[0];
+        sig = best?.r || null;
+        matchScore = best?.score || 0;
       }
       return {
         ...p, businessType: type, coordinate: p.coordinate || p.coords, lensSignal: sig,
-        signals: { lensSignal: !!sig, contactSignal: !!p.contactSignal, pest: !!sig?.pest_indicator, opening: (sig?.signal_layer || sig?.signal_type) === 'Opening Signal', priority: sig?.alert_level === 'Priority Review' }
+        signals: { lensSignal: !!sig, contactSignal: !!p.contactSignal, pest: !!sig?.pest_indicator, opening: (sig?.signal_layer || sig?.signal_type) === 'Opening Signal', priority: sig?.alert_level === 'Priority Review' },
+        matchScore,
       };
     }).filter(p => {
       if (!p || !p.coordinate || !filters) return false;
-      if (!activeProfile || activeProfile.category === 'Pest Control') return !filters.signalsOnly || (p.signals.lensSignal || p.signals.contactSignal || p.signals.pest || p.signals.opening || p.signals.priority);
+      const statuses = Array.isArray(filters.statuses) ? filters.statuses : ['All'];
+      if (!statuses.includes('All')) {
+        const pStatus = (p.status || 'Suspect').toString();
+        if (!statuses.includes(pStatus)) return false;
+      }
       if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) return false;
-      if (filters.signalsOnly && !(p.signals.lensSignal || p.signals.contactSignal || p.signals.pest || p.signals.opening || p.signals.priority)) return false;
+      if (filters.radiusMiles && filters.radiusMiles > 0 && region?.latitude && region?.longitude) {
+        const d = distanceInMiles(region.latitude, region.longitude, p.coordinate.latitude, p.coordinate.longitude);
+        if (d > filters.radiusMiles) return false;
+      }
+      const rating = parseFloat(p.rating || p.google_rating || p.user_rating_total);
+      if (filters.minRating && rating < filters.minRating) return false;
+      if (!matchesContactCompleteness(p, filters.contactCompleteness)) return false;
+      if (!matchesActivityWindow(p, filters.activityWindow)) return false;
+      if (filters.newSinceLastScan && lastScanTimeRef.current) {
+        const t = new Date(p.created_at || p.updated_at || p.scanned_at).getTime();
+        if (!isFinite(t) || t <= lastScanTimeRef.current) return false;
+      }
+      if (filters.signalsOnly || Object.values(filters.signals || {}).some(v => !v)) {
+        if (!matchesSignals(p.signals, filters.signals)) return false;
+      }
+      if (!matchesMatchStrength(p.matchScore, filters.matchStrength)) return false;
       return true;
     });
-  }, [nearbyPlaces, lensSignalRecords, filters, activeProfile]);
+  }, [nearbyPlaces, lensSignalRecords, filters, activeProfile, region]);
 
   useEffect(() => {
     try {
@@ -790,7 +1035,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!isAppActive || !filters) return;
-    if (targetLensMode === 'homeowner') {
+    if (filters?.targetLensMode === 'homeowner') {
       setClusters([]);
       return;
     }
@@ -942,7 +1187,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const loc = data.results?.[0]?.geometry?.location;
       if (loc) {
         moveMapTo({ latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
-        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters: 2500, apiKey: GOOGLE_MAPS_API_KEY });
+        const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
+        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
         if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
       }
     } catch (err) {
@@ -962,7 +1208,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const loc = data.results?.[0]?.geometry?.location;
       if (loc) {
         moveMapTo({ latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
-        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters: 2500, apiKey: GOOGLE_MAPS_API_KEY });
+        const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
+        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
         if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
         else showThemedAlert('No results', 'No businesses found at that location.');
       } else {
@@ -1003,7 +1250,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
         return;
       }
 
-      const results = await searchNearbyBusinesses({ center: current, radiusMeters: 2500, apiKey: GOOGLE_MAPS_API_KEY });
+      const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
+      const results = await searchNearbyBusinesses({ center: current, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
       if (results && Array.isArray(results) && results.length > 0) {
         setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords })));
         setShowNearby(true);
@@ -1037,8 +1285,11 @@ export default function TerritoryMapScreen({ navigation, route }) {
     }
   }, [isAppActive, region?.latitude, region?.longitude]);
 
+  const mode = filters?.targetLensMode || 'business';
+
   const zipBoundaryOverlays = useMemo(() => {
     if (!Array.isArray(zipMarkers) || zipMarkers.length === 0) return [];
+    console.log('[TerritoryMap] Rebuilding zipBoundaryOverlays for mode:', mode, 'markers:', zipMarkers.length);
 
     return zipMarkers.flatMap((m) => {
       try {
@@ -1066,7 +1317,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               hasPolygon = true;
               items.push(
                 <Polygon
-                  key={`zip-poly-${zip}-${rIdx}`}
+                  key={`zip-poly-${mode}-${zip}-${rIdx}`}
                   coordinates={safeRing}
                   strokeColor="#00C9FFCC"
                   fillColor="#00C9FF2A"
@@ -1080,7 +1331,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         if (!hasPolygon && isFinite(lat) && isFinite(lng)) {
           items.push(
             <Circle
-              key={`zip-circle-${zip}`}
+              key={`zip-circle-${mode}-${zip}`}
               center={{ latitude: lat, longitude: lng }}
               radius={3500}
               strokeColor="#00C9FFB0"
@@ -1093,7 +1344,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         if (isFinite(lat) && isFinite(lng)) {
           items.push(
             <Marker
-              key={`label-${zip}`}
+              key={`label-${mode}-${zip}`}
               coordinate={{ latitude: lat, longitude: lng }}
               onPress={() => setSelectedZip(zip)}
               anchor={{ x: 0.5, y: 0.5 }}
@@ -1112,7 +1363,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         return [];
       }
     }).filter(Boolean);
-  }, [zipMarkers, selectedZip, isZoomedOut]);
+  }, [zipMarkers, selectedZip, isZoomedOut, mode]);
 
   const lensSignalDirectFallback = useMemo(() => {
     if (!MAP_SAFE_MODE) return [];
@@ -1143,31 +1394,6 @@ export default function TerritoryMapScreen({ navigation, route }) {
   return (
     <View style={s.root}>
       <ScreenHeader title="Territory Map" onBack={() => navigation.goBack()} badge={(totalLoadedZips || 0) + " ZIPS"} />
-
-      {/* Profile Mode Switcher */}
-      <View style={s.profileSwitcher}>
-        <TouchableOpacity
-          style={[s.profileTab, targetLensMode === 'business' && s.profileTabActive]}
-          onPress={() => setTargetLensMode('business')}
-        >
-          <Text style={s.profileTabText}>Business</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.profileTab, targetLensMode === 'homeowner' && s.profileTabActive]}
-          onPress={() => setTargetLensMode('homeowner')}
-        >
-          <Text style={s.profileTabText}>Homeowner</Text>
-        </TouchableOpacity>
-      </View>
-
-      {targetLensMode === 'homeowner' && (
-        <HomeownerFilterPanel
-          ownershipFilter={homeownerFilter}
-          setOwnershipFilter={setHomeownerFilter}
-          lookbackWindow={lookbackWindow}
-          setLookbackWindow={setLookbackWindow}
-        />
-      )}
 
       {/* Address search bar with autocomplete */}
       <View style={{ marginHorizontal: 12, marginVertical: 8, zIndex: 100 }}>
@@ -1219,8 +1445,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
           onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
         >
           {/* ZIP Boundary Polygons — business mode only */}
-          {targetLensMode === 'business' && !lowMemoryMode && zipBoundaryOverlays}
-          {targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
+          {console.log('[TerritoryMap] Boundary layer render check. mode:', filters?.targetLensMode, 'showBusiness:', filters?.targetLensMode === 'business' && !lowMemoryMode, 'overlays:', zipBoundaryOverlays.length)}
+          {filters?.targetLensMode === 'business' && !lowMemoryMode && zipBoundaryOverlays}
+          {filters?.targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;
             if (!isFinite(lat) || !isFinite(lng)) return null;
@@ -1241,7 +1468,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             }} activeProfile={activeProfile} />;
             return null;
           }).filter(Boolean) : []}
-          {targetLensMode === 'business' && !lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
+          {filters?.targetLensMode === 'business' && !lowMemoryMode && (lensSignalDirectFallback || []).map((signal, idx) => (
             <LensSignalMapMarker
               key={`sig-fallback-${signal?.id || idx}`}
               signal={signal}
@@ -1258,16 +1485,17 @@ export default function TerritoryMapScreen({ navigation, route }) {
               activeProfile={activeProfile}
             />
           ))}
-          {targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+          {filters?.targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
 
           {/* Homeowner mode pins */}
-          {targetLensMode === 'homeowner' && homeownerProspects
+          {filters?.targetLensMode === 'homeowner' && homeownerProspects
             .filter(p => {
               if (!p.lat || !p.lng) return false;
-              if (homeownerFilter === 'all') return true;
-              if (homeownerFilter === 'new_owner') return p.prospect_type === 'new_homeowner';
-              if (homeownerFilter === 'current_owner') return p.prospect_type === 'current_homeowner';
-              if (homeownerFilter === 'rental') return p.prospect_type === 'rental';
+              const ownerFilter = filters?.homeownerFilter || 'all';
+              if (ownerFilter === 'all') return true;
+              if (ownerFilter === 'new_owner') return p.prospect_type === 'new_homeowner';
+              if (ownerFilter === 'current_owner') return p.prospect_type === 'current_homeowner';
+              if (ownerFilter === 'rental') return p.prospect_type === 'rental';
               return true;
             })
             .map((prospect, i) => {
@@ -1536,7 +1764,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         )}
 
         {/* Homeowner signal card */}
-        {targetLensMode === 'homeowner' && selectedHomeowner && (
+        {filters?.targetLensMode === 'homeowner' && selectedHomeowner && (
           <HomeownerSignalCard
             prospect={selectedHomeowner}
             onClose={() => setSelectedHomeowner(null)}

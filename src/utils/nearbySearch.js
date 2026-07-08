@@ -63,51 +63,111 @@ function getCenter(input = {}) {
 
 function normalizeRadius(radiusMeters) {
   const radius = toNumber(radiusMeters);
-  if (!radius || radius <= 0) return 1200;
-  return Math.min(Math.max(radius, 250), 5000);
+  if (!radius || radius <= 0) return 1500;
+  return Math.min(Math.max(radius, 250), 50000);
 }
 
 export const BUSINESS_TYPE_BUCKETS = {
-  ALL: 'All',
+  ALL_BUSINESSES: 'All Businesses',
   FOOD_HOSPITALITY: 'Food / Hospitality',
   RETAIL_CONSUMER: 'Retail / Consumer',
   INDUSTRIAL_LOGISTICS: 'Industrial / Logistics',
   OFFICE_PROFESSIONAL: 'Office / Professional',
   PUBLIC_FACILITIES: 'Public / Facilities',
+  MULTI_FAMILY_RESIDENTIAL: 'Multi-Family / Residential-Adjacent',
+  INSTITUTIONAL: 'Institutional',
+  OTHER: 'Other',
 };
 
+// Maps Google Places types to the UI business type buckets used in TerritoryMap filters.
 const BUCKET_MAPPING = {
   [BUSINESS_TYPE_BUCKETS.FOOD_HOSPITALITY]: [
-    'restaurant', 'cafe', 'bar', 'bakery', 'food', 'meal_takeaway', 'hotel', 'lodging'
+    'restaurant', 'cafe', 'coffee_shop', 'bar', 'bakery', 'food', 'meal_takeaway',
+    'meal_delivery', 'hotel', 'lodging', 'motel', 'night_club', 'nightclub', 'winery',
+    'brewery', 'meal_delivery', 'catering', 'food_delivery', 'cafeteria', 'ice_cream_shop',
+    'dessert_shop', 'juice_shop', 'tea_house', 'wine_bar', 'pub', 'sushi_restaurant',
+    'pizza_restaurant', 'fast_food_restaurant', 'steak_house', 'seafood_restaurant',
+    'hamburger_restaurant', 'sandwich_shop', 'ramen_restaurant', 'vegan_restaurant',
+    'vegetarian_restaurant', 'breakfast_restaurant', 'brunch_restaurant', 'buffet_restaurant',
   ],
   [BUSINESS_TYPE_BUCKETS.RETAIL_CONSUMER]: [
     'store', 'convenience_store', 'hardware_store', 'electronics_store', 'clothing_store',
-    'grocery_store', 'gas_station', 'car_repair', 'auto_parts_store', 'beauty_salon',
-    'hair_care'
+    'grocery_or_supermarket', 'supermarket', 'department_store', 'shopping_mall', 'shoe_store',
+    'jewelry_store', 'furniture_store', 'home_goods_store', 'pet_store', 'book_store', 'florist',
+    'beauty_salon', 'hair_care', 'hair_salon', 'spa', 'nail_salon', 'skin_care_service',
+    'gas_station', 'car_repair', 'auto_parts_store', 'car_dealer', 'car_rental', 'car_wash',
+    'auto_detailing', 'motorcycle_dealer', 'motorcycle_repair', 'motorcycle_parts',
+    'pharmacy', 'drugstore', 'liquor_store', 'wine_shop', 'tobacco_store', 'vape_store',
+    'bicycle_store', 'sporting_goods_store', 'toy_store', 'gift_shop', 'pawn_shop',
+    'thrift_store', 'antique_store', 'art_gallery', 'stationery_store', 'office_supply_store',
+    'mobile_phone_store', 'computer_store', 'electronics_store', 'appliance_store',
+    'kitchen_supply_store', 'bed_and_breakfast_supply', 'market', 'farmers_market',
   ],
   [BUSINESS_TYPE_BUCKETS.INDUSTRIAL_LOGISTICS]: [
-    'manufacturer', 'supplier', 'storage', 'warehouse_store', 'wholesaler',
-    'transportation_service', 'truck_stop', 'transit_depot', 'moving_company',
-    'shipping_service', 'farm', 'ranch'
+    'warehouse', 'storage', 'manufacturer', 'factory', 'manufacturing', 'industrial',
+    'distribution', 'truck_stop', 'truck_dealer', 'transit_station', 'transit_depot',
+    'moving_company', 'shipping_company', 'shipping_service', 'courier_service',
+    'freight_forwarding_service', 'logistics_service', 'farm', 'ranch', 'quarry', 'mine',
+    'construction_company', 'electrician', 'plumber', 'roofing_contractor', 'general_contractor',
+    'locksmith', 'painter', 'hvac', 'heating_contractor', 'air_conditioning_contractor',
+    'flooring_contractor', 'carpenter', 'welder', 'machine_shop', 'metal_fabricator',
+    'building_materials_store', 'lumber_yard', 'concrete_contractor', 'paving_contractor',
+    'excavation_contractor', 'demolition_contractor', 'crane_service', 'trucking_company',
   ],
   [BUSINESS_TYPE_BUCKETS.OFFICE_PROFESSIONAL]: [
-    'corporate_office', 'business_center', 'coworking_space', 'consultant',
-    'accounting', 'bank', 'real_estate_agency', 'insurance_agency', 'lawyer',
-    'doctor', 'dentist'
+    'office', 'real_estate_agency', 'insurance_agency', 'lawyer', 'attorney', 'legal_services',
+    'doctor', 'physician', 'dentist', 'dental_clinic', 'health', 'medical_clinic', 'clinic',
+    'physiotherapist', 'physical_therapist', 'chiropractor', 'psychologist', 'mental_health',
+    'veterinary_care', 'animal_hospital', 'accountant', 'accounting', 'bank', 'atm', 'finance',
+    'financial_advisor', 'investment_advisor', 'mortgage_broker', 'credit_union', 'stock_broker',
+    'corporate_office', 'coworking_space', 'business_center', 'consulting', 'marketing_agency',
+    'advertising_agency', 'public_relations_agency', 'software_company', 'technology_company',
+    'it_services', 'web_designer', 'graphic_designer', 'photography_service', 'translation_service',
+    'employment_agency', 'recruiter', 'human_resource_consultant', 'payroll_service', 'tax_preparer',
+    'bookkeeping_service', 'notary', 'title_company', 'escrow_service', 'property_management',
+    'architect', 'engineering', 'interior_designer', 'landscape_architect', 'surveyor',
   ],
   [BUSINESS_TYPE_BUCKETS.PUBLIC_FACILITIES]: [
-    'school', 'university', 'hospital', 'government_office', 'local_government_office',
-    'post_office', 'fire_station', 'police', 'church', 'apartment_building',
-    'courthouse'
+    'school', 'university', 'college', 'primary_school', 'secondary_school', 'high_school',
+    'middle_school', 'kindergarten', 'preschool', 'daycare', 'hospital', 'medical_center',
+    'urgent_care', 'emergency_room', 'government_office', 'local_government_office',
+    'city_hall', 'town_hall', 'post_office', 'fire_station', 'police', 'police_station',
+    'library', 'courthouse', 'community_center', 'recreation_center', 'senior_center',
+    'youth_center', 'sports_complex', 'stadium', 'arena', 'gym', 'fitness_center', 'swimming_pool',
+    'park', 'amusement_park', 'water_park', 'zoo', 'aquarium', 'museum', 'planetarium',
+    'convention_center', 'exhibition_center', 'performing_arts_theater', 'movie_theater',
+    'events_venue', 'wedding_venue', 'banquet_hall', 'rest_stop', 'weigh_station',
   ],
+  [BUSINESS_TYPE_BUCKETS.MULTI_FAMILY_RESIDENTIAL]: [
+    'apartment_building', 'apartment_complex', 'condominium', 'condominium_complex',
+    'housing_complex', 'assisted_living', 'assisted_living_facility', 'senior_living',
+    'senior_living_community', 'nursing_home', 'retirement_community', 'retirement_home',
+    'group_home', 'rehabilitation_center', 'homeless_shelter', 'halfway_house',
+    'residential_complex', 'residential_building', 'lodging', 'extended_stay_hotel',
+  ],
+  [BUSINESS_TYPE_BUCKETS.INSTITUTIONAL]: [
+    'school', 'university', 'college', 'educational_institution', 'government_office',
+    'local_government_office', 'city_hall', 'courthouse', 'library', 'museum', 'archive',
+    'church', 'place_of_worship', 'hindu_temple', 'mosque', 'synagogue', 'cemetery',
+    'funeral_home', 'memorial_park', 'religious_organization', 'charity', 'non_profit',
+    'embassy', 'consulate', 'post_office', 'prison', 'detention_center', 'military_base',
+  ],
+};
+
+export const RESIDENTIAL_TYPE_BUCKETS = {
+  SINGLE_FAMILY: 'Single-Family',
+  MULTI_FAMILY: 'Multi-Family (2-4)',
+  CONDO_TOWNHOUSE: 'Condo/Townhouse',
+  MOBILE_HOME: 'Mobile/Manufactured',
+  NEW_CONSTRUCTION: 'New Construction',
 };
 
 /**
  * Classifies a Google Place into one of the requested business type buckets.
  */
 export function classifyGooglePlace(place) {
-  const types = place.types || [];
-  const primaryType = place.primaryType || '';
+  const types = place?.types || [];
+  const primaryType = place?.primaryType || '';
 
   const allTypes = [primaryType, ...types].filter(Boolean);
 
@@ -117,7 +177,33 @@ export function classifyGooglePlace(place) {
     }
   }
 
-  return 'Other Commercial';
+  return BUSINESS_TYPE_BUCKETS.OTHER;
+}
+
+/**
+ * Classifies a residential property record into a residential property type bucket.
+ */
+export function classifyResidentialProperty(property) {
+  const raw = property?.property_type || property?.residential_property_type || property?.property_class || property?.use_code || property?.class || property?.type || '';
+  const type = String(raw).toLowerCase().replace(/[-_]/g, ' ').trim();
+
+  if (type.includes('single') || type.includes('detached') || type.includes('residential single') || type.includes('residence')) {
+    return RESIDENTIAL_TYPE_BUCKETS.SINGLE_FAMILY;
+  }
+  if (type.includes('multi') || type.includes('duplex') || type.includes('triplex') || type.includes('fourplex') || type.includes('2 4') || type.includes('2-4')) {
+    return RESIDENTIAL_TYPE_BUCKETS.MULTI_FAMILY;
+  }
+  if (type.includes('condo') || type.includes('condominium') || type.includes('townhouse') || type.includes('townhome')) {
+    return RESIDENTIAL_TYPE_BUCKETS.CONDO_TOWNHOUSE;
+  }
+  if (type.includes('mobile') || type.includes('manufactured') || type.includes('trailer') || type.includes('park home')) {
+    return RESIDENTIAL_TYPE_BUCKETS.MOBILE_HOME;
+  }
+  if (type.includes('new construction') || type.includes('new build') || type.includes('under construction') || type.includes('construction permit')) {
+    return RESIDENTIAL_TYPE_BUCKETS.NEW_CONSTRUCTION;
+  }
+
+  return null;
 }
 
 function normalizeGoogleNewPlace(place) {
@@ -249,12 +335,20 @@ async function searchGooglePlacesNew({ center, radiusMeters, includedTypes = [],
 
 export async function searchGooglePlacesByText({ query, center, radiusMeters = 5000, apiKey: keyOverride }) {
   const apiKey = getGoogleMapsKey(keyOverride);
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn('[NearbySearch] searchGooglePlacesByText skipped: no API key');
+    return null;
+  }
+
+  if (!query || String(query).trim().length === 0) {
+    console.warn('[NearbySearch] searchGooglePlacesByText skipped: empty query');
+    return null;
+  }
 
   const endpoint = 'https://places.googleapis.com/v1/places:searchText';
   try {
     const body = {
-      textQuery: query,
+      textQuery: String(query).trim(),
     };
 
     if (center) {
@@ -283,50 +377,57 @@ export async function searchGooglePlacesByText({ query, center, radiusMeters = 5
     const json = await response.json().catch(() => null);
 
     if (!response.ok) {
-      console.warn('[NearbySearch] searchText failed:', json?.error?.message || json);
+      console.warn(`[NearbySearch] searchText HTTP ${response.status}:`, json?.error?.message || json);
       return null;
     }
 
-    return (json?.places || []).map(normalizeGoogleNewPlace).filter(Boolean);
+    const places = (json?.places || []).map(normalizeGoogleNewPlace).filter(Boolean);
+    console.log(`[NearbySearch] searchText query="${query}" returned ${places.length} places`);
+    return places;
   } catch (error) {
     console.error('[NearbySearch] searchText exception:', error?.message);
     return null;
   }
 }
 
-const COMMERCIAL_TYPES = [
-  'corporate_office',
-  'business_center',
-  'manufacturer',
-  'supplier',
-  'storage',
-  'shipping_service',
-  'moving_company',
-  'warehouse_store',
-  'wholesaler',
-  'truck_stop',
-  'transportation_service',
-  'transit_depot',
-  'building_materials_store',
-  'hardware_store',
-  'store',
-  'car_repair',
-  'truck_dealer',
-  'gas_station',
-  'farm',
-  'ranch'
-];
+/**
+ * Health check for the configured Google Places API key.
+ * Returns { ok, status, placesFound, message }.
+ * This is a lightweight probe using a well-known zip query.
+ */
+export async function checkGooglePlacesApiHealth(testZip = '77002') {
+  const apiKey = getGoogleMapsKey();
+  if (!apiKey) {
+    return { ok: false, status: 'NO_API_KEY', placesFound: 0, message: 'Google Places API key not configured' };
+  }
+
+  try {
+    const results = await searchGooglePlacesByText({
+      query: `business near ${testZip}`,
+      radiusMeters: 1000,
+    });
+
+    if (results === null) {
+      return { ok: false, status: 'API_ERROR', placesFound: 0, message: 'Google Places API returned an error (check billing / key restrictions)' };
+    }
+
+    return {
+      ok: true,
+      status: 'OK',
+      placesFound: results.length,
+      message: `API key active. Found ${results.length} places near ${testZip}.`,
+    };
+  } catch (error) {
+    return { ok: false, status: 'EXCEPTION', placesFound: 0, message: error?.message || String(error) };
+  }
+}
 
 const TEXT_QUERIES = [
   "business",
-  "company",
   "warehouse",
+  "shop",
+  "office",
   "industrial",
-  "supplier",
-  "logistics",
-  "distribution",
-  "oilfield service",
-  "commercial service"
 ];
 
 function deduplicatePlaces(places = []) {
@@ -442,7 +543,11 @@ export async function searchNearbyBusinesses({
 
   console.log(`[NearbySearch] Target Center: ${searchCenter.latitude.toFixed(4)}, ${searchCenter.longitude.toFixed(4)}`);
 
-  const radii = [2500, 5000]; // Increased default radii
+  const primaryRadius = normalizeRadius(radiusMeters);
+  const radii = [primaryRadius];
+  if (primaryRadius < 50000) radii.push(Math.min(primaryRadius * 2, 50000));
+  if (primaryRadius * 2 < 50000) radii.push(Math.min(primaryRadius * 4, 50000));
+
   let finalResults = [];
 
   for (const radius of radii) {
@@ -450,8 +555,8 @@ export async function searchNearbyBusinesses({
 
     // 1. Try Google Text Search (Highest Success Rate with restricted keys)
     const textResults = [];
-    for (const query of ["business", "warehouse", "shop", "office", "industrial"]) {
-       const batch = await searchGooglePlacesByText({ query, center: searchCenter, radiusMeters: 4000, apiKey: keyOverride });
+    for (const query of TEXT_QUERIES) {
+       const batch = await searchGooglePlacesByText({ query, center: searchCenter, radiusMeters: radius, apiKey: keyOverride });
        if (batch) textResults.push(...batch);
        if (textResults.length >= 100) break;
     }

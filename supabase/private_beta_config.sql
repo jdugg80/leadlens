@@ -60,6 +60,7 @@ create table if not exists public.prospects (
   x_url text,
   social_confidence text default 'none',
   social_source text,
+  address text,
   street_number text,
   street_name text,
   address_line2 text,

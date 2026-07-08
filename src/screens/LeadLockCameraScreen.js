@@ -13,7 +13,6 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
-  Alert,
   Image,
   useWindowDimensions,
   Linking,
@@ -29,9 +28,11 @@ import {
 import { storageBridge } from '../utils/storage';
 import { LEADS_STORAGE_KEY } from '../constants';
 import { getCurrentCoords, reverseGeocodeCoords } from '../utils/geoEnrich';
+import { checkGooglePlacesApiHealth } from '../utils/nearbySearch';
 import * as ImageManipulator from 'expo-image-manipulator';
 import useLeadLockLocationSnapshot from '../hooks/useLeadLockLocationSnapshot';
 import resolveZipFromLeadLockPhoto from '../utils/location/resolveZipFromLeadLockPhoto';
+import useToast from '../hooks/useToast';
 
 const COLORS_THEME = {
   bg: '#080A0F',
@@ -50,6 +51,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   // Track actual camera view dimensions for dynamic bounding box
@@ -118,6 +120,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   const mountedRef = useRef(true);
   const resolvedZipRef = useRef(null);
   const locationResolveKeyRef = useRef(null);
+  const placesApiHealthCheckedRef = useRef(false);
 
   // Fallback location default
   const FALLBACK_LOC = {
@@ -132,6 +135,20 @@ export default function LeadLockCameraScreen({ navigation }) {
     mountedRef.current = true;
     initLocation();
     return () => { mountedRef.current = false; };
+  }, []);
+
+  // One-time Google Places API health check (logs billing/key status)
+  useEffect(() => {
+    if (placesApiHealthCheckedRef.current) return;
+    placesApiHealthCheckedRef.current = true;
+    (async () => {
+      try {
+        const health = await checkGooglePlacesApiHealth('77002');
+        console.log('[LeadLockCamera] Google Places API health:', health);
+      } catch (err) {
+        console.warn('[LeadLockCamera] Google Places API health check failed:', err);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -163,6 +180,12 @@ export default function LeadLockCameraScreen({ navigation }) {
           zip: geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null,
         };
         setLocation(loc);
+        console.log('[LeadLockCamera] Location resolved from leadLockGps:', {
+          zip: loc.zip,
+          city: loc.city,
+          county: loc.county,
+          source: 'leadLockGps',
+        });
         if (loc.zip) {
           resolvedZipRef.current = loc.zip;
         } else {
@@ -185,7 +208,7 @@ export default function LeadLockCameraScreen({ navigation }) {
         longitude: leadLockGps.longitude,
       }).catch(() => null);
       if (!mountedRef.current) return;
-      if (geoInfo) {
+        if (geoInfo) {
         const loc = {
           latitude: leadLockGps.latitude,
           longitude: leadLockGps.longitude,
@@ -194,6 +217,11 @@ export default function LeadLockCameraScreen({ navigation }) {
           zip: geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null,
         };
         setLocation(loc);
+        console.log('[LeadLockCamera] initLocation resolved from leadLockGps:', {
+          zip: loc.zip,
+          city: loc.city,
+          county: loc.county,
+        });
         if (loc.zip) resolvedZipRef.current = loc.zip;
         await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
         return;
@@ -317,7 +345,7 @@ export default function LeadLockCameraScreen({ navigation }) {
       handleDetectBusinesses(manipulated.base64, rawExif);
     } catch (error) {
       console.error('[LeadLockCamera] Take photo/manipulation error:', error);
-      Alert.alert('Photo Error', error.message);
+      showToast(`Photo Error: ${error.message}`, 'error');
     }
   };
 
@@ -333,12 +361,14 @@ export default function LeadLockCameraScreen({ navigation }) {
         const firstBusinessZip = result?.businesses?.[0]?.detection?.address
           ? (result.businesses[0].detection.address.match(/\b(\d{5})(?:-\d{4})?\b/) || [])[1]
           : null;
+        console.log('[LeadLockCamera] First business zip extracted from address:', firstBusinessZip || 'none');
         const resolved = await resolveZipFromLeadLockPhoto({
           liveGps: leadLockGps,
           photoExif: exifData,
           businessAddressZip: firstBusinessZip || null,
           allowDeviceFallback: true,
         });
+        console.log('[LeadLockCamera] resolveZipFromLeadLockPhoto result:', resolved);
         if (mountedRef.current) setResolvedLocation(resolved);
         if (resolved?.zip) resolvedZipRef.current = resolved.zip;
       } else {
@@ -355,16 +385,21 @@ export default function LeadLockCameraScreen({ navigation }) {
 
       if (result.success) {
         const formatted = formatMultiBusinessesForDisplay(result);
+        console.log('[LeadLockCamera] Detection succeeded:', {
+          businessCount: formatted.length,
+          formattedBusinesses: formatted.map(b => b.name),
+        });
         setDetectionResult({
           ...result,
           formatted,
         });
         setSelectedBusinesses(formatted.map(b => ({ ...b, selected: true }))); // Auto-select all
       } else {
-        Alert.alert('No Businesses Detected', 'Try a clearer angle with more storefronts visible');
+        console.warn('[LeadLockCamera] Detection failed:', result.error);
+        showToast('No businesses detected. Try a clearer angle with more storefronts visible.', 'error');
       }
     } catch (error) {
-      Alert.alert('Detection Error', error.message);
+      showToast(`Detection Error: ${error.message}`, 'error');
     } finally {
       setDetecting(false);
     }
@@ -387,8 +422,17 @@ export default function LeadLockCameraScreen({ navigation }) {
   const handleAddToQueue = async () => {
     const selected = selectedBusinesses.filter(b => b.selected);
 
+    console.log('[LeadLockCamera] handleAddToQueue called. Selected count:', selected.length);
+
     if (selected.length === 0) {
-      Alert.alert('No Selection', 'Select at least one business to add');
+      showToast('Select at least one business to add.', 'error');
+      return;
+    }
+
+    // Confirm business count > 0 before dismissing
+    const detectedCount = detectionResult?.businessCount || detectionResult?.businesses?.length || selected.length;
+    if (detectedCount === 0) {
+      showToast('No businesses were detected to add to the queue.', 'error');
       return;
     }
 
@@ -400,6 +444,8 @@ export default function LeadLockCameraScreen({ navigation }) {
         return m ? m[1] : null;
       })
       .find(Boolean) || null;
+
+    console.log('[LeadLockCamera] Fallback business zip extracted from selected:', businessZip || 'none');
 
     try {
       let resolved;
@@ -420,9 +466,17 @@ export default function LeadLockCameraScreen({ navigation }) {
       }
       if (!mountedRef.current) return;
 
-      console.log('[LeadLockCamera] Resolved photo location:', resolved);
+      console.log('[LeadLockCamera] Resolved photo location for queue:', resolved);
 
       const prospects = convertSelectedBusinessesToProspects(selected, resolved);
+      console.log('[LeadLockCamera] Prospects to add:', prospects.length);
+      console.log('[LeadLockCamera] First prospect address field:', prospects[0]?.address ?? 'NO_ADDRESS');
+      console.log('[LeadLockCamera] First prospect full payload keys:', prospects[0] ? Object.keys(prospects[0]) : 'N/A');
+
+      if (prospects.length === 0) {
+        showToast('Could not build any prospect records from the selected businesses.', 'error');
+        return;
+      }
 
       // Read existing queue from correct storage key
       let currentQueue = [];
@@ -436,25 +490,49 @@ export default function LeadLockCameraScreen({ navigation }) {
       }
       const updatedQueue = [...currentQueue, ...prospects];
 
+      console.log('[LeadLockCamera] Writing to MMKV. Queue size:', updatedQueue.length, 'Last prospect address:', updatedQueue[updatedQueue.length - 1]?.address ?? 'NO_ADDRESS');
+
       // Write to MMKV with error guard
       try {
         storageBridge.setSync(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+        console.log('[LeadLock] MMKV write succeeded. Queue size:', updatedQueue.length);
       } catch (mmkvErr) {
         console.error('[LeadLock] MMKV write failed:', mmkvErr);
       }
-      // AsyncStorage backup
-      const RawStorage = require('@react-native-async-storage/async-storage').default;
-      await RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue)).catch((e) =>
-        console.warn('[LeadLock] AsyncStorage backup write failed:', e)
-      );
+
+      // AsyncStorage backup (awaited)
+      try {
+        const RawStorage = require('@react-native-async-storage/async-storage').default;
+        await RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+        console.log('[LeadLock] AsyncStorage backup write succeeded. Queue size:', updatedQueue.length);
+      } catch (e) {
+        console.warn('[LeadLock] AsyncStorage backup write failed:', e);
+      }
+
+      // Verify cache read-back
+      try {
+        const readBack = storageBridge.getSync(LEADS_STORAGE_KEY);
+        const readBackParsed = readBack ? JSON.parse(readBack) : [];
+        if (!Array.isArray(readBackParsed)) {
+          throw new Error('Read-back value is not an array');
+        }
+        if (readBackParsed.length !== updatedQueue.length) {
+          throw new Error(`Read-back length mismatch: expected ${updatedQueue.length}, got ${readBackParsed.length}`);
+        }
+        const lastReadBack = readBackParsed[readBackParsed.length - 1];
+        console.log('[LeadLock] Cache read-back verified. Length:', readBackParsed.length, 'Last address:', lastReadBack?.address ?? 'NO_ADDRESS');
+      } catch (verifyErr) {
+        console.error('[LeadLock] Cache read-back verification failed:', verifyErr);
+        showToast('Save Error: Could not verify the queue was saved. Please try again.', 'error');
+        return;
+      }
 
       if (!mountedRef.current) return;
-      Alert.alert('Added to Queue', `${prospects.length} prospect${prospects.length !== 1 ? 's' : ''} added successfully`, [
-        { text: 'OK', onPress: () => resetCamera() },
-      ]);
+      showToast(`${prospects.length} prospect${prospects.length !== 1 ? 's' : ''} added to queue.`, 'success');
+      resetCamera();
     } catch (error) {
       console.error('[LeadLock] Queue save error:', error);
-      Alert.alert('Error', 'Failed to add to queue: ' + (error?.message || 'unknown'));
+      showToast(`Failed to add to queue: ${error?.message || 'unknown'}`, 'error');
     }
   };
 

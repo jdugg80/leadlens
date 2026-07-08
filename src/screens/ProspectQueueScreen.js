@@ -1,6 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -13,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
@@ -46,6 +46,23 @@ const IMPORT_OPTIONS = [
   { key: 'cloud', label: 'Cloud Storage', icon: '☁', desc: 'Connect to cloud drives' },
 ];
 
+const STATUS_FILTERS = ['All', 'New', 'Suspect', 'Contacted', 'In Progress', 'Not Interested', 'Closed'];
+
+const SOURCE_FILTERS = [
+  { key: 'all', label: 'All Sources' },
+  { key: 'import', label: 'Imported' },
+  { key: 'leadlock', label: 'LeadLock' },
+  { key: 'manual', label: 'Manual' },
+];
+
+const VIABILITY_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'missing_address', label: 'Missing Address' },
+  { key: 'missing_phone', label: 'Missing Phone' },
+  { key: 'reviewed', label: 'Reviewed' },
+  { key: 'unreviewed', label: 'Unreviewed' },
+];
+
 export default function ProspectQueueScreen({ navigation, route }) {
   const user = route?.params?.user || {};
   const [leads, setLeads] = useState([]);
@@ -59,7 +76,11 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
+  const [filterStatus, setFilterStatus] = useState('All');
+  const [filterSource, setFilterSource] = useState('all');
+  const [filterViability, setFilterViability] = useState('all');
   const scrollRef = useRef(null);
+  const filterScrollRef = useRef(null);
   const [scrollLocked, setScrollLocked] = useState(false);
   const scrollTimerRef = useRef(null);
   const atBottomRef = useRef(false);
@@ -133,14 +154,17 @@ export default function ProspectQueueScreen({ navigation, route }) {
 
   const loadLeads = useCallback(async () => {
     try {
+      console.log('[ProspectQueue] Loading leads from storage key:', LEADS_STORAGE_KEY);
       const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
+          console.log('[ProspectQueue] Loaded', parsed.length, 'leads');
           setLeads(parsed);
           return;
         }
       }
+      console.log('[ProspectQueue] No leads found in storage');
       setLeads([]);
     } catch (e) {
       console.warn('[ProspectQueue] Load failed:', e.message);
@@ -413,7 +437,7 @@ export default function ProspectQueueScreen({ navigation, route }) {
   };
 
   const needsLookup = (lead) => {
-    const hasAddress = !!(lead.streetName || lead.streetNumber || lead.city || lead.streetAddress || lead.fullAddress || lead.formattedAddress);
+    const hasAddress = !!(lead.streetName || lead.streetNumber || lead.city || lead.streetAddress || lead.fullAddress || lead.formattedAddress || lead.address);
     const hasPhone = !!(lead.phone);
     return !hasAddress || !hasPhone;
   };
@@ -569,12 +593,38 @@ export default function ProspectQueueScreen({ navigation, route }) {
     }
   };
 
-  const sortedLeads = sortQueueProspects(leads);
+  const filteredLeads = useMemo(() => {
+    let result = leads;
+    if (filterStatus !== 'All') {
+      result = result.filter(l => (l.status || 'Suspect') === filterStatus);
+    }
+    if (filterSource !== 'all') {
+      result = result.filter(l => {
+        const cm = String(l.captureMethod || '').toLowerCase();
+        if (filterSource === 'import') return cm.includes('import');
+        if (filterSource === 'leadlock') return cm.includes('leadlock') || cm.includes('photo');
+        if (filterSource === 'manual') return !cm.includes('import') && !cm.includes('leadlock') && !cm.includes('photo');
+        return true;
+      });
+    }
+    if (filterViability !== 'all') {
+      result = result.filter(l => {
+        if (filterViability === 'missing_address') return !(l.streetName || l.address || l.formattedAddress || l.fullAddress);
+        if (filterViability === 'missing_phone') return !l.phone;
+        if (filterViability === 'reviewed') return !!l.reviewedAt;
+        if (filterViability === 'unreviewed') return !l.reviewedAt;
+        return true;
+      });
+    }
+    return result;
+  }, [leads, filterStatus, filterSource, filterViability]);
+
+  const sortedLeads = sortQueueProspects(filteredLeads);
 
   if (loading) {
     return (
       <AppScreenBackground>
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.centerContent}>
             <ActivityIndicator size="large" color={COLORS.accent} />
           </View>
@@ -585,12 +635,15 @@ export default function ProspectQueueScreen({ navigation, route }) {
 
   return (
     <AppScreenBackground>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
           ref={scrollRef}
+          style={styles.scrollView}
           contentContainerStyle={styles.content}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          contentInset={{ top: 0, bottom: 0 }}
+          scrollIndicatorInsets={{ top: 0, bottom: 0 }}
         >
           <View style={styles.headerRow}>
             <Text style={styles.title}>Prospect Queue</Text>
@@ -600,11 +653,79 @@ export default function ProspectQueueScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
 
+          {/* Scrollable filter panel — constrained height so it scrolls independently on small screens */}
+          <View style={styles.filterPanel}>
+            <ScrollView
+              ref={filterScrollRef}
+              style={styles.filterScroll}
+              contentContainerStyle={styles.filterScrollContent}
+              scrollEnabled={true}
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+              indicatorStyle="white"
+            >
+              <Text style={styles.filterSectionTitle}>Status</Text>
+              <View style={styles.filterChipRow}>
+                {STATUS_FILTERS.map((status) => {
+                  const active = filterStatus === status;
+                  return (
+                    <TouchableOpacity
+                      key={status}
+                      style={[styles.filterChip, active && styles.filterChipActive]}
+                      onPress={() => setFilterStatus(status)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{status}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.filterSectionTitle}>Source</Text>
+              <View style={styles.filterChipRow}>
+                {SOURCE_FILTERS.map((s) => {
+                  const active = filterSource === s.key;
+                  return (
+                    <TouchableOpacity
+                      key={s.key}
+                      style={[styles.filterChip, active && styles.filterChipActive]}
+                      onPress={() => setFilterSource(s.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{s.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.filterSectionTitle}>Viability</Text>
+              <View style={styles.filterChipRow}>
+                {VIABILITY_FILTERS.map((v) => {
+                  const active = filterViability === v.key;
+                  return (
+                    <TouchableOpacity
+                      key={v.key}
+                      style={[styles.filterChip, active && styles.filterChipActive]}
+                      onPress={() => setFilterViability(v.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{v.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+
+          <Text style={styles.resultsCount}>{sortedLeads.length} prospect{sortedLeads.length !== 1 ? 's' : ''}</Text>
+
           {sortedLeads.length === 0 && (
-            <Text style={styles.emptyText}>No prospects in queue.</Text>
+            <Text style={styles.emptyText}>No prospects match the current filters.</Text>
           )}
 
-          {sortedLeads.map((lead, idx) => (
+          {sortedLeads.map((lead, idx) => {
+            console.log(`[ProspectQueue] Rendering card ${idx}. businessName=${lead.businessName || 'Unnamed'} address=${lead.address ?? 'NO_ADDRESS'} streetName=${lead.streetName || '—'} city=${lead.city || '—'}`);
+            return (
             <GlassCard key={lead.id || `lead_${idx}`} style={styles.card}>
               <TouchableOpacity onPress={() => openEdit(lead, idx)} activeOpacity={0.7}>
                 <Text style={styles.cardTitle} numberOfLines={1}>
@@ -612,9 +733,9 @@ export default function ProspectQueueScreen({ navigation, route }) {
                 </Text>
                 {lead.phone && <Text style={styles.cardText}>Phone: {lead.phone}</Text>}
                 {lead.email && <Text style={styles.cardText}>Email: {lead.email}</Text>}
-                {(lead.streetName || lead.city) && (
+                {(lead.address || lead.streetName || lead.city) && (
                   <Text style={styles.cardText}>
-                    {[lead.streetNumber, lead.streetName, lead.city, lead.state].filter(Boolean).join(', ')}
+                    {lead.address || [lead.streetNumber, lead.streetName, lead.city, lead.state].filter(Boolean).join(', ')}
                   </Text>
                 )}
                 {lead.updatedAt && (
@@ -644,20 +765,20 @@ export default function ProspectQueueScreen({ navigation, route }) {
                 )}
               </TouchableOpacity>
             </GlassCard>
-          ))}
+          );})}
         </ScrollView>
-      </SafeAreaView>
 
-      {sortedLeads.length > 0 && (
-        <TouchableOpacity
-          style={[styles.skipToBottomBtn, scrollLocked && styles.skipToBottomBtnDisabled]}
-          onPress={scrollToBottom}
-          disabled={scrollLocked}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.skipToBottomText}>↓ Skip to Bottom</Text>
-        </TouchableOpacity>
-      )}
+        {sortedLeads.length > 0 && (
+          <TouchableOpacity
+            style={[styles.skipToBottomBtn, scrollLocked && styles.skipToBottomBtnDisabled]}
+            onPress={scrollToBottom}
+            disabled={scrollLocked}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.skipToBottomText}>↓ Skip to Bottom</Text>
+          </TouchableOpacity>
+        )}
+      </SafeAreaView>
 
       <Modal visible={editModalVisible} animationType="slide" transparent onRequestClose={closeEdit}>
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -766,8 +887,9 @@ export default function ProspectQueueScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
+  scrollView: { flex: 1 },
   centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { paddingHorizontal: 20, paddingBottom: 40, paddingTop: 12 },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -787,6 +909,63 @@ const styles = StyleSheet.create({
   importBtnIcon: { color: '#000', fontSize: 16, fontWeight: '900' },
   importBtnText: { color: '#000', fontSize: 14, fontWeight: '800' },
   emptyText: { color: COLORS.muted, fontSize: 15, textAlign: 'center', marginTop: 40 },
+  filterPanel: {
+    maxHeight: 260,
+    backgroundColor: '#080A0F',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#252A3A',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  filterScroll: {
+    flexGrow: 0,
+  },
+  filterScrollContent: {
+    padding: 12,
+    paddingBottom: 16,
+  },
+  filterSectionTitle: {
+    color: '#B8BDD0',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  filterChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#252A3A',
+    backgroundColor: '#111318',
+  },
+  filterChipActive: {
+    borderColor: '#00C9FF',
+    backgroundColor: 'rgba(0,201,255,0.12)',
+  },
+  filterChipText: {
+    color: '#B8BDD0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#00C9FF',
+    fontWeight: '700',
+  },
+  resultsCount: {
+    color: '#B8BDD0',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
   card: { marginBottom: 14 },
   cardTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginBottom: 6 },
   cardText: { color: 'rgba(255,255,255,0.80)', fontSize: 14, marginBottom: 3 },

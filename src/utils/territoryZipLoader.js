@@ -355,6 +355,8 @@ async function getCachedBoundariesFromSupabaseBulk(zips, supabase) {
   const cleanZips = uniqueZips(zips);
   if (!cleanZips.length) return {};
 
+  console.log('[TerritoryZipLoader] getCachedBoundariesFromSupabaseBulk querying zip_boundaries for zips:', cleanZips);
+
   const rowsToMarkers = async (rows) => {
     const result = {};
     for (const row of (rows || [])) {
@@ -368,6 +370,10 @@ async function getCachedBoundariesFromSupabaseBulk(zips, supabase) {
     return result;
   };
 
+  // NOTE: zip_boundaries is a pure geographic table. It has no territory_type
+  // column, so the query cannot (and does not need to) filter by residential/commercial.
+  // If territory-specific boundary variants are added in the future, add the
+  // territory_type filter here and in the SDK query below.
   if (SUPABASE_REST_URL && SUPABASE_ANON_KEY) {
     try {
       const response = await fetch(
@@ -389,8 +395,12 @@ async function getCachedBoundariesFromSupabaseBulk(zips, supabase) {
           console.log('[TerritoryZipLoader] Supabase REST missing zips:', cleanZips.filter((zip) => !result[zip]).join(','));
         }
         if (hitCount > 0) return result;
+      } else {
+        console.warn('[TerritoryZipLoader] Supabase REST boundary fetch failed:', response.status);
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[TerritoryZipLoader] Supabase REST boundary fetch error:', err?.message);
+    }
   }
 
   if (!supabase) return {};
@@ -401,8 +411,11 @@ async function getCachedBoundariesFromSupabaseBulk(zips, supabase) {
       .select('zip_code,polygon,all_rings,coords')
       .in('zip_code', cleanZips);
 
-    return await rowsToMarkers(data);
-  } catch {
+    const result = await rowsToMarkers(data);
+    console.log('[TerritoryZipLoader] Supabase SDK boundary hits:', Object.keys(result).length, '/', cleanZips.length);
+    return result;
+  } catch (err) {
+    console.warn('[TerritoryZipLoader] Supabase SDK boundary fetch error:', err?.message);
     return {};
   }
 }
@@ -428,6 +441,7 @@ async function fetchZipBoundary(zip) {
 
 export async function fetchZipBoundariesBulk(zips, { supabaseClient } = {}) {
   const cleanZips = uniqueZips(zips);
+  console.log('[TerritoryZipLoader] fetchZipBoundariesBulk called for zips:', cleanZips);
   if (!cleanZips.length) return {};
 
   if (!supabaseClient) {
@@ -443,6 +457,7 @@ export async function fetchZipBoundariesBulk(zips, { supabaseClient } = {}) {
     const mmkvCached = await getCachedBoundary(zip);
     if (hasBoundaryRings(mmkvCached)) {
       results[zip] = mmkvCached;
+      console.log('[TerritoryZipLoader] MMKV cache hit with rings for', zip);
       continue;
     }
 
@@ -450,14 +465,17 @@ export async function fetchZipBoundariesBulk(zips, { supabaseClient } = {}) {
     if (bundledMarker) {
       await saveBoundaryToCache(zip, bundledMarker);
       results[zip] = bundledMarker;
+      console.log('[TerritoryZipLoader] Bundled boundary used for', zip);
       continue;
     }
 
     if (mmkvCached) {
       results[zip] = mmkvCached;
+      console.log('[TerritoryZipLoader] MMKV cache hit without rings for', zip);
     }
   }
 
+  console.log('[TerritoryZipLoader] fetchZipBoundariesBulk resolved:', Object.keys(results).length, '/', cleanZips.length, 'zips have boundaries');
   return results;
 }
 

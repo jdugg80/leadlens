@@ -19,6 +19,7 @@ create table if not exists prospects (
   social_source text,
 
   -- Address
+  address text,
   street_number text,
   street_name text,
   address_line2 text,

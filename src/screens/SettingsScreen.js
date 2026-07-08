@@ -78,13 +78,12 @@ import { AI_PERSONALITY_STYLES, AI_VOICE_PROFILES, GOALS_STORAGE_KEY } from '../
 import { getPreviewLine } from '../utils/aiPersonality';
 import { resetAllTutorials } from '../utils/tutorialManager';
 import {
-  queueScheduledExport,
-  syncQueueToSupabase,
   verifyExportsBucket,
 } from '../utils/backendSync';
 import { sendBackendEmail } from '../utils/backendEmail';
 import { resetUserLearningData, recordUserActivityEvent, upsertUserLearningProfile, loadUserLearningProfile } from '../utils/userLearning';
 import { showThemedAlert, ThemedAlertHost } from '../components/ThemedAlert';
+import useToast from '../hooks/useToast';
 import TargetLensProfileSelector from '../components/TargetLensProfileSelector';
 import BetaTracker from '../../utils/betaTracker';
 import {
@@ -239,6 +238,7 @@ export default function SettingsScreen({ navigation, route }) {
   }, []);
 
   const routeUser = route?.params?.user || {};
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('profile');
   const [userProfile, setUserProfile] = useState(() => ({
     ...routeUser,
@@ -677,32 +677,6 @@ export default function SettingsScreen({ navigation, route }) {
     }
   };
 
-  const handleSyncNow = async () => {
-    const res = await syncQueueToSupabase(user, supabaseSettings);
-    if (!res.ok) {
-      const msg = res.hint ? `${res.reason}\n\n${res.hint}` : res.reason || 'Unknown issue';
-      showThemedAlert('Sync failed', msg);
-    } else {
-      showThemedAlert(
-        'Sync complete ✓',
-        res.reason === 'empty-queue' ? 'Queue is empty.' : `${res.count || 0} prospect(s) pushed to Supabase.`
-      );
-    }
-  };
-
-  const handleQueueJob = async () => {
-    const res = await queueScheduledExport(user, supabaseSettings);
-    if (!res.ok) showThemedAlert('Queue job failed', res.reason || 'Unknown issue');
-    else {
-      showThemedAlert(
-        'Queued',
-        res.reason === 'empty-queue'
-          ? 'No prospects are in queue right now.'
-          : 'A scheduled export job was queued in Supabase.'
-      );
-    }
-  };
-
   const handleClearQueue = () => {
     if (!queueCount) {
       showThemedAlert('Queue is already empty');
@@ -840,7 +814,7 @@ export default function SettingsScreen({ navigation, route }) {
         </Text>
         <TouchableOpacity style={s.resetTutorialsBtn} onPress={() => {
           resetAllTutorials();
-          Alert.alert('Tutorials Reset', 'All tutorials will show again next time you visit each section.');
+          showToast('Tutorials reset: All tutorials will show again next time you visit each section.', 'success');
         }}>
           <Text style={s.resetTutorialsText}>↺ Reset All Tutorials</Text>
         </TouchableOpacity>
@@ -1046,7 +1020,7 @@ export default function SettingsScreen({ navigation, route }) {
             <Text style={s.previewText}>{getPreviewLine(personalityStyle)}</Text>
             <TouchableOpacity
               style={s.previewBtn}
-              onPress={() => Alert.alert('Style Preview', getPreviewLine(personalityStyle))}
+              onPress={() => showToast(`Style Preview: ${getPreviewLine(personalityStyle)}`, 'success')}
             >
               <Text style={s.previewBtnText}>Test Style Voice 🔊</Text>
             </TouchableOpacity>
@@ -1114,7 +1088,7 @@ export default function SettingsScreen({ navigation, route }) {
                 style: 'destructive',
                 onPress: async () => {
                   await resetUserLearningData();
-                  Alert.alert('Reset complete', 'Your personalization data has been cleared.');
+                  showToast('Reset complete: Your personalization data has been cleared.', 'success');
                 },
               },
             ]
@@ -1575,8 +1549,6 @@ export default function SettingsScreen({ navigation, route }) {
         </Text>
         <PrimaryButton title="Test Supabase Connection" onPress={handleTestConnection} style={{ marginTop: 10, backgroundColor: '#6e7bff' }} />
         <PrimaryButton title="Verify Exports Bucket" onPress={handleVerifyBucket} style={{ marginTop: 10, backgroundColor: '#6e7bff' }} />
-        <PrimaryButton title="Sync Queue Now" onPress={handleSyncNow} style={{ marginTop: 10, backgroundColor: '#17b26a' }} />
-        <PrimaryButton title="Queue Export Job Now" onPress={handleQueueJob} style={{ marginTop: 10, backgroundColor: '#ff8b3d' }} />
         <PrimaryButton title="Clear Queue" onPress={handleClearQueue} style={{ marginTop: 10, backgroundColor: '#7a2031' }} />
       </Card>
 

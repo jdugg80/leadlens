@@ -105,6 +105,15 @@ export const storage = {
       const s = getStorage();
       if (s) {
         const v = s.getString(key);
+        const isLeadLock = key === '@leadlens_leads';
+        if (isLeadLock && v) {
+          try {
+            const parsed = JSON.parse(v);
+            console.log(`[Storage] getSync LeadLock queue read. Length: ${Array.isArray(parsed) ? parsed.length : 'N/A'}`);
+          } catch {
+            console.warn('[Storage] getSync LeadLock queue read failed to parse');
+          }
+        }
         return v !== undefined ? v : null;
       }
     } catch (err) {
@@ -139,6 +148,16 @@ export const storage = {
     AsyncStorage.setItem(key, strValue).catch((e) =>
       console.warn(`[Storage] setSync AsyncStorage mirror error for "${key}":`, e.message)
     );
+
+    if (key === '@leadlens_leads') {
+      try {
+        const parsed = JSON.parse(strValue);
+        const last = Array.isArray(parsed) && parsed.length > 0 ? parsed[parsed.length - 1] : null;
+        console.log(`[Storage] setSync LeadLock queue written. Length: ${Array.isArray(parsed) ? parsed.length : 'N/A'}`, last ? `Last address: ${last.address ?? 'NO_ADDRESS'} | keys: ${Object.keys(last).join(',')}` : '');
+      } catch {
+        console.warn('[Storage] setSync LeadLock queue written but could not parse length');
+      }
+    }
   },
 
   /**

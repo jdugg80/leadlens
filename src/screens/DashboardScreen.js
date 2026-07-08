@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import GeoTargetProjectionBadge from '../components/GeoTargetProjectionBadge';
-import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Alert, Linking, ActivityIndicator, Animated, useWindowDimensions, PanResponder } from 'react-native';
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Linking, ActivityIndicator, Animated, useWindowDimensions, PanResponder } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

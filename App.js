@@ -12,6 +12,7 @@ import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { AppRegistry } from 'react-native';
 
+import { ToastProvider } from './src/context/ToastContext';
 import { storage as AsyncStorage } from './src/utils/storage';
 import { USER_STORAGE_KEY } from './src/constants';
 import { bindAutoExportOnAppResume, registerBackgroundAutoExport } from './src/utils/autoExport';
@@ -394,6 +395,7 @@ export default function App() {
   return (
     <AppErrorBoundary>
     <SafeAreaProvider>
+      <ToastProvider>
       <NavigationContainer
         ref={navRef}
         onReady={() => {
@@ -478,6 +480,7 @@ export default function App() {
           </View>
         </Modal>
       </NavigationContainer>
+      </ToastProvider>
     </SafeAreaProvider>
     </AppErrorBoundary>
   );

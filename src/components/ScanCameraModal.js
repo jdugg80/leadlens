@@ -14,17 +14,19 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal,
-  ActivityIndicator, Alert, Linking,
+  ActivityIndicator, Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
+import useToast from '../hooks/useToast';
 
 export default function ScanCameraModal({ visible, onCapture, onClose }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
 
   const handleTakePhoto = async () => {
     if (!cameraRef.current || capturing) return;
@@ -43,7 +45,7 @@ export default function ScanCameraModal({ visible, onCapture, onClose }) {
       onCapture({ uri: manipulated.uri, base64: manipulated.base64 });
     } catch (err) {
       console.error('[ScanCameraModal] Capture error:', err);
-      Alert.alert('Camera Error', err.message || 'Could not capture photo.');
+      showToast(`Camera Error: ${err.message || 'Could not capture photo.'}`, 'error');
     } finally {
       setCapturing(false);
     }

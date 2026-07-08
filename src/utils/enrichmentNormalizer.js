@@ -4,6 +4,10 @@ import { enrichMissingPOC } from './socialEnrichment';
 import { searchHealthViolations } from './healthDepartmentService';
 import { getPropertyRecord } from './propertyRecordsService';
 import { searchContacts as searchContactEnrichment } from '../services/enrichmentProviders';
+import {
+  normalizeBusinessData,
+  upsertBusinessData,
+} from './businessDataPipeline';
 
 export function normalizePhone(value) {
   if (!value) return "";
@@ -30,6 +34,56 @@ export function normalizePhone(value) {
   }
 
   return String(value).trim();
+}
+
+/**
+ * Flatten a normalized business_data record into an object with both
+ * snake_case and camelCase keys so existing display code can read it.
+ */
+function flattenBusinessData(record) {
+  if (!record) return {};
+  return {
+    // camelCase (used by display formatters)
+    formatted_phone_number: record.phone,
+    internationalPhoneNumber: record.phone,
+    nationalPhoneNumber: record.phone,
+    phone: record.phone,
+    website: record.website,
+    websiteUri: record.website,
+    url: record.website,
+    formatted_address: record.formatted_address,
+    address: record.formatted_address,
+    streetNumber: record.street_number,
+    streetName: record.street_name,
+    city: record.city,
+    state: record.state,
+    zip: record.zip_code,
+    zipCode: record.zip_code,
+    email: record.email,
+    placeId: record.place_id,
+    place_id: record.place_id,
+    businessName: record.business_name,
+    business_name: record.business_name,
+    latitude: record.latitude,
+    longitude: record.longitude,
+    types: record.types,
+    primaryType: record.primary_type,
+    businessStatus: record.business_status,
+    rating: record.rating,
+    userRatingCount: record.user_rating_count,
+    pestRiskScore: record.pest_risk_score,
+    pestIndicators: record.pest_indicators,
+
+    // snake_case (used by Supabase persistence)
+    street_number: record.street_number,
+    street_name: record.street_name,
+    zip_code: record.zip_code,
+    primary_type: record.primary_type,
+    business_status: record.business_status,
+    user_rating_count: record.user_rating_count,
+    pest_risk_score: record.pest_risk_score,
+    pest_indicators: record.pest_indicators,
+  };
 }
 
 export function extractBestPhone(...sources) {
@@ -411,7 +465,11 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
 
   console.log('[LeadLock Enrichment] Starting enrichment with context:', {
     businessName: business.businessName,
-    zip: business.zip,
+    businessZip: business.zip,
+    businessCity: business.city,
+    businessState: business.state,
+    businessLatitude: business.latitude,
+    businessLongitude: business.longitude,
     photoZip,
     locationSource,
     locationConfidence,
@@ -526,13 +584,52 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
     // OSM:     contains 'osm'
     // Never filter by prefix — if we got an ID from Google search, try it
     try {
+      console.log('[LeadLock Enrichment] Fetching place details for placeId:', placeId);
       const placeDetails = await fetchPlaceDetails(placeId);
+      console.log('[LeadLock Enrichment] placeDetails fetched:', placeDetails ? 'yes' : 'no');
       if (placeDetails) {
         sources.push({
           ...placeDetails,
           source: "Google Places",
           type: "place_details",
         });
+
+        // Normalize to business_data schema and persist to Supabase
+        const normalizedRecord = normalizeBusinessData({
+          ...placeDetails,
+          placeId,
+          source: 'google_places',
+        });
+        console.log('[LeadLock Enrichment] Normalized business_data record:', normalizedRecord ? {
+          business_name: normalizedRecord.business_name,
+          zip_code: normalizedRecord.zip_code,
+          place_id: normalizedRecord.place_id,
+        } : null);
+
+        if (normalizedRecord) {
+          // Fire-and-forget: pipeline should not block on Supabase write
+          upsertBusinessData(normalizedRecord)
+            .then((res) => {
+              if (!res.ok) {
+                console.warn('[LeadLock Enrichment] business_data upsert failed:', res.error);
+              } else {
+                console.log('[LeadLock Enrichment] business_data upsert succeeded:', res.data?.id);
+              }
+            })
+            .catch((e) => {
+              console.warn('[LeadLock Enrichment] business_data upsert exception:', e.message);
+            });
+
+          // Flatten normalized fields so display formatters can read them directly
+          const flattened = flattenBusinessData(normalizedRecord);
+          sources.push({
+            ...flattened,
+            source: "Google Places (business_data)",
+            type: "business_data_flattened",
+          });
+        }
+      } else {
+        console.warn('[LeadLock Enrichment] No place details returned for placeId:', placeId);
       }
     } catch (e) {
       console.warn("[PublicEnrichment] Google Details failed:", e.message);
@@ -682,9 +779,27 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
     candidatesFound: sources.length - 1,
     confidenceScore: enrichmentScore,
     confidenceLabel: enrichmentConfidenceLabel,
+    primaryPhone: enrichmentBundle.primaryPhone || null,
+    primaryPOC: enrichmentBundle.primaryPOC?.fullName || null,
+    emailCandidatesCount: enrichmentBundle.emailCandidates?.length || 0,
+    contactsCount: enrichmentBundle.contacts?.length || 0,
     fieldsFilled: ['phone', 'email', 'contacts'].filter(f => enrichmentBundle[f] || (f === 'email' && enrichmentBundle.emailCandidates?.length) || (f === 'contacts' && enrichmentBundle.contacts?.length)),
     businessMatch,
   });
+
+  // Build top-level fields from the best Google Places / business_data source
+  const bestPlaceSource = sources.find(
+    s => s.type === 'business_data_flattened' || s.type === 'place_details' || s.type === 'place_search_result'
+  ) || {};
+
+  const topLevelPhone = business.phone || enrichmentBundle.primaryPhone || bestPlaceSource.phone || bestPlaceSource.formatted_phone_number || '';
+  const topLevelWebsite = business.website || bestPlaceSource.website || bestPlaceSource.websiteUri || bestPlaceSource.url || '';
+  const topLevelAddress = bestPlaceSource.formatted_address || bestPlaceSource.address || '';
+  const topLevelStreetNumber = bestPlaceSource.streetNumber || bestPlaceSource.street_number || '';
+  const topLevelStreetName = bestPlaceSource.streetName || bestPlaceSource.street_name || '';
+  const topLevelCity = bestPlaceSource.city || business.city || '';
+  const topLevelState = bestPlaceSource.state || business.state || '';
+  const topLevelZip = bestPlaceSource.zip || bestPlaceSource.zipCode || bestPlaceSource.zip_code || business.zip || '';
 
   return {
     ...business,
@@ -717,8 +832,26 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
       } : null,
       enrichedAt: new Date().toISOString(),
     },
-    phone: business.phone || enrichmentBundle.primaryPhone || "",
-    email: business.email || (enrichmentBundle.emailCandidates && enrichmentBundle.emailCandidates[0]) || "",
+    // Top-level fields expected by display / prospect conversion
+    phone: topLevelPhone,
+    formatted_phone_number: topLevelPhone,
+    internationalPhoneNumber: topLevelPhone,
+    nationalPhoneNumber: topLevelPhone,
+    website: topLevelWebsite,
+    websiteUri: topLevelWebsite,
+    url: topLevelWebsite,
+    email: business.email || (enrichmentBundle.emailCandidates && enrichmentBundle.emailCandidates[0]) || bestPlaceSource.email || '',
+    formatted_address: topLevelAddress,
+    address: topLevelAddress,
+    streetNumber: topLevelStreetNumber,
+    street_number: topLevelStreetNumber,
+    streetName: topLevelStreetName,
+    street_name: topLevelStreetName,
+    city: topLevelCity,
+    state: topLevelState,
+    zip: topLevelZip,
+    zipCode: topLevelZip,
+    zip_code: topLevelZip,
     contactCandidates: enrichmentBundle.contacts || [],
     pocCandidates: enrichmentBundle.pocCandidates || [],
     emailCandidates: enrichmentBundle.emailCandidates || [],

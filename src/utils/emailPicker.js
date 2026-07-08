@@ -1,7 +1,7 @@
-import { Alert, Linking, Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
-import { showThemedAlert } from '../components/ThemedAlert';
+import { showToast } from '../context/ToastContext';
 
 /**
  * Opens the Outlook app specifically if installed, otherwise falls back to default.
@@ -43,10 +43,10 @@ export async function sendIntroEmail({ to, subject, body }) {
       await Linking.openURL(url);
       return true;
     }
-    showThemedAlert('No email app found', 'Please set up an email account on your phone first.');
+    showToast('No email app found. Please set up an email account on your phone first.', 'error');
     return false;
   } catch (e) {
-    showThemedAlert('Email failed', e.message);
+    showToast(`Email failed: ${e.message}`, 'error');
     return false;
   }
 }
@@ -67,10 +67,10 @@ export async function shareFileWithEmail(fileUri, { subject, body }) {
       });
       return true;
     }
-    showThemedAlert('Sharing not available on this device.');
+    showToast('Sharing not available on this device.', 'error');
     return false;
   } catch (e) {
-    showThemedAlert('Share failed', e.message);
+    showToast(`Share failed: ${e.message}`, 'error');
     return false;
   }
 }

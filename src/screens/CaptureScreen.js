@@ -30,6 +30,7 @@ import { extractSocialLinksFromText, mergeSocialFieldsIntoLead } from '../utils/
 import { ThemedAlertHost, showThemedAlert } from '../components/ThemedAlert';
 import { processQueue } from '../utils/taskRunner';
 import { enqueueTask, TASK_TYPES } from '../utils/taskQueue';
+import useToast from '../hooks/useToast';
 import BetaTracker from '../../utils/betaTracker';
 import { initScanDb } from '../features/cardScan/storage/scanDb';
 import {
@@ -293,6 +294,7 @@ export default function CaptureScreen({ navigation, route }) {
   }, []);
 
   const { user } = route.params;
+  const { showToast } = useToast();
   const [processing, setProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
@@ -636,7 +638,7 @@ export default function CaptureScreen({ navigation, route }) {
     } catch (err) {
       console.error('[Capture] handleScan error:', err);
       BetaTracker.crash('CaptureScreen', err);
-      Alert.alert('Scan Error', err.message || 'Could not process photos.');
+      showToast(`Scan Error: ${err.message || 'Could not process photos.'}`, 'error');
       setProcessing(false);
     } finally {
       scanInProgress.current = false;

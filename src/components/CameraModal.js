@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
-  Alert,
   Linking,
   Dimensions,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 import { detectObjectsInImage } from '../services/objectDetectionService';
+import useToast from '../hooks/useToast';
 
 const COLORS = {
   bg: '#080A0F',
@@ -103,6 +103,7 @@ export default function CameraModal({
   const [capturing, setCapturing] = useState(false);
   const [detections, setDetections] = useState([]);
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
 
   const initialDistRef = useRef(null);
   const initialZoomRef = useRef(0);
@@ -202,7 +203,7 @@ export default function CameraModal({
     } catch (error) {
       console.error('[CameraModal] Capture error:', error);
       setCapturing(false); // Reset capturing state on error
-      Alert.alert('Capture Error', error.message || 'Failed to capture photo');
+      showToast(`Capture Error: ${error.message || 'Failed to capture photo'}`, 'error');
     }
   };
 

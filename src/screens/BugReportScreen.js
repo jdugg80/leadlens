@@ -10,7 +10,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  ScrollView, Alert, ActivityIndicator, Image, Platform,
+  ScrollView, ActivityIndicator, Image, Platform,
   KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +27,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 import { getAppVersionShort } from '../constants';
+import useToast from '../hooks/useToast';
 
 const MAX_PHOTOS = 5;
 const MAX_VIDEO_SECS = 30;
@@ -54,12 +55,13 @@ export default function BugReportScreen({ navigation, route }) {
   const [photos, setPhotos] = useState([]);
   const [video, setVideo] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const { showToast } = useToast();
 
   // ── Request media library permission ─────────────────────────────────────
   const ensureMediaPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please allow access to your photo library in Settings.');
+      showToast('Permission needed: Please allow access to your photo library in Settings.', 'error');
       return false;
     }
     return true;
@@ -69,7 +71,7 @@ export default function BugReportScreen({ navigation, route }) {
   const pickPhotos = async () => {
     const remaining = MAX_PHOTOS - photos.length;
     if (remaining <= 0) {
-      Alert.alert('Limit reached', `You can attach up to ${MAX_PHOTOS} screenshots.`);
+      showToast(`Limit reached: You can attach up to ${MAX_PHOTOS} screenshots.`, 'error');
       return;
     }
     const granted = await ensureMediaPermission();
@@ -94,7 +96,7 @@ export default function BugReportScreen({ navigation, route }) {
   // ── Pick video ────────────────────────────────────────────────────────────
   const pickVideo = async () => {
     if (video) {
-      Alert.alert('Video already attached', 'Remove the current recording before attaching a new one.');
+      showToast('Video already attached: Remove the current recording first.', 'error');
       return;
     }
     const granted = await ensureMediaPermission();
@@ -109,7 +111,7 @@ export default function BugReportScreen({ navigation, route }) {
     if (!result.canceled && result.assets?.[0]) {
       const a = result.assets[0];
       if (a.duration && a.duration > MAX_VIDEO_SECS * 1000) {
-        Alert.alert('Video too long', `Please attach a recording under ${MAX_VIDEO_SECS} seconds.`);
+        showToast(`Video too long: Please attach a recording under ${MAX_VIDEO_SECS} seconds.`, 'error');
         return;
       }
       setVideo({ uri: a.uri, name: a.fileName || `recording_${Date.now()}.mp4` });
@@ -122,7 +124,7 @@ export default function BugReportScreen({ navigation, route }) {
   // ── Submit ────────────────────────────────────────────────────────────────
   const submit = async () => {
     if (!subject.trim() || !details.trim()) {
-      Alert.alert('Missing info', 'Please fill in the subject and describe the issue.');
+      showToast('Please fill in the subject and describe the issue.', 'error');
       return;
     }
     setSubmitting(true);
@@ -143,21 +145,20 @@ export default function BugReportScreen({ navigation, route }) {
       if (error) throw error;
 
       const message = getBugConfirmation(repName, subject.trim());
-      Alert.alert('Report sent', message, [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      showToast(message, 'success');
+      setTimeout(() => navigation.goBack(), 1800);
     } catch (err) {
       console.error('[BugReportScreen] Error:', err);
-      Alert.alert('Submission failed', err.message || 'Check your connection and try again.');
+      showToast(`Submission failed: ${err.message || 'Check your connection and try again.'}`, 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <View style={[styles.safe, { paddingTop: insets.top }]}>
+    <View style={styles.safe}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backArrow}>‹</Text>
         </TouchableOpacity>

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity,
-  StyleSheet, Dimensions, Alert, Modal,
+  StyleSheet, Dimensions, Modal,
 } from 'react-native';
 import { storage as AsyncStorage } from '../utils/storage';
 import * as FileSystem from 'expo-file-system';

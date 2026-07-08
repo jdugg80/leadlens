@@ -1,5 +1,35 @@
 # Changelog
 
+## BETA-55 | 2026-07-08
+
+> Unreleased / development build
+
+### 🚀 Milestone
+- **First successful LeadLock usage** — LeadLock photo-to-queue pipeline verified end-to-end: multi-business detection, address preservation, MMKV/AsyncStorage round-trip, and Supabase `address` column mapping all confirmed working today.
+
+### 🎯 LeadLock
+- **Address Flow Hardening** — Added `address` column to the Supabase `prospects` table and local schema files; `backendSync.js`, `leadHelpers.js`, and `constants/index.js` now preserve the full `address` field throughout normalization and sync. `ProspectQueueScreen` renders the full address on each card and logs card rendering for observability.
+- **Pipeline Verification** — Created `scripts/testLeadLockAddressFlow.js` to validate the complete LeadLock → ProspectQueue → Supabase address flow; test passes against the live database.
+
+### 🗺️ Territory Map
+- **ZIP Boundary Re-render on Mode Toggle** — `TerritoryMapScreen` now re-fetches ZIP boundaries in `silent: true` mode when `targetLensMode` changes and forces polygon remounts with mode-aware keys so boundaries redraw correctly across residential/commercial switches.
+- **Boundary Loader Logging** — Added fetch lifecycle logging to `territoryZipLoader.js` and `zipBoundaryCache.js` to help diagnose missing polygons.
+
+### 🎛️ Prospect Queue
+- **Scrollable Filter Panel** — Added a filter panel to `ProspectQueueScreen` with status, radius, and recency filters inside a bounded, nested-scrollable `ScrollView` so filter UI no longer conflicts with the main list.
+
+### 🔔 In-App Toast
+- **Global Themed Toast Provider** — New `ToastContext` provider with `useToast()` hook and imperative `showToast()` / `hideToast()` API. `ThemedToast` is a custom `Animated` overlay with success/error variants, auto-dismiss, and safe-area handling.
+- **Alert Replacement** — Replaced most simple `Alert` notifications with the global toast across `BugReportScreen`, `FeatureRequestScreen`, `CaptureScreen`, `LeadLockCameraScreen`, `PhotoIngestScreen`, `CameraModal`, `ScanCameraModal`, `TargetMapAdjusterScreen`, `SettingsScreen`, and `emailPicker.js`.
+
+### 🔧 Core App
+- **SettingsScreen Lint Cleanup** — Removed broken `queueScheduledExport` and `syncQueueToSupabase` imports (and their non-existent backend buttons) to resolve import/named lint errors.
+
+### ⚠️ Known Issues
+- (carried forward from BETA-54)
+
+---
+
 ## BETA-54 | 2026-07-08
 
 > Unreleased / development build

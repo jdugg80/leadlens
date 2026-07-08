@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Image, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+  Image, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { COLORS, EMPTY_LEAD } from '../constants';

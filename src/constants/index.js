@@ -54,8 +54,9 @@ export const INDUSTRY_VERTICALS = [
 
 export const TARGET_LENS_PROFILES_KEY = '@leadlens_target_lens_profile';
 export const TARGET_LENS_SEARCH_MODE_KEY = '@leadlens_target_lens_search_mode';
+export const TARGET_LENS_MODE_KEY = '@leadlens_target_lens_mode';
 
-export const PROPERTY_TYPES = ['Commercial'];
+export const PROPERTY_TYPES = ['Commercial', 'Residential'];
 
 export const ROLES = {
   ACCOUNT_MANAGER: 'Account Manager',
@@ -79,6 +80,7 @@ export const EMPTY_LEAD = {
   xUrl: '',
   socialConfidence: 'none',
   socialSource: '',
+  address: '',
   streetNumber: '',
   streetName: '',
   addressLine2: '',

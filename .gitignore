@@ -58,3 +58,7 @@ ProjectSnapshots/
 
 # Changelog idempotency marker
 .last-changelogged-commit
+
+# Local scanner / temporary artifacts
+change-log.txt
+web.zip

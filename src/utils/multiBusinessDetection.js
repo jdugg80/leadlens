@@ -204,6 +204,14 @@ async function enrichBusinessDetection(business, context) {
         locationConfidence: business.confidence || 0.8,
       };
 
+      console.log('[LeadLock Detection] Enriching business:', {
+        businessName: business.name,
+        photoZip: enrichmentContext.photoZip,
+        city: safeContext.city || 'Houston',
+        latitude,
+        longitude,
+      });
+
       publicSources = await enrichBusinessWithPublicSources({
         businessName: business.name,
         address: business.address || fullAddress,
@@ -212,8 +220,24 @@ async function enrichBusinessDetection(business, context) {
         latitude,
         longitude,
       }, enrichmentContext).catch((err) => {
-        console.warn('[LeadLock] Public sources enrichment failed:', err.message);
+        console.warn('[LeadLock Detection] Public sources enrichment failed:', err.message);
         return null;
+      });
+
+      console.log('[LeadLock Detection] Public enrichment result:', publicSources ? {
+        businessName: publicSources.businessName,
+        phone: publicSources.phone || null,
+        website: publicSources.website || null,
+        address: publicSources.formatted_address || publicSources.address || null,
+        zip: publicSources.zip || null,
+        enrichment_confidence: publicSources.enrichment_confidence,
+        enrichment_confidence_score: publicSources.enrichment_confidence_score,
+      } : null);
+    } else {
+      console.warn('[LeadLock Detection] Skipping public enrichment: missing business name or location', {
+        businessName: business.name,
+        latitude,
+        city: safeContext.city,
       });
     }
 
@@ -337,9 +361,14 @@ function calculateRiskLevel(score) {
  * @returns {array} Formatted businesses for UI
  */
 export function formatMultiBusinessesForDisplay(detectionResult) {
-  if (!detectionResult.success) return [];
+  if (!detectionResult.success) {
+    console.log('[LeadLock Display] formatMultiBusinessesForDisplay: detectionResult.success is false, returning []');
+    return [];
+  }
 
-  return detectionResult.businesses.map(business => {
+  console.log(`[LeadLock Display] Formatting ${detectionResult.businesses?.length || 0} businesses for display`);
+
+  const formatted = detectionResult.businesses.map((business, index) => {
     // Extract contact data from public sources enrichment
     const publicSources = business.publicSources || {};
     const phone = publicSources.formatted_phone_number || 
@@ -356,7 +385,7 @@ export function formatMultiBusinessesForDisplay(detectionResult) {
                     business.detection.address || '';
 
     return {
-      id: `${business.detection.name}-${Date.now()}`,
+      id: `${business.detection.name}-${Date.now()}-${index}`,
       name: business.detection.name || 'Unknown Business',
       address: address,
       businessType: business.detection.businessType,
@@ -372,6 +401,14 @@ export function formatMultiBusinessesForDisplay(detectionResult) {
       fullData: business,
     };
   });
+
+  console.log(`[LeadLock Display] Formatted ${formatted.length} businesses. Sample:`, formatted.slice(0, 2).map(b => ({
+    name: b.name,
+    address: b.address,
+    phone: b.phone,
+    website: b.website,
+  })));
+  return formatted;
 }
 
 /**
@@ -427,11 +464,19 @@ function generateBusinessBadges(business) {
  * @returns {array} Prospect objects ready for queue
  */
 export function convertSelectedBusinessesToProspects(selectedBusinesses, resolvedLocation = null) {
-  if (!Array.isArray(selectedBusinesses)) return [];
+  if (!Array.isArray(selectedBusinesses)) {
+    console.log('[LeadLock Prospects] convertSelectedBusinessesToProspects: input not an array, returning []');
+    return [];
+  }
 
-  return selectedBusinesses
-    .filter(b => b.selected)
-    .map(business => {
+  const selected = selectedBusinesses.filter(b => b.selected);
+  console.log(`[LeadLock Prospects] Converting ${selected.length} selected businesses to prospects. resolvedLocation:`, resolvedLocation);
+
+  if (selected.length === 0) {
+    console.warn('[LeadLock Prospects] No businesses selected for conversion');
+  }
+
+  const prospects = selected.map(business => {
       const publicSources = business.fullData?.publicSources || {};
       
       return {
@@ -493,6 +538,16 @@ export function convertSelectedBusinessesToProspects(selectedBusinesses, resolve
         enrichedAt: new Date().toISOString(),
       };
     });
+
+  console.log(`[LeadLock Prospects] Converted ${prospects.length} prospects. Sample:`, prospects.slice(0, 2).map(p => ({
+    businessName: p.businessName,
+    zip: p.zip,
+    phone: p.phone,
+    website: p.website,
+    latitude: p.latitude,
+    longitude: p.longitude,
+  })));
+  return prospects;
 }
 
 /**

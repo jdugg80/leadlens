@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  Alert,
   Image,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -22,11 +21,13 @@ import { storageBridge } from '../utils/storage';
 import { getCurrentCoords, reverseGeocodeCoords } from '../utils/geoEnrich';
 import { normalizeLead } from '../utils/leadHelpers';
 import { detectMultipleBusinessesInPhoto, detectBusinessCardsInPhoto } from '../utils/multiBusinessDetection';
+import useToast from '../hooks/useToast';
 
 export default function PhotoIngestScreen({ navigation }) {
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
 
   // Camera states
   const [cameraActive, setCameraActive] = useState(true);
@@ -165,7 +166,7 @@ export default function PhotoIngestScreen({ navigation }) {
       handleDetectBusinesses(manipulated.base64);
     } catch (error) {
       console.error('[PhotoIngest] Photo capture error:', error);
-      Alert.alert('Photo Error', error.message);
+      showToast(`Photo Error: ${error.message}`, 'error');
     }
   };
 
@@ -314,12 +315,11 @@ export default function PhotoIngestScreen({ navigation }) {
       setShowConfirmation(false);
       setProspectsToConfirm([]);
 
-      Alert.alert('Success', `${savedProspects.length} prospect${savedProspects.length !== 1 ? 's' : ''} added to queue`, [
-        { text: 'OK', onPress: () => handleResetCamera() },
-      ]);
+      showToast(`${savedProspects.length} prospect${savedProspects.length !== 1 ? 's' : ''} added to queue.`, 'success');
+      handleResetCamera();
     } catch (error) {
       console.error('[PhotoIngest] Save error:', error);
-      Alert.alert('Error', 'Failed to save: ' + error.message);
+      showToast(`Failed to save: ${error.message}`, 'error');
     } finally {
       setSaving(false);
     }

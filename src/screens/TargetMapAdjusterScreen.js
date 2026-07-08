@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { COLORS } from '../constants';
 import {
@@ -7,6 +7,7 @@ import {
   getCapturePoint,
   getProjectedTargetPoint,
 } from '../utils/geoTargetConfirmation';
+import useToast from '../hooks/useToast';
 
 function isValidPoint(point) {
   return (
@@ -62,6 +63,7 @@ export default function TargetMapAdjusterScreen({ navigation, route }) {
       : projectedPoint || capturePoint;
 
   const [selectedTarget, setSelectedTarget] = useState(initialTarget);
+  const { showToast } = useToast();
 
   const region = useMemo(
     () => buildRegion([capturePoint, projectedPoint, selectedTarget]),
@@ -70,7 +72,7 @@ export default function TargetMapAdjusterScreen({ navigation, route }) {
 
   const confirmSelectedTarget = () => {
     if (!isValidPoint(selectedTarget)) {
-      Alert.alert('Target needed', 'Tap the map to choose a target location.');
+      showToast('Target needed: Tap the map to choose a target location.', 'error');
       return;
     }
 
