@@ -1444,9 +1444,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
           moveOnMarkerPress={false}
           onMapReady={() => { isMapReadyRef.current = true; console.log('[TerritoryMap] Map ready'); }}
         >
-          {/* ZIP Boundary Polygons — business mode only */}
-          {console.log('[TerritoryMap] Boundary layer render check. mode:', filters?.targetLensMode, 'showBusiness:', filters?.targetLensMode === 'business' && !lowMemoryMode, 'overlays:', zipBoundaryOverlays.length)}
-          {filters?.targetLensMode === 'business' && !lowMemoryMode && zipBoundaryOverlays}
+          {/* ZIP Boundary Polygons — rendered in both business and homeowner modes */}
+          {console.log('[TerritoryMap] Boundary layer render check. mode:', filters?.targetLensMode, 'show:', !lowMemoryMode, 'overlays:', zipBoundaryOverlays.length)}
+          {!lowMemoryMode && zipBoundaryOverlays}
           {filters?.targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;

@@ -224,12 +224,14 @@ function bumpVersions(buildNumber) {
 
   if (DRY_RUN) {
     dryLog(`Would bump: ${appJson.expo.version} → ${newVersion} (versionCode ${currentCode} → ${targetCode})`);
+    dryLog(`Would bump: runtimeVersion → ${newVersion}`);
     dryLog(`Would bump: extra.betaBuild → ${targetCode}`);
     return newVersion;
   }
 
   appJson.expo.version             = newVersion;
   appJson.expo.android.versionCode = targetCode;
+  appJson.expo.runtimeVersion      = newVersion;
   if (!appJson.expo.extra) appJson.expo.extra = {};
   appJson.expo.extra.betaBuild     = targetCode;
   fs.writeFileSync(APP_JSON_PATH, JSON.stringify(appJson, null, 2) + '\n');
