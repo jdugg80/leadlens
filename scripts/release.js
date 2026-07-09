@@ -127,11 +127,33 @@ function downloadLatestBuild(buildNum) {
 
   info('Downloading latest build artifact from EAS...');
   try {
-    // eas build:download puts the file in the current directory
-    execSync(
-      `eas build:download --platform android --output "${outFile}" --non-interactive`,
-      { cwd: ROOT, stdio: 'inherit' }
+    // Get latest build ID
+    const listJson = execSync(
+      `eas build:list --platform android --limit 1 --json --non-interactive`,
+      { cwd: ROOT, encoding: 'utf8' }
     );
+    const builds = JSON.parse(listJson);
+    const buildId = builds?.[0]?.id;
+    if (!buildId) {
+      warn('No EAS builds found');
+      return null;
+    }
+    info(`Latest build ID: ${buildId}`);
+    // eas build:download saves to EAS cache dir
+    execSync(
+      `eas build:download --build-id ${buildId} --non-interactive`,
+      { cwd: outDir, stdio: 'inherit' }
+    );
+    // Find the downloaded .apk in EAS cache
+    const easCache = path.join(require('os').tmpdir(), 'eas-cli-nodejs', 'eas-build-run-cache');
+    if (fs.existsSync(easCache)) {
+      const apk = fs.readdirSync(easCache).find(f => f.endsWith('.apk'));
+      if (apk) {
+        const src = path.join(easCache, apk);
+        fs.copyFileSync(src, outFile);
+        fs.unlinkSync(src);
+      }
+    }
     if (fs.existsSync(outFile)) {
       ok(`APK downloaded: ${outFile}`);
       return outFile;
