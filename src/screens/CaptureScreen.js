@@ -897,6 +897,7 @@ export default function CaptureScreen({ navigation, route }) {
                 };
               } else {
                 leads.push(lead);
+                BetaTracker.track('feature_use', { feature: 'Capture', action: 'prospect_captured', screen: 'CaptureScreen' });
               }
             }
           }

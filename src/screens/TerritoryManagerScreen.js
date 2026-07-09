@@ -187,6 +187,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     console.log('[Territory] Saving zips:', updated.map(z => z.zip).join(', '));
     await saveMyZips(updated);
     console.log('[Territory] Zips saved to storage');
+    BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'zip_added', screen: 'TerritoryManagerScreen' });
     await refreshData(updated);
     setManualZip('');
   };

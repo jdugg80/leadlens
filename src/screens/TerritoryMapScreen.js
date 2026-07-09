@@ -517,6 +517,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
     } catch (e) { console.warn('[TerritoryMap] Leads reload error:', e); }
 
     setLeads(rawLeads || []);
+    if (rawLeads?.length) BetaTracker.track('feature_use', { feature: 'TerritoryMap', action: 'map_loaded', screen: 'TerritoryMapScreen' });
     setLeadMarkers((rawLeads || []).map(l => { const c = getLeadCoords(l); return c ? { ...l, coords: c } : null; }).filter(Boolean));
 
     setZipMarkers(prev => {

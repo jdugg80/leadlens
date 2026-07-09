@@ -294,10 +294,10 @@ export default function LeadLockCameraScreen({ navigation }) {
     zipArcAAnim.setValue(0);
     zipArcBAnim.setValue(0);
     const loopA = Animated.loop(
-      Animated.timing(zipArcAAnim, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: false })
+      Animated.timing(zipArcAAnim, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true })
     );
     const loopB = Animated.loop(
-      Animated.timing(zipArcBAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: false })
+      Animated.timing(zipArcBAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true })
     );
     loopA.start();
     loopB.start();
@@ -642,12 +642,6 @@ export default function LeadLockCameraScreen({ navigation }) {
           </TouchableOpacity>
           <Text style={s.headerTitle}>LeadLock Camera</Text>
           <Text style={s.headerSubtitle}>Multi-Business Detection</Text>
-          {location?.zip && (
-            <View style={s.zipIndicatorRow}>
-              <Text style={[s.zipIndicatorDot, { color: '#51CF66' }]}>●</Text>
-              <Text style={s.zipIndicatorText}>ZIP {location.zip}</Text>
-            </View>
-          )}
         </View>
 
         {/* Centered ZIP acquisition overlay — sibling overlay */}

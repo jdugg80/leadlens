@@ -344,6 +344,7 @@ export default function ReviewScreen({ navigation, route }) {
     });
 
     showThemedAlert('Lead Saved', `Want to send a quick intro to ${name}?`, options);
+    BetaTracker.track('feature_use', { feature: 'Review', action: 'prospect_reviewed', screen: 'ReviewScreen' });
   };
 
   const sendIntro = async (savedLead) => {

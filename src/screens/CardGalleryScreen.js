@@ -18,6 +18,7 @@ const TILE_SIZE = (width - 48) / 3;
 export default function CardGalleryScreen({ navigation, route }) {
   useEffect(() => {
     BetaTracker.screen('CardGalleryScreen');
+    BetaTracker.track('feature_use', { feature: 'CardGallery', action: 'gallery_opened', screen: 'CardGalleryScreen' });
   }, []);
 
   const { user } = route.params;

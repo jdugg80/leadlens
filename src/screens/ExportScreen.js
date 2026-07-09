@@ -181,6 +181,7 @@ export default function ExportScreen({ navigation, route }) {
 
   setExporting(true);
   setStatusText('Building export file...');
+  BetaTracker.track('feature_use', { feature: 'Export', action: 'export_started', screen: 'ExportScreen' });
 
   try {
     if (selectedMode === 'standard') {
@@ -234,6 +235,7 @@ export default function ExportScreen({ navigation, route }) {
       const syncResult = await syncAllProspectsToSupabase(user);
       if (syncResult.ok) {
         setStatusText(msg || `Export complete. ${syncResult.count} prospects synced to Supabase.`);
+        BetaTracker.track('feature_use', { feature: 'Export', action: 'export_completed', screen: 'ExportScreen' });
       }
     } catch (syncError) {
     BetaTracker.crash('ExportScreen', syncError);

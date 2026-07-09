@@ -17,7 +17,6 @@ import {
   useWindowDimensions,
   Linking,
   Animated,
-  Easing,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,7 +34,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import useLeadLockLocationSnapshot from '../hooks/useLeadLockLocationSnapshot';
 import resolveZipFromLeadLockPhoto from '../utils/location/resolveZipFromLeadLockPhoto';
 import useToast from '../hooks/useToast';
-import BetaTracker from '../../utils/betaTracker';
 
 const COLORS_THEME = {
   bg: '#080A0F',
@@ -128,8 +126,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   // ZIP acquisition UX state (LeadLock centered overlay + capture gating)
   const [zipJustAcquired, setZipJustAcquired] = useState(false);
   const [zipTimedOut, setZipTimedOut] = useState(false);
-  const zipArcAAnim = useRef(new Animated.Value(0)).current;
-  const zipArcBAnim = useRef(new Animated.Value(0)).current;
+  const zipPulseAnim = useRef(new Animated.Value(1)).current;
   const prevHasZipRef = useRef(false);
   const zipRetryTickRef = useRef(0);
   const [zipRetryTick, setZipRetryTick] = useState(0);
@@ -288,23 +285,17 @@ export default function LeadLockCameraScreen({ navigation }) {
     setLocation(FALLBACK_LOC);
   };
 
-  // Dual orbit arcs while ZIP is being acquired
+  // Pulse animation while ZIP is being acquired
   useEffect(() => {
     if (location?.zip) return;
-    zipArcAAnim.setValue(0);
-    zipArcBAnim.setValue(0);
-    const loopA = Animated.loop(
-      Animated.timing(zipArcAAnim, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: false })
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(zipPulseAnim, { toValue: 1.15, duration: 700, useNativeDriver: true }),
+        Animated.timing(zipPulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+      ])
     );
-    const loopB = Animated.loop(
-      Animated.timing(zipArcBAnim, { toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: false })
-    );
-    loopA.start();
-    loopB.start();
-    return () => {
-      loopA.stop();
-      loopB.stop();
-    };
+    loop.start();
+    return () => loop.stop();
   }, [location?.zip]);
 
   // Transient "ZIP acquired" confirmation shown once, right after resolution
@@ -490,7 +481,6 @@ export default function LeadLockCameraScreen({ navigation }) {
     const selected = selectedBusinesses.filter(b => b.selected);
 
     console.log('[LeadLockCamera] handleAddToQueue called. Selected count:', selected.length);
-    BetaTracker.track('feature_use', { feature: 'LeadLock', action: 'photo_processed', screen: 'LeadLockCameraScreen' });
 
     if (selected.length === 0) {
       showToast('Select at least one business to add.', 'error');
@@ -632,89 +622,62 @@ export default function LeadLockCameraScreen({ navigation }) {
             const { width, height } = e.nativeEvent.layout;
             setCameraLayout({ width, height });
           }}
-        />
+        >
+          {/* Header */}
+          <View style={[s.header, { paddingTop: insets.top + 12 }]}>
+            <TouchableOpacity onPress={() => navigation.goBack()}>
+              <Text style={s.headerText}>←</Text>
+            </TouchableOpacity>
+            <Text style={s.headerTitle}>LeadLock Camera</Text>
+            <Text style={s.headerSubtitle}>Multi-Business Detection</Text>
+          </View>
 
-        {/* Header — sibling overlay, not a CameraView child (Android camera
-            views can misrender complex nested children) */}
-        <View style={[s.header, s.headerAbsolute, { paddingTop: insets.top + 12 }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={s.headerText}>←</Text>
-          </TouchableOpacity>
-          <Text style={s.headerTitle}>LeadLock Camera</Text>
-          <Text style={s.headerSubtitle}>Multi-Business Detection</Text>
-          {location?.zip && (
-            <View style={s.zipIndicatorRow}>
-              <Text style={[s.zipIndicatorDot, { color: '#51CF66' }]}>●</Text>
-              <Text style={s.zipIndicatorText}>ZIP {location.zip}</Text>
+          {/* Centered ZIP acquisition overlay */}
+          {(!location?.zip || zipJustAcquired) && (
+            <View style={s.zipOverlayContainer} pointerEvents="box-none">
+              <View style={s.zipOverlayCard}>
+                {location?.zip ? (
+                  <>
+                    <Text style={s.zipOverlayCheckmark}>✓</Text>
+                    <Text style={s.zipOverlayTitle}>Location Confirmed</Text>
+                    <Text style={s.zipOverlaySubtitle}>ZIP {location.zip} — ready to capture</Text>
+                  </>
+                ) : (
+                  <>
+                    <Animated.View style={[s.zipPulseDot, { transform: [{ scale: zipPulseAnim }] }]} />
+                    <ActivityIndicator size="large" color={COLORS_THEME.accent} style={s.zipOverlaySpinner} />
+                    <Text style={s.zipOverlayTitle}>Location Acquisition in Progress</Text>
+                    <Text style={s.zipOverlaySubtitle}>
+                      {zipTimedOut
+                        ? 'Taking longer than usual — check GPS signal'
+                        : 'Pinpointing your position for accurate prospect data'}
+                    </Text>
+                    {zipTimedOut && (
+                      <TouchableOpacity style={s.zipRetryBtn} onPress={handleRetryLocation}>
+                        <Text style={s.zipRetryBtnText}>Retry</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+              </View>
             </View>
           )}
-        </View>
 
-        {/* Centered ZIP acquisition overlay — sibling overlay */}
-        {(!location?.zip || zipJustAcquired) && (
-          <View style={s.zipOverlayContainer} pointerEvents="box-none">
-            <View style={s.zipOverlayCard}>
-              {location?.zip ? (
-                <>
-                  <Text style={s.zipOverlayCheckmark}>✓</Text>
-                  <Text style={s.zipOverlayTitle}>Location Confirmed</Text>
-                  <Text style={s.zipOverlaySubtitle}>ZIP {location.zip} — ready to capture</Text>
-                </>
-              ) : (
-                <>
-                  <View style={s.zipOrbitWrap}>
-                    <Animated.View
-                      style={[
-                        s.zipOrbitArcOuter,
-                        {
-                          transform: [{
-                            rotate: zipArcAAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }),
-                          }],
-                        },
-                      ]}
-                    />
-                    <Animated.View
-                      style={[
-                        s.zipOrbitArcInner,
-                        {
-                          transform: [{
-                            rotate: zipArcBAnim.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] }),
-                          }],
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={s.zipOverlayTitle}>Location Acquisition in Progress</Text>
-                  <Text style={s.zipOverlaySubtitle}>
-                    {zipTimedOut
-                      ? 'Taking longer than usual — check GPS signal'
-                      : 'Pinpointing your position for accurate prospect data'}
-                  </Text>
-                  {zipTimedOut && (
-                    <TouchableOpacity style={s.zipRetryBtn} onPress={handleRetryLocation}>
-                      <Text style={s.zipRetryBtnText}>Retry</Text>
-                    </TouchableOpacity>
-                  )}
-                </>
-              )}
-            </View>
+          {/* Capture button */}
+          <View style={[s.footer, { bottom: insets.bottom + 16 }]}>
+            <TouchableOpacity
+              style={[s.captureBtn, !location?.zip && s.captureBtnDisabled]}
+              onPress={handleTakePhoto}
+              activeOpacity={0.7}
+              disabled={!location?.zip}
+            >
+              <View style={s.captureBtnInner} />
+            </TouchableOpacity>
+            <Text style={s.captureLabel}>
+              {location?.zip ? 'Tap to Capture' : 'Waiting for location...'}
+            </Text>
           </View>
-        )}
-
-        {/* Capture button — sibling overlay (footer style is already absolute) */}
-        <View style={[s.footer, { bottom: insets.bottom + 16 }]}>
-          <TouchableOpacity
-            style={[s.captureBtn, !location?.zip && s.captureBtnDisabled]}
-            onPress={handleTakePhoto}
-            activeOpacity={0.7}
-            disabled={!location?.zip}
-          >
-            <View style={s.captureBtnInner} />
-          </TouchableOpacity>
-          <Text style={s.captureLabel}>
-            {location?.zip ? 'Tap to Capture' : 'Waiting for location...'}
-          </Text>
-        </View>
+        </CameraView>
       </View>
     );
   }
@@ -934,12 +897,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 20,
     backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  headerAbsolute: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
   },
   headerText: {
     color: COLORS_THEME.accent,
@@ -1298,33 +1255,16 @@ const s = StyleSheet.create({
     paddingHorizontal: 24,
     alignItems: 'center',
   },
-  zipOrbitWrap: {
-    width: 56,
-    height: 56,
+  zipOverlaySpinner: {
     marginTop: 4,
     marginBottom: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  zipOrbitArcOuter: {
-    position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    borderTopColor: COLORS_THEME.accent,
-    borderRightColor: COLORS_THEME.accent,
-  },
-  zipOrbitArcInner: {
-    position: 'absolute',
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    borderBottomColor: COLORS_THEME.purple,
-    borderLeftColor: COLORS_THEME.purple,
+  zipPulseDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: COLORS_THEME.accent,
+    marginBottom: 10,
   },
   zipOverlayTitle: {
     color: COLORS_THEME.text,
