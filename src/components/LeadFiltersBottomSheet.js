@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,14 @@ import {
   Modal,
   ScrollView,
   TouchableWithoutFeedback,
+  Animated,
 } from 'react-native';
-import { COLORS } from '../constants';
+import {
+  COLORS,
+  PROSPECT_STATUS_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
+  SERVICE_TYPE_OPTIONS,
+} from '../constants';
 import HomeownerFilterPanel from './HomeownerFilterPanel';
 
 const BUSINESS_TYPES = [
@@ -140,12 +146,21 @@ export default function LeadFiltersBottomSheet({
   onReset,
 }) {
   const [localFilters, setLocalFilters] = React.useState(filters);
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
     if (visible) {
       setLocalFilters(filters);
     }
   }, [visible, filters]);
+
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: visible ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [visible, slideAnim]);
 
   const setMode = (mode) => {
     setLocalFilters(prev => ({ ...prev, targetLensMode: mode }));
@@ -189,6 +204,30 @@ export default function LeadFiltersBottomSheet({
     });
   };
 
+  const toggleProspectStatus = (key) => {
+    setLocalFilters(prev => {
+      const next = { ...prev, prospectStatus: toggleMulti(prev.prospectStatus || [], key) };
+      try { onApply && onApply(next); } catch {}
+      return next;
+    });
+  };
+
+  const toggleLeadSource = (key) => {
+    setLocalFilters(prev => {
+      const next = { ...prev, leadSource: toggleMulti(prev.leadSource || [], key) };
+      try { onApply && onApply(next); } catch {}
+      return next;
+    });
+  };
+
+  const toggleServiceType = (key) => {
+    setLocalFilters(prev => {
+      const next = { ...prev, serviceType: toggleMulti(prev.serviceType || [], key) };
+      try { onApply && onApply(next); } catch {}
+      return next;
+    });
+  };
+
   const handleApply = () => {
     onApply(localFilters);
     onClose();
@@ -212,7 +251,20 @@ export default function LeadFiltersBottomSheet({
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={s.overlay}>
           <TouchableWithoutFeedback>
-            <View style={s.sheet}>
+            <Animated.View
+              style={[
+                s.sheet,
+                {
+                  transform: [{
+                    translateY: slideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [300, 0],
+                    }),
+                  }],
+                  opacity: slideAnim,
+                },
+              ]}
+            >
               <View style={s.header}>
                 <Text style={s.title}>Lead Filters</Text>
                 <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -413,6 +465,54 @@ export default function LeadFiltersBottomSheet({
                   ))}
                 </View>
 
+                {/* ── Prospect Status (hot/warm/cold/contacted) ───────────────── */}
+                <Text style={s.sectionTitle}>Prospect Status</Text>
+                <View style={s.chipRow}>
+                  {PROSPECT_STATUS_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[s.chip, isActive(localFilters.prospectStatus, opt.key) && s.chipActive]}
+                      onPress={() => toggleProspectStatus(opt.key)}
+                    >
+                      <Text style={[s.chipText, isActive(localFilters.prospectStatus, opt.key) && s.chipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* ── Lead Source (inbound/manual/import) ──────────────────────── */}
+                <Text style={s.sectionTitle}>Lead Source</Text>
+                <View style={s.chipRow}>
+                  {LEAD_SOURCE_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[s.chip, isActive(localFilters.leadSource, opt.key) && s.chipActive]}
+                      onPress={() => toggleLeadSource(opt.key)}
+                    >
+                      <Text style={[s.chipText, isActive(localFilters.leadSource, opt.key) && s.chipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* ── Service Type (termite/rodent/general) ─────────────────────── */}
+                <Text style={s.sectionTitle}>Service Type</Text>
+                <View style={s.chipRow}>
+                  {SERVICE_TYPE_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[s.chip, isActive(localFilters.serviceType, opt.key) && s.chipActive]}
+                      onPress={() => toggleServiceType(opt.key)}
+                    >
+                      <Text style={[s.chipText, isActive(localFilters.serviceType, opt.key) && s.chipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
                 <Text style={s.sectionTitle}>Match Strength</Text>
                 <View style={s.chipRow}>
                   {MATCH_STRENGTHS.map((strength) => (
@@ -538,13 +638,13 @@ export default function LeadFiltersBottomSheet({
 
               <View style={s.footer}>
                 <TouchableOpacity style={s.resetBtn} onPress={handleReset}>
-                  <Text style={s.resetBtnText}>Reset</Text>
+                  <Text style={s.resetBtnText}>Clear All</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.applyBtn} onPress={handleApply}>
                   <Text style={s.applyBtnText}>Apply Filters</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </Animated.View>
           </TouchableWithoutFeedback>
         </View>
       </TouchableWithoutFeedback>

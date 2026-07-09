@@ -14,7 +14,7 @@ import { AppRegistry } from 'react-native';
 
 import { ToastProvider } from './src/context/ToastContext';
 import { storage as AsyncStorage } from './src/utils/storage';
-import { USER_STORAGE_KEY } from './src/constants';
+import { USER_STORAGE_KEY, getAppVersionString } from './src/constants';
 import { bindAutoExportOnAppResume, registerBackgroundAutoExport } from './src/utils/autoExport';
 import { processQueue } from './src/utils/taskRunner';
 import BetaTracker from './utils/betaTracker';
@@ -51,6 +51,8 @@ import PhotoIngestScreen          from './src/screens/PhotoIngestScreen';
 import CardGalleryScreen          from './src/screens/CardGalleryScreen';
 import TargetMapAdjusterScreen    from './src/screens/TargetMapAdjusterScreen';
 import ProspectQueueScreen        from './src/screens/ProspectQueueScreen';
+import BetaFeedbackScreen         from './src/screens/BetaFeedbackScreen';
+import BetaFeedbackFAB            from './src/components/BetaFeedbackFAB';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -248,6 +250,7 @@ export default function App() {
   const appState  = useRef(AppState.currentState);
   const navRef = useRef(null);
   const [updateModal, setUpdateModal] = useState(null);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     installGlobalErrorHandlers();
@@ -262,6 +265,7 @@ export default function App() {
           try {
             const user = JSON.parse(rawUser);
             if (user && typeof user === 'object') {
+              setUser(user);
               bindAutoExportOnAppResume(user);
               registerBackgroundAutoExport().catch((err) => reportGlobalCrash('background_auto_export', err, false));
 
@@ -443,7 +447,17 @@ export default function App() {
             component={TargetMapAdjusterScreen}
             options={{ headerShown: false }}
           />
+          <Stack.Screen
+            name="BetaFeedback"
+            component={BetaFeedbackScreen}
+            options={{ headerShown: false, presentation: 'modal' }}
+          />
         </Stack.Navigator>
+        <BetaFeedbackFAB
+          testerEmail={user?.repEmail || ''}
+          testerName={user?.repName || ''}
+          appVersion={getAppVersionString()}
+        />
         <FlashOverlay flashAnim={flashAnim} />
         <Modal visible={!!updateModal} transparent animationType="fade" onRequestClose={() => setUpdateModal(null)}>
           <View style={ustyles.overlay}>

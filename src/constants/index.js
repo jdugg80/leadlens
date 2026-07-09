@@ -110,6 +110,33 @@ export const LAST_AUTOMATION_RUN_KEY = '@leadlens_last_automation_run';
 export const MAP_FILTERS_KEY = '@leadlens_map_filters';
 export const MAP_REGION_KEY = '@leadlens_map_region';
 export const MAP_NEARBY_PLACES_KEY = '@leadlens_map_nearby_places';
+
+export const PROSPECT_FILTERS_KEY = 'prospect_filters';
+
+export const PROSPECT_STATUS_OPTIONS = [
+  { key: 'hot', label: 'Hot', color: '#FF3B5C' },
+  { key: 'warm', label: 'Warm', color: '#FFC800' },
+  { key: 'cold', label: 'Cold', color: '#00C9FF' },
+  { key: 'contacted', label: 'Contacted', color: '#00E5A0' },
+];
+
+export const LEAD_SOURCE_OPTIONS = [
+  { key: 'inbound', label: 'Inbound' },
+  { key: 'manual', label: 'Manual Entry' },
+  { key: 'import', label: 'Import' },
+];
+
+export const SERVICE_TYPE_OPTIONS = [
+  { key: 'termite', label: 'Termite' },
+  { key: 'rodent', label: 'Rodent' },
+  { key: 'general', label: 'General Pest' },
+];
+
+export const PROSPECT_FILTER_DB_COLUMNS = {
+  prospectStatus: 'prospect_status',
+  leadSource: 'lead_source',
+  serviceType: 'service_type',
+};
 export const LEGAL_ACCEPTANCE_KEY = '@leadlens_legal_acceptance';
 export const DAILY_GOAL_CHIME_KEY_PREFIX = 'dailyGoalChimePlayed:';
 export const DAILY_GOAL_CHIME_ENABLED_KEY = '@leadlens_daily_goal_chime_enabled';

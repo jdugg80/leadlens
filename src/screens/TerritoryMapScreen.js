@@ -75,6 +75,7 @@ const _toNormalizedZipEntry = (entry, defaults = {}) => {
 };
 
 import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
+import { subscribeProspects } from '../utils/prospectRealtimeSubscription';
 import { useFocusEffect } from '@react-navigation/native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import HomeownerFilterPanel from '../components/HomeownerFilterPanel';
@@ -89,6 +90,11 @@ import {
   TARGET_LENS_PROFILES_KEY,
   TARGET_LENS_SEARCH_MODE_KEY,
   TARGET_LENS_MODE_KEY,
+  PROSPECT_FILTERS_KEY,
+  PROSPECT_STATUS_OPTIONS,
+  LEAD_SOURCE_OPTIONS,
+  SERVICE_TYPE_OPTIONS,
+  PROSPECT_FILTER_DB_COLUMNS,
 } from '../constants';
 import { ScreenHeader } from '../components/UI';
 import {
@@ -103,7 +109,7 @@ import { showThemedAlert } from '../components/ThemedAlert';
 import { getStyledMessage } from '../utils/aiPersonality';
 import { enqueueTask, TASK_TYPES } from '../utils/taskQueue';
 import { processQueue } from '../utils/taskRunner';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   searchNearbyBusinesses,
   fetchPlaceDetails,
@@ -180,6 +186,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
     signalsOnly: false,
     signals: { lensSignal: true, contactSignal: true, pest: true, opening: true, priority: true },
     matchStrength: 'Show All',
+    // Prospect-specific filters (realtime Supabase)
+    prospectStatus: [],
+    leadSource: [],
+    serviceType: [],
     // Residential-specific
     homeownerFilter: 'all',
     lookbackWindow: '90d',
@@ -198,6 +208,11 @@ export default function TerritoryMapScreen({ navigation, route }) {
   useEffect(() => {
     if (isInitializedRef.current && filters) {
       AsyncStorage.setItem(MAP_FILTERS_KEY, JSON.stringify(filters)).catch(() => {});
+      AsyncStorage.setItem(PROSPECT_FILTERS_KEY, JSON.stringify({
+        prospectStatus: filters.prospectStatus || [],
+        leadSource: filters.leadSource || [],
+        serviceType: filters.serviceType || [],
+      })).catch(() => {});
       if (filters.targetLensMode) {
         AsyncStorage.setItem(TARGET_LENS_MODE_KEY, filters.targetLensMode).catch(() => {});
       }
@@ -215,6 +230,26 @@ export default function TerritoryMapScreen({ navigation, route }) {
       AsyncStorage.setItem(MAP_NEARBY_PLACES_KEY, JSON.stringify(nearbyPlaces)).catch(() => {});
     }
   }, [nearbyPlaces, loading]);
+
+  // Load persisted prospect filters (realtime filter dimensions)
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(PROSPECT_FILTERS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          setFilters((prev) => ({
+            ...prev,
+            prospectStatus: parsed.prospectStatus || [],
+            leadSource: parsed.leadSource || [],
+            serviceType: parsed.serviceType || [],
+          }));
+        }
+      } catch (e) {
+        console.warn('[TerritoryMap] Failed to load prospect filters:', e);
+      }
+    })();
+  }, []);
 
   // Monitor AppState to prevent background location usage
   useEffect(() => {
@@ -288,6 +323,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [selectedLensSignalRecord, setSelectedLensSignalRecord] = useState(null);
   const [leads, setLeads] = useState([]);
   const [leadMarkers, setLeadMarkers] = useState([]);
+  const [subscribedProspects, setSubscribedProspects] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [searchMode, setSearchMode] = useState('Strict');
   const [addressQuery, setAddressQuery] = useState('');
@@ -802,6 +838,30 @@ export default function TerritoryMapScreen({ navigation, route }) {
     refresh();
   }, [filters?.targetLensMode]);
 
+  // Realtime prospect subscription for business mode, filtered by territory zips and prospect filters
+  useEffect(() => {
+    if (mode !== 'business') return;
+    if (!isSupabaseConfigured || !user?.id) return;
+    const unsubscribe = subscribeProspects({
+      supabase,
+      user,
+      zipCodes: territoryZipCodes,
+      filters: {
+        prospectStatus: filters.prospectStatus || [],
+        leadSource: filters.leadSource || [],
+        serviceType: filters.serviceType || [],
+      },
+      onUpdate: (data) => {
+        console.log('[TerritoryMap] subscribed prospects updated:', data.length);
+        setSubscribedProspects(data);
+      },
+      onError: (err) => {
+        console.error('[TerritoryMap] prospect subscription error:', err);
+      },
+    });
+    return unsubscribe;
+  }, [mode, user?.id, JSON.stringify(territoryZipCodes), JSON.stringify(filters.prospectStatus), JSON.stringify(filters.leadSource), JSON.stringify(filters.serviceType)]);
+
   const fetchLensSignals = async (lat, lng) => {
     if (!isAppActive) {
       console.log('[TerritoryMap] fetchLensSignals skipped because app is not active');
@@ -939,6 +999,20 @@ export default function TerritoryMapScreen({ navigation, route }) {
     const score = lead.score ?? lead.match_score ?? lead.confidence ?? (lead.lensSignal ? 0.75 : 0);
     if (!matchesMatchStrength(score, filters.matchStrength)) return false;
 
+    // Client-side fallback for prospect filter dimensions (only used when not using Supabase realtime)
+    const leadProspectStatus = lead.prospect_status || lead.prospectStatus || lead.priority || '';
+    if (Array.isArray(filters.prospectStatus) && filters.prospectStatus.length > 0) {
+      if (!filters.prospectStatus.includes(leadProspectStatus)) return false;
+    }
+    const leadSource = lead.lead_source || lead.source_type || lead.sourceType || lead.capture_method || lead.captureMethod || '';
+    if (Array.isArray(filters.leadSource) && filters.leadSource.length > 0) {
+      if (!filters.leadSource.includes(leadSource)) return false;
+    }
+    const leadService = lead.service_type || lead.serviceType || lead.vertical || '';
+    if (Array.isArray(filters.serviceType) && filters.serviceType.length > 0) {
+      if (!filters.serviceType.includes(leadService)) return false;
+    }
+
     if (!isBusinessMode) {
       const hv = parseFloat(lead.home_value || lead.estimated_value || lead.market_value || 0);
       if (filters.minHomeValue && hv < filters.minHomeValue) return false;
@@ -975,7 +1049,12 @@ export default function TerritoryMapScreen({ navigation, route }) {
     return true;
   }, [activeProfile, filters, region]);
 
-  const filteredLeadMarkers = useMemo(() => leadMarkers.filter(isLeadVisible), [leadMarkers, isLeadVisible]);
+  const filteredLeadMarkers = useMemo(() => {
+    const source = filters?.targetLensMode === 'business' && subscribedProspects.length > 0
+      ? convertProspectsToMarkers(subscribedProspects)
+      : leadMarkers;
+    return source.filter(isLeadVisible);
+  }, [filters?.targetLensMode, subscribedProspects, leadMarkers, isLeadVisible, convertProspectsToMarkers]);
 
   const safeNearbyPlaces = useMemo(() => {
     const raw = Array.isArray(nearbyPlaces) ? nearbyPlaces : [];
@@ -1096,6 +1175,23 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const getLeadConfidence = (l) => String(l?.locationConfidence || l?.confidence || 'medium').toLowerCase();
   const getDistanceBetweenMeters = (a, b) => { const R = 6371000, toRad = (d) => d * Math.PI / 180; if (!a?.latitude || !b?.latitude) return null; const dLat = toRad(b.latitude - a.latitude), dLon = toRad(b.longitude - a.longitude), lat1 = toRad(a.latitude), lat2 = toRad(b.latitude), c = 2 * Math.atan2(Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2), Math.sqrt(1 - (Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2))); return Math.round(R * c); };
   const getLeadCoords = (l) => { const lat = Number(l.latitude ?? l.lat ?? l.captureLat ?? l.capture_lat ?? l.locationLat ?? l.latLng?.latitude); const lng = Number(l.longitude ?? l.lng ?? l.captureLng ?? l.capture_lng ?? l.locationLng ?? l.latLng?.longitude); return (isFinite(lat) && isFinite(lng)) ? { latitude: lat, longitude: lng } : null; };
+
+  const convertProspectsToMarkers = useCallback((prospects = []) => {
+    return prospects.map((p) => {
+      const c = getLeadCoords(p);
+      if (!c) return null;
+      return {
+        ...p,
+        id: p.id || p.leadId || `prospect_${p.zip}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        coords: c,
+        businessName: p.business_name || p.businessName || 'Prospect',
+        status: p.status || 'New',
+        sourceType: p.source_type || p.sourceType || p.capture_method || p.captureMethod || 'manual',
+        vertical: p.vertical || p.service_type || p.serviceType || 'General Pest',
+        has_signals: !!(p.lens_signal_id || p.contact_signal_id || p.has_signals),
+      };
+    }).filter(Boolean);
+  }, []);
 
   const handlePlaceTap = async (p) => {
     if (!p) return;
@@ -1286,6 +1382,28 @@ export default function TerritoryMapScreen({ navigation, route }) {
   }, [isAppActive, region?.latitude, region?.longitude]);
 
   const mode = filters?.targetLensMode || 'business';
+
+  const territoryZipCodes = useMemo(() => {
+    if (!Array.isArray(zipMarkers)) return [];
+    return zipMarkers.map((m) => m.zip || m.zipCode || m.ZIP).filter(Boolean);
+  }, [zipMarkers]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (Array.isArray(filters.prospectStatus) && filters.prospectStatus.length > 0) count += 1;
+    if (Array.isArray(filters.leadSource) && filters.leadSource.length > 0) count += 1;
+    if (Array.isArray(filters.serviceType) && filters.serviceType.length > 0) count += 1;
+    if (filters.businessType && filters.businessType !== 'All Businesses') count += 1;
+    if (Array.isArray(filters.statuses) && filters.statuses.length > 0 && !filters.statuses.includes('All')) count += 1;
+    if (filters.contactCompleteness && filters.contactCompleteness !== 'all') count += 1;
+    if (filters.activityWindow && filters.activityWindow !== 'all') count += 1;
+    if (filters.radiusMiles && filters.radiusMiles !== 5) count += 1;
+    if (filters.minRating && filters.minRating > 0) count += 1;
+    if (filters.signalsOnly) count += 1;
+    if (filters.matchStrength && filters.matchStrength !== 'Show All') count += 1;
+    if (filters.homeownerFilter && filters.homeownerFilter !== 'all') count += 1;
+    return count;
+  }, [filters]);
 
   const zipBoundaryOverlays = useMemo(() => {
     if (!Array.isArray(zipMarkers) || zipMarkers.length === 0) return [];
@@ -1534,7 +1652,14 @@ export default function TerritoryMapScreen({ navigation, route }) {
             >
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.actionBtn} onPress={() => setFiltersVisible(true)}><Text style={s.actionBtnIcon}>{ICON_GEAR}</Text></TouchableOpacity>
+            <TouchableOpacity style={s.actionBtn} onPress={() => setFiltersVisible(true)}>
+              <Text style={s.actionBtnIcon}>{ICON_GEAR}</Text>
+              {activeFilterCount > 0 && (
+                <View style={s.filterBadge}>
+                  <Text style={s.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
             <TouchableOpacity style={s.actionBtn} onPress={loadMap}><Text style={s.actionBtnIcon}>{ICON_RELOAD}</Text></TouchableOpacity>
           </View>
         )}
@@ -1817,6 +1942,8 @@ const s = StyleSheet.create({
   suggestionItem: { paddingHorizontal: 14, paddingVertical: 11 },
   suggestionText: { color: COLORS.text || '#fff', fontSize: 13 },
   actionBtnIcon: { fontSize: 20 },
+  filterBadge: { position: 'absolute', top: -2, right: -2, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: COLORS.surface },
+  filterBadgeText: { color: '#000', fontSize: 11, fontWeight: '800' },
   activeProfileBadge: { position: 'absolute', top: 80, left: 16, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 8 },
   activeProfileLabel: { color: COLORS.label, fontSize: 8 },
   activeProfileValue: { color: COLORS.accent, fontSize: 10, fontWeight: '800' },

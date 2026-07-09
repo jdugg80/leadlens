@@ -155,7 +155,8 @@ function parseChangelog() {
     throw new Error(`CHANGELOG.md not found at ${CHANGELOG_PATH}`);
   }
 
-  const content  = fs.readFileSync(CHANGELOG_PATH, 'utf-8');
+  // Normalize CRLF (Windows) to LF so \n-based regexes below work reliably
+  const content  = fs.readFileSync(CHANGELOG_PATH, 'utf-8').replace(/\r\n/g, '\n');
 
   // Auto-stamp today's date if the top entry date differs
   const today   = new Date().toISOString().slice(0, 10);
@@ -178,9 +179,9 @@ function parseChangelog() {
   const buildDate    = match[2];
 
   // Extract bullet points for tidy release notes
-  const sectionMatch = stamped.match(/##\s+BETA-\d+.*?\n([\s\S]*?)(?=\n##|$)/);
+  const sectionMatch = stamped.match(/##\s+BETA-\d+.*?\n([\s\S]*?)(?=\n##\s+BETA-\d+|$)/);
   const rawSection   = sectionMatch ? sectionMatch[1] : '';
-  const changesText  = rawSection.trim();
+  const changesText  = rawSection.trim().replace(/\n?-{3,}\s*$/, '').trim();
 
   // Bullet-only version for push notifications (first 5 lines)
   const bulletNotes = rawSection
