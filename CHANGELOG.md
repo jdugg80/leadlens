@@ -1,5 +1,17 @@
 # Changelog
 
+## [BETA-56] - 2026-07-09
+
+### Added
+- BetaFeedbackScreen — full feedback form (bug, crash, UX, performance, feature, general) posting directly to Project Scarlett feedback_reports table
+- BetaFeedbackFAB — floating 💬 BETA button rendered on every screen via App.js
+- BetaFeedback stack screen wired into App.js navigation as modal presentation
+- Personalized success screen: "Two Cents Deposited, {firstName}. The O-Kay-est Media team got your feedback loud and clear..."
+
+### Fixed
+- BetaFeedbackFAB now correctly reads repEmail and repName from user object (was incorrectly using email/name/fullName)
+- Removed unused View import and pressed state from BetaFeedbackFAB
+
 ## BETA-55 | 2026-07-08
 
 > Unreleased / development build
