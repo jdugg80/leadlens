@@ -20,7 +20,7 @@ const C = {
   white: '#FFFFFF',
 };
 
-const AUTO_HIDE_MS = 3000;
+const AUTO_HIDE_MS = 5000;
 
 export default function ThemedToast({
   visible,
