@@ -1,6 +1,6 @@
 # Changelog
 
-## [BETA-56] - 2026-07-09
+## BETA-56 | 2026-07-09
 
 ### Added
 - BetaFeedbackScreen — full feedback form (bug, crash, UX, performance, feature, general) posting directly to Project Scarlett feedback_reports table
