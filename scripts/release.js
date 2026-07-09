@@ -392,7 +392,7 @@ async function main() {
     try {
       const apkUrl = await uploadToGitHub(downloaded, buildNum, GITHUB_TOKEN);
       await updateAppConfig(SERVICE_KEY, SCARLETT_URL, buildNum, apkUrl, notes);
-      await notifyTesters(SERVICE_KEY, SUPABASE_URL, buildNum, notes);
+    await notifyTesters(env.LEADLENS_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, buildNum, notes);
       hr();
       console.log(`\n${c.green}${c.bold}✅ BETA-${buildNum} fully released! [${profile}]${c.reset}\n`);
       console.log(`  APK:     ${apkUrl}`);
