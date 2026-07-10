@@ -1,6 +1,6 @@
 # Changelog
 
-## BETA-57 | 2026-07-09
+## BETA-57 | 2026-07-10
 
 ### 🎯 LeadLock
 - **ZIP Acquisition UX Overhaul** — Capture now blocked until ZIP resolves; centered acquisition overlay with solid-orbiting-dots dual animation (replaced border-arc technique); 18s timeout + retry; header restructured as siblings of CameraView (fixed Android rendering bug); ZIP badge restored in header once acquired.
