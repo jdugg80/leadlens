@@ -815,6 +815,19 @@ export default function ProspectQueueScreen({ navigation, route }) {
                 </View>
               </View>
 
+              {(() => {
+                const src = editingLead?.property_records_source ?? null;
+                if (!src) return null;
+                const isHcad = src === 'hcad';
+                return (
+                  <View style={{ marginTop: 8, marginBottom: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignSelf: 'flex-start', backgroundColor: isHcad ? 'rgba(46,204,113,0.15)' : 'rgba(241,196,15,0.15)' }}>
+                    <Text style={{ color: isHcad ? '#2ecc71' : '#f1c40f', fontSize: 9, fontWeight: '700' }}>
+                      {isHcad ? 'HCAD VERIFIED' : 'AI ESTIMATED'}
+                    </Text>
+                  </View>
+                );
+              })()}
+
               <Text style={styles.fieldLabel}>Notes</Text>
               <TextInput style={[styles.input, styles.notesInput]} value={form.notes} onChangeText={v => updateField('notes', v)} placeholderTextColor={COLORS.muted} placeholder="Notes" multiline numberOfLines={3} />
             </ScrollView>

@@ -1,5 +1,21 @@
 # Development Log
 
+## BETA-57 - 2026-07-09
+
+### LeadLock Camera ZIP Acquisition UX
+- Capture gated until ZIP resolves; centered acquisition overlay
+- Solid-orbiting-dots dual animation (replaced border-arc technique)
+- 18s timeout + retry, header restructured as siblings of CameraView (fixed Android rendering bug)
+- ZIP badge restored in header once acquired
+
+### Property Records Source Labeling
+- Fallback-safe source resolution added to ReviewScreen
+- Lightweight HCAD vs. AI-estimate badge added to ProspectQueueScreen modal
+
+### Pipeline A Manual Entry Enrichment
+- Manual entry now fires `enrichBusinessWithPublicSources()` after save
+- Race-condition-safe merge-back: re-reads current storage state before writing
+
 ## BETA-56 - 2026-07-09
 
 ### Beta Feedback System

@@ -663,26 +663,32 @@ export default function LeadLockCameraScreen({ navigation }) {
               ) : (
                 <>
                   <View style={s.zipOrbitWrap}>
+                    <View style={s.zipOrbitRingOuter} />
+                    <View style={s.zipOrbitRingInner} />
                     <Animated.View
                       style={[
-                        s.zipOrbitArcOuter,
+                        s.zipOrbitSpinOuter,
                         {
                           transform: [{
                             rotate: zipArcAAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }),
                           }],
                         },
                       ]}
-                    />
+                    >
+                      <View style={s.zipOrbitDotA} />
+                    </Animated.View>
                     <Animated.View
                       style={[
-                        s.zipOrbitArcInner,
+                        s.zipOrbitSpinInner,
                         {
                           transform: [{
                             rotate: zipArcBAnim.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] }),
                           }],
                         },
                       ]}
-                    />
+                    >
+                      <View style={s.zipOrbitDotB} />
+                    </Animated.View>
                   </View>
                   <Text style={s.zipOverlayTitle}>Location Acquisition in Progress</Text>
                   <Text style={s.zipOverlaySubtitle}>
@@ -1306,25 +1312,47 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  zipOrbitArcOuter: {
+  zipOrbitRingOuter: {
     position: 'absolute',
     width: 56,
     height: 56,
     borderRadius: 28,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    borderTopColor: COLORS_THEME.accent,
-    borderRightColor: COLORS_THEME.accent,
+    borderWidth: 2,
+    borderColor: 'rgba(0,201,255,0.25)',
   },
-  zipOrbitArcInner: {
+  zipOrbitRingInner: {
     position: 'absolute',
     width: 34,
     height: 34,
     borderRadius: 17,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    borderBottomColor: COLORS_THEME.purple,
-    borderLeftColor: COLORS_THEME.purple,
+    borderWidth: 2,
+    borderColor: 'rgba(123,63,190,0.3)',
+  },
+  zipOrbitSpinOuter: {
+    position: 'absolute',
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+  },
+  zipOrbitSpinInner: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+  },
+  zipOrbitDotA: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: COLORS_THEME.accent,
+    marginTop: -1,
+  },
+  zipOrbitDotB: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: COLORS_THEME.purple,
+    marginTop: -1,
   },
   zipOverlayTitle: {
     color: COLORS_THEME.text,

@@ -528,6 +528,32 @@ const persistLead = async (ignoreDuplicate = false) => {
       console.warn('[Review] Auto-sync error (saved locally):', err.message);
     }
 
+    // Fire-and-forget enrichment for manual entries — runs in background after save
+    if (normalized.captureMethod === 'manual' && normalized.businessName) {
+      const enrichmentLead = { ...normalized };
+      enrichBusinessWithPublicSources(enrichmentLead, {
+        photoZip: normalized.zip || null,
+        locationSource: 'manual_entry',
+        locationConfidence: null,
+      }).then(async (enriched) => {
+        if (!enriched) return;
+        try {
+          const merged = buildProspectUpdatesFromLookup(enrichmentLead, enriched);
+          const currentLeads = await AsyncStorage.getJSON(LEADS_STORAGE_KEY, leads);
+          const updatedLeads = (Array.isArray(currentLeads) ? currentLeads : leads).map(l =>
+            (l.id && l.id === merged.id) || (l.businessName === merged.businessName && l.zip === merged.zip)
+              ? { ...l, ...merged }
+              : l
+          );
+          AsyncStorage.setJSON(LEADS_STORAGE_KEY, updatedLeads).catch(() => {});
+        } catch (e) {
+          console.warn('[Review] Background enrichment merge failed:', e.message);
+        }
+      }).catch((e) => {
+        console.warn('[Review] Background enrichment failed:', e.message);
+      });
+    }
+
     // Soft confirmation sound after a successful save
     playSoundEffect('prospect-added').catch(() => {});
 
@@ -1180,7 +1206,7 @@ const persistLead = async (ignoreDuplicate = false) => {
                   {/* Property details */}
                   {!!businessProfile.enrichment?.propertyRisk?.property && (() => {
                     const prop = businessProfile.enrichment.propertyRisk.property;
-                    const src = businessProfile.enrichment.propertyRisk.dataSource;
+                    const src = lead?.property_records_source ?? businessProfile.enrichment?.propertyRisk?.dataSource ?? null;
                     const isHcad = src === 'hcad';
                     const displayAge = prop.yearBuilt || prop.buildingAge || prop.estimatedAge;
                     const ageLabel = prop.yearBuilt ? `Built ${prop.yearBuilt}` : prop.buildingAge ? `${prop.buildingAge} yrs old` : prop.estimatedAge ? `~${prop.estimatedAge} yrs old (est.)` : null;

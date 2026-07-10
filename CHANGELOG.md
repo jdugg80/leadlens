@@ -1,5 +1,16 @@
 # Changelog
 
+## BETA-57 | 2026-07-09
+
+### 🎯 LeadLock
+- **ZIP Acquisition UX Overhaul** — Capture now blocked until ZIP resolves; centered acquisition overlay with solid-orbiting-dots dual animation (replaced border-arc technique); 18s timeout + retry; header restructured as siblings of CameraView (fixed Android rendering bug); ZIP badge restored in header once acquired.
+
+### 🗂️ Property Records
+- **Source Labeling** — HCAD vs. AI-estimate source now shown consistently in ReviewScreen (fallback-safe resolution) and ProspectQueueScreen modal (lightweight badge).
+
+### 🔧 Core App
+- **Manual Entry Enrichment** — Manual entry in ReviewScreen now fires `enrichBusinessWithPublicSources()` after save, with race-condition-safe merge-back that re-reads current storage state before writing.
+
 ## BETA-56 | 2026-07-09
 
 ### Added
