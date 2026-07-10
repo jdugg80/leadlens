@@ -1,5 +1,25 @@
+# Build outputs
+builds/
+dist/
+web/
+web.zip
+
+# APKs in root
+*.apk
+
+# Dev tools
 .vs/
 .vscode/
-node_modules/
+.cursor/
+
+# Logs
 *.log
+*.map
+
+# Git history (already excluded by EAS but explicit)
+.git/
+
+# Admin/misc
 admin-dashboard.html
+__tests__/
+coverage/
