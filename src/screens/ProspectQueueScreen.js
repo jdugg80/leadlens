@@ -26,6 +26,7 @@ import { upsertProspect } from '../utils/backendSync';
 import { matchLeadByAnyId, normalizeLead, sortQueueProspects, mergeProspectWithScreenshot } from '../utils/leadHelpers';
 import { extractLeadsWithDebugFromImage } from '../utils/claudeApi';
 import { checkPermitStatus } from '../utils/txPermitCheck';
+import { useProcessing } from '../context/ProcessingContext';
 
 const emptyForm = {
   businessName: '',
@@ -64,6 +65,7 @@ const VIABILITY_FILTERS = [
 ];
 
 export default function ProspectQueueScreen({ navigation, route }) {
+  const { isProcessing: globalProcessing } = useProcessing();
   const user = route?.params?.user || {};
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +81,7 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterSource, setFilterSource] = useState('all');
   const [filterViability, setFilterViability] = useState('all');
+  const [filterPanelVisible, setFilterPanelVisible] = useState(false);
   const scrollRef = useRef(null);
   const filterScrollRef = useRef(null);
   const [scrollLocked, setScrollLocked] = useState(false);
@@ -647,23 +650,36 @@ export default function ProspectQueueScreen({ navigation, route }) {
         >
           <View style={styles.headerRow}>
             <Text style={styles.title}>Prospect Queue</Text>
-            <TouchableOpacity style={styles.importBtn} onPress={() => setImportModalVisible(true)} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.importBtn} onPress={() => setImportModalVisible(true)} activeOpacity={0.7} disabled={globalProcessing}>
               <Text style={styles.importBtnIcon}>↓</Text>
               <Text style={styles.importBtnText}>Import</Text>
             </TouchableOpacity>
           </View>
 
+          {/* Filter toggle button */}
+          <TouchableOpacity
+            style={styles.filterToggleBtn}
+            onPress={() => setFilterPanelVisible(!filterPanelVisible)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.filterToggleText}>
+              {filterPanelVisible ? 'Hide filters' : 'Prospect filters'}
+            </Text>
+            <Text style={styles.filterToggleArrow}>{filterPanelVisible ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+
           {/* Scrollable filter panel — constrained height so it scrolls independently on small screens */}
-          <View style={styles.filterPanel}>
-            <ScrollView
-              ref={filterScrollRef}
-              style={styles.filterScroll}
-              contentContainerStyle={styles.filterScrollContent}
-              scrollEnabled={true}
-              nestedScrollEnabled={true}
-              showsVerticalScrollIndicator={true}
-              indicatorStyle="white"
-            >
+          {filterPanelVisible && (
+            <View style={styles.filterPanel}>
+              <ScrollView
+                ref={filterScrollRef}
+                style={styles.filterScroll}
+                contentContainerStyle={styles.filterScrollContent}
+                scrollEnabled={true}
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+                indicatorStyle="white"
+              >
               <Text style={styles.filterSectionTitle}>Status</Text>
               <View style={styles.filterChipRow}>
                 {STATUS_FILTERS.map((status) => {
@@ -716,6 +732,7 @@ export default function ProspectQueueScreen({ navigation, route }) {
               </View>
             </ScrollView>
           </View>
+          )}
 
           <Text style={styles.resultsCount}>{sortedLeads.length} prospect{sortedLeads.length !== 1 ? 's' : ''}</Text>
 
@@ -846,10 +863,10 @@ export default function ProspectQueueScreen({ navigation, route }) {
                 </TouchableOpacity>
               </View>
               <View style={styles.saveBtnRow}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={closeEdit} disabled={saving || screenshotLoading}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={closeEdit} disabled={saving || screenshotLoading || globalProcessing}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving || screenshotLoading}>
+                <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving || screenshotLoading || globalProcessing}>
                   {saving ? (
                     <ActivityIndicator size="small" color="#000" />
                   ) : (
@@ -921,6 +938,27 @@ const styles = StyleSheet.create({
   },
   importBtnIcon: { color: '#000', fontSize: 16, fontWeight: '900' },
   importBtnText: { color: '#000', fontSize: 14, fontWeight: '800' },
+  filterToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#111318',
+    borderWidth: 1,
+    borderColor: '#252A3A',
+    marginBottom: 12,
+  },
+  filterToggleText: {
+    color: '#B8BDD0',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  filterToggleArrow: {
+    color: '#00C9FF',
+    fontSize: 12,
+  },
   emptyText: { color: COLORS.muted, fontSize: 15, textAlign: 'center', marginTop: 40 },
   filterPanel: {
     maxHeight: 260,

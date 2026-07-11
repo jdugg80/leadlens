@@ -15,6 +15,7 @@ import {
 } from '../utils/mapSafety';
 import { screenHeight } from '../utils/responsive';
 import { classifyVertical } from '../utils/leadProcessing';
+import { useProcessing } from '../context/ProcessingContext';
 
 // Unicode constants for safety
 const ICON_CROSS = "\u2715";
@@ -139,6 +140,7 @@ const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 const MAP_SAFE_MODE = true;
 
 export default function TerritoryMapScreen({ navigation, route }) {
+  const { isProcessing: globalProcessing } = useProcessing();
   const insets = useSafeAreaInsets();
   const { user, initialZip, initialNearbySearch } = route?.params || {};
   const mapRef = useRef(null);
@@ -1653,8 +1655,14 @@ export default function TerritoryMapScreen({ navigation, route }) {
             >
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.actionBtn} onPress={() => setFiltersVisible(true)}>
-              <Text style={s.actionBtnIcon}>{ICON_GEAR}</Text>
+            <TouchableOpacity
+              style={s.filterBtn}
+              onPress={() => setFiltersVisible(true)}
+              activeOpacity={0.75}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={s.filterBtnIcon}>{ICON_GEAR}</Text>
+              <Text style={s.filterBtnText}>Prospect filters</Text>
               {activeFilterCount > 0 && (
                 <View style={s.filterBadge}>
                   <Text style={s.filterBadgeText}>{activeFilterCount}</Text>
@@ -1718,16 +1726,16 @@ export default function TerritoryMapScreen({ navigation, route }) {
                 <View style={s.chip}><Text style={s.chipText}>{getLeadConfidence(selectedLead)}</Text></View>
               </View>
               <View style={s.actionRow}>
-                <TouchableOpacity style={s.cardBtn} onPress={() => navigation.navigate('Review', { user, lead: selectedLead, editIdx: leads.findIndex(l => l.id === selectedLead.id) })}>
+                <TouchableOpacity style={s.cardBtn} onPress={() => navigation.navigate('Review', { user, lead: selectedLead, editIdx: leads.findIndex(l => l.id === selectedLead.id) })} disabled={globalProcessing}>
                   <Text style={s.cardBtnText}>View</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.cardBtn} onPress={() => phone && Linking.openURL(`tel:${phone}`)}>
+                <TouchableOpacity style={s.cardBtn} onPress={() => phone && Linking.openURL(`tel:${phone}`)} disabled={globalProcessing}>
                   <Text style={s.cardBtnText}>Call</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cardBtn} onPress={() => {
                   const coords = getLeadCoords(selectedLead);
                   if (coords) Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${coords.latitude},${coords.longitude}`);
-                }}>
+                }} disabled={globalProcessing}>
                   <Text style={s.cardBtnText}>Nav</Text>
                 </TouchableOpacity>
               </View>
@@ -1835,14 +1843,14 @@ export default function TerritoryMapScreen({ navigation, route }) {
                 )}
               </View>
 
-              <TouchableOpacity style={[s.cardBtn, { marginTop: 10, backgroundColor: COLORS.accent }]} onPress={captureAsLead}>
+              <TouchableOpacity style={[s.cardBtn, { marginTop: 10, backgroundColor: COLORS.accent }]} onPress={captureAsLead} disabled={globalProcessing}>
                 <Text style={[s.cardBtnText, { color: '#000' }]}>Capture Lead</Text>
               </TouchableOpacity>
             </View>
           );
         })()}
         {showNearby && !!nearbyPlaces.length && !selectedPlace && (
-          <View style={[s.nearbyBatchCard, { bottom: insets.bottom + 12 }]}><Text style={s.cardDetail}>{nearbyPlaces.length} discovered businesses</Text><View style={s.actionRow}><TouchableOpacity style={s.cardBtn} onPress={() => setSelectedNearbyIds(nearbyPlaces.map(p => getNearbyPlaceId(p)))}><Text style={s.cardBtnText}>Select All</Text></TouchableOpacity><TouchableOpacity style={s.cardBtn} onPress={() => { setShowNearby(false); setNearbyPlaces([]); }}><Text style={s.cardBtnText}>Clear</Text></TouchableOpacity><TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent }]} onPress={() => addSelectedNearbyToQueue()} disabled={!selectedNearbyIds.length}><Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text></TouchableOpacity></View></View>
+          <View style={[s.nearbyBatchCard, { bottom: insets.bottom + 12 }]}><Text style={s.cardDetail}>{nearbyPlaces.length} discovered businesses</Text><View style={s.actionRow}><TouchableOpacity style={s.cardBtn} onPress={() => setSelectedNearbyIds(nearbyPlaces.map(p => getNearbyPlaceId(p)))} disabled={globalProcessing}><Text style={s.cardBtnText}>Select All</Text></TouchableOpacity><TouchableOpacity style={s.cardBtn} onPress={() => { setShowNearby(false); setNearbyPlaces([]); }} disabled={globalProcessing}><Text style={s.cardBtnText}>Clear</Text></TouchableOpacity><TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent }]} onPress={() => addSelectedNearbyToQueue()} disabled={!selectedNearbyIds.length || globalProcessing}><Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text></TouchableOpacity></View></View>
         )}
         <Modal visible={targetLensVisible} transparent animationType="slide" onRequestClose={() => setTargetLensVisible(false)}><View style={s.modal}><View style={s.modalContent}><TargetLensProfileSelector onProfileChange={(p, m) => { setActiveProfile(p); setSearchMode(m); setTargetLensVisible(false); }} /><TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}><Text style={s.closeBtnText}>Close</Text></TouchableOpacity></View></View></Modal>
         <LeadFiltersBottomSheet visible={filtersVisible} onClose={() => setFiltersVisible(false)} filters={filters || DEFAULT_FILTERS} onApply={f => setFilters(f)} onReset={() => setFilters(DEFAULT_FILTERS)} />
@@ -1933,8 +1941,23 @@ const s = StyleSheet.create({
   poiPinSignal: { backgroundColor: COLORS.purple, width: 28, height: 28, borderRadius: 14 },
   poiPinText: { color: '#fff', fontSize: 14, fontWeight: '900' },
   placePin: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
-  bottomActions: { position: 'absolute', right: 16, gap: 10, zIndex: 120, elevation: 30 },
+  bottomActions: { position: 'absolute', right: 16, gap: 10, zIndex: 10000, elevation: 34 },
   actionBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center', elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit },
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: COLORS.borderLit,
+    gap: 8,
+  },
+  filterBtnIcon: { fontSize: 16 },
+  filterBtnText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
   searchBar: { flexDirection: 'row', backgroundColor: COLORS.surface || '#111318', borderRadius: 12, borderWidth: 1, borderColor: COLORS.borderLit || '#2a3038', overflow: 'hidden' },
   searchInput: { flex: 1, paddingHorizontal: 14, paddingVertical: 10, color: COLORS.text || '#fff', fontSize: 13 },
   searchBtn: { width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#00C9FF' },

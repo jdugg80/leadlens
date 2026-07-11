@@ -13,6 +13,8 @@ import Constants from 'expo-constants';
 import { AppRegistry } from 'react-native';
 
 import { ToastProvider } from './src/context/ToastContext';
+import { ProcessingProvider } from './src/context/ProcessingContext';
+import ProcessingOverlay from './src/components/ProcessingOverlay';
 import { storage as AsyncStorage } from './src/utils/storage';
 import { USER_STORAGE_KEY, getAppVersionString } from './src/constants';
 import { bindAutoExportOnAppResume, registerBackgroundAutoExport } from './src/utils/autoExport';
@@ -400,6 +402,7 @@ export default function App() {
     <AppErrorBoundary>
     <SafeAreaProvider>
       <ToastProvider>
+      <ProcessingProvider>
       <NavigationContainer
         ref={navRef}
         onReady={() => {
@@ -494,6 +497,8 @@ export default function App() {
           </View>
         </Modal>
       </NavigationContainer>
+      <ProcessingOverlay />
+      </ProcessingProvider>
       </ToastProvider>
     </SafeAreaProvider>
     </AppErrorBoundary>

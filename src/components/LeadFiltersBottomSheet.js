@@ -266,7 +266,7 @@ export default function LeadFiltersBottomSheet({
               ]}
             >
               <View style={s.header}>
-                <Text style={s.title}>Lead Filters</Text>
+                <Text style={s.title}>Prospect filters</Text>
                 <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Text style={s.closeText}>✕</Text>
                 </TouchableOpacity>

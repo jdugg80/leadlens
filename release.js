@@ -676,10 +676,10 @@ async function notifyTesters(buildInfo, newVersion, downloadUrl) {
   }
 
   try {
-    // LeadLens service key for push_tokens table (different project from Scarlett)
+    // LeadLens service key for user_push_tokens table (different project from Scarlett)
     const leadlensKey = process.env.LEADLENS_SERVICE_ROLE_KEY || process.env.SCARLETT_SERVICE_ROLE_KEY;
     const tokenRes   = await fetch(
-      `${LEADLENS_URL}/rest/v1/push_tokens?select=token&is_active=eq.true`,
+      `${LEADLENS_URL}/rest/v1/user_push_tokens?select=push_token,user_id`,
       {
         headers: {
           'apikey':        leadlensKey,
@@ -694,7 +694,7 @@ async function notifyTesters(buildInfo, newVersion, downloadUrl) {
     }
 
     const rows   = await tokenRes.json();
-    const tokens = rows.map(r => r.token).filter(Boolean);
+    const tokens = rows.map(r => r.push_token).filter(Boolean);
 
     if (!tokens.length) {
       info('No registered push tokens — skipping push notifications');
@@ -711,8 +711,10 @@ async function notifyTesters(buildInfo, newVersion, downloadUrl) {
       priority: 'high',
     }));
 
-    // Expo allows 100 per request
+    // Expo allows 100 per request — parse per-ticket response for real success count
     let sent = 0;
+    let failed = 0;
+    const failedTokens = [];
     for (let i = 0; i < messages.length; i += 100) {
       const chunk   = messages.slice(i, i + 100);
       const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
@@ -720,10 +722,42 @@ async function notifyTesters(buildInfo, newVersion, downloadUrl) {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body:    JSON.stringify(chunk),
       });
-      if (pushRes.ok) sent += chunk.length;
+
+      if (!pushRes.ok) {
+        warn(`Expo push HTTP ${pushRes.status} — skipping chunk`);
+        failed += chunk.length;
+        continue;
+      }
+
+      const pushBody = await pushRes.json().catch(() => null);
+      const tickets = pushBody?.data || [];
+
+      for (let t = 0; t < tickets.length; t++) {
+        const ticket = tickets[t];
+        if (ticket?.status === 'ok') {
+          sent++;
+        } else {
+          failed++;
+          const msg = ticket?.message || ticket?.details?.error || 'unknown';
+          const tokenPreview = chunk[t]?.to
+            ? chunk[t].to.slice(0, 24) + '...'
+            : `index ${i + t}`;
+          failedTokens.push({ token: tokenPreview, error: msg });
+          if (msg === 'DeviceNotRegistered') {
+            warn(`Stale token detected (${tokenPreview}) — tester must log out and back in to re-register`);
+          }
+        }
+      }
     }
 
-    ok(`Push notifications sent to ${sent}/${tokens.length} device(s)`);
+    if (failed > 0) {
+      warn(`Push delivery partial: ${sent} delivered, ${failed} failed`);
+      for (const f of failedTokens) {
+        warn(`  ${f.token} → ${f.error}`);
+      }
+    } else {
+      ok(`Push notifications delivered to ${sent}/${tokens.length} device(s)`);
+    }
   } catch (err) {
     warn(`Push notification error (non-fatal): ${err.message}`);
   }

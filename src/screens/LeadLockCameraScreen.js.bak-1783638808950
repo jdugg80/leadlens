@@ -4,7 +4,7 @@
  * Minimal UI: Just take photo → See what's there → Select prospects
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -35,7 +35,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import useLeadLockLocationSnapshot from '../hooks/useLeadLockLocationSnapshot';
 import resolveZipFromLeadLockPhoto from '../utils/location/resolveZipFromLeadLockPhoto';
 import useToast from '../hooks/useToast';
-import { useProcessing } from '../context/ProcessingContext';
 import BetaTracker from '../../utils/betaTracker';
 
 const COLORS_THEME = {
@@ -56,7 +55,6 @@ export default function LeadLockCameraScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
-  const { isProcessing, startProcessing, updateMessage, stopProcessing } = useProcessing();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   // Track actual camera view dimensions for dynamic bounding box
@@ -119,12 +117,6 @@ export default function LeadLockCameraScreen({ navigation }) {
   const [detectionResult, setDetectionResult] = useState(null);
   const [selectedBusinesses, setSelectedBusinesses] = useState([]);
 
-  // Pause / Stop state
-  const [isPaused, setIsPaused] = useState(false);
-  const [isStopped, setIsStopped] = useState(false);
-  const detectingAbortRef = useRef(null);   // AbortController for in-flight detection
-  const pausedDuringDetectRef = useRef(false); // detection finished while paused
-
   // Location context — single source from hook, no duplicate getCurrentCoords call
   const [location, setLocation] = useState(null);
   const { leadLockGps } = useLeadLockLocationSnapshot(true);
@@ -154,14 +146,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   useEffect(() => {
     mountedRef.current = true;
     initLocation();
-    return () => {
-      mountedRef.current = false;
-      // Cleanup: abort any in-flight detection on unmount
-      if (detectingAbortRef.current) {
-        detectingAbortRef.current.abort();
-        detectingAbortRef.current = null;
-      }
-    };
+    return () => { mountedRef.current = false; };
   }, []);
 
   // One-time Google Places API health check (logs billing/key status)
@@ -354,75 +339,6 @@ export default function LeadLockCameraScreen({ navigation }) {
     initLocation();
   };
 
-  // ── Pause / Resume ───────────────────────────────────────────────────────
-  const handlePauseResume = useCallback(async () => {
-    if (isPaused) {
-      // ── RESUME ──
-      console.log('[LeadLockCamera] Resume requested');
-      try {
-        if (cameraRef.current?.resumePreview) {
-          await cameraRef.current.resumePreview();
-          console.log('[LeadLockCamera] Camera preview resumed');
-        }
-      } catch (err) {
-        console.warn('[LeadLockCamera] resumePreview failed:', err);
-      }
-      setIsPaused(false);
-
-      // If detection finished while paused, surface the results now
-      if (pausedDuringDetectRef.current) {
-        pausedDuringDetectRef.current = false;
-        console.log('[LeadLockCamera] Detection had completed while paused — showing results');
-      }
-    } else {
-      // ── PAUSE ──
-      console.log('[LeadLockCamera] Pause requested');
-      setIsPaused(true);
-      try {
-        if (cameraRef.current?.pausePreview) {
-          await cameraRef.current.pausePreview();
-          console.log('[LeadLockCamera] Camera preview paused');
-        }
-      } catch (err) {
-        console.warn('[LeadLockCamera] pausePreview failed:', err);
-      }
-    }
-  }, [isPaused]);
-
-  // ── Stop (full halt) ─────────────────────────────────────────────────────
-  const handleStop = useCallback(() => {
-    console.log('[LeadLockCamera] Stop requested — halting all activity');
-
-    // 1. Abort in-flight detection (Claude AI call)
-    if (detectingAbortRef.current) {
-      console.log('[LeadLockCamera] Aborting in-flight detection');
-      detectingAbortRef.current.abort();
-      detectingAbortRef.current = null;
-    }
-
-    // 2. Cancel any paused-detection state
-    pausedDuringDetectRef.current = false;
-
-    // 3. Stop camera preview
-    if (cameraRef.current?.pausePreview) {
-      cameraRef.current.pausePreview().catch(() => {});
-    }
-
-    // 4. Reset all state to idle
-    setIsPaused(false);
-    setIsStopped(true);
-    setDetecting(false);
-    setDetectionResult(null);
-    setSelectedBusinesses([]);
-    setPhotoData(null);
-    setPhotoExifData(null);
-
-    // 5. Fully deactivate camera (unmounts CameraView)
-    setCameraActive(false);
-
-    console.log('[LeadLockCamera] Stop complete — all activity halted');
-  }, []);
-
   // Request camera permission
   if (!permission) {
     return (
@@ -463,14 +379,6 @@ export default function LeadLockCameraScreen({ navigation }) {
   const handleTakePhoto = async () => {
     try {
       if (!cameraRef.current) return;
-      if (isPaused) {
-        showToast('Camera is paused. Resume to capture.', 'error');
-        return;
-      }
-      if (isStopped) {
-        showToast('Camera is stopped. Go back to restart.', 'error');
-        return;
-      }
       if (!location?.zip) {
         showToast('Still acquiring your location — please wait a moment.', 'error');
         return;
@@ -510,27 +418,9 @@ export default function LeadLockCameraScreen({ navigation }) {
 
   // Detect businesses in photo
   const handleDetectBusinesses = async (base64, exifData) => {
-    // Bail immediately if stopped
-    if (isStopped) {
-      console.log('[LeadLockCamera] Detection skipped — user stopped');
-      return;
-    }
-
-    // Set up abort controller for cancellation
-    const abortController = new AbortController();
-    detectingAbortRef.current = abortController;
-    console.log('[LeadLockCamera] Detection started');
-    startProcessing('Analyzing businesses...');
-
     setDetecting(true);
     try {
       const result = await detectMultipleBusinessesInPhoto(base64, location);
-
-      // Check if stopped or aborted while detection was in flight
-      if (isStopped || abortController.signal.aborted) {
-        console.log('[LeadLockCamera] Detection result discarded — stopped/aborted during call');
-        return;
-      }
       if (!mountedRef.current) return;
 
       // Resolve location for display — skip if already resolved for this session
@@ -566,42 +456,19 @@ export default function LeadLockCameraScreen({ navigation }) {
           businessCount: formatted.length,
           formattedBusinesses: formatted.map(b => b.name),
         });
-
-        // If paused, stash results but don't surface them yet
-        if (isPaused) {
-          console.log('[LeadLockCamera] Detection finished while paused — deferring result display');
-          pausedDuringDetectRef.current = true;
-          setDetectionResult({ ...result, formatted });
-          setSelectedBusinesses(formatted.map(b => ({ ...b, selected: true })));
-        } else {
-          setDetectionResult({ ...result, formatted });
-          setSelectedBusinesses(formatted.map(b => ({ ...b, selected: true })));
-        }
-        stopProcessing();
+        setDetectionResult({
+          ...result,
+          formatted,
+        });
+        setSelectedBusinesses(formatted.map(b => ({ ...b, selected: true }))); // Auto-select all
       } else {
         console.warn('[LeadLockCamera] Detection failed:', result.error);
         showToast('No businesses detected. Try a clearer angle with more storefronts visible.', 'error');
-        stopProcessing();
       }
     } catch (error) {
-      // Swallow abort errors silently
-      if (abortController.signal.aborted || error?.name === 'AbortError') {
-        console.log('[LeadLockCamera] Detection aborted');
-        stopProcessing();
-        return;
-      }
-      if (isStopped) {
-        console.log('[LeadLockCamera] Detection error ignored — user stopped');
-        stopProcessing();
-        return;
-      }
       showToast(`Detection Error: ${error.message}`, 'error');
-      stopProcessing();
     } finally {
-      detectingAbortRef.current = null;
-      if (!isStopped) {
-        setDetecting(false);
-      }
+      setDetecting(false);
     }
   };
 
@@ -648,7 +515,6 @@ export default function LeadLockCameraScreen({ navigation }) {
 
     console.log('[LeadLockCamera] Fallback business zip extracted from selected:', businessZip || 'none');
 
-    startProcessing('Adding to queue...');
     try {
       let resolved;
       if (resolvedZipRef.current) {
@@ -731,26 +597,15 @@ export default function LeadLockCameraScreen({ navigation }) {
 
       if (!mountedRef.current) return;
       showToast(`${prospects.length} prospect${prospects.length !== 1 ? 's' : ''} added to queue.`, 'success');
-      stopProcessing();
       resetCamera();
     } catch (error) {
       console.error('[LeadLock] Queue save error:', error);
       showToast(`Failed to add to queue: ${error?.message || 'unknown'}`, 'error');
-      stopProcessing();
     }
   };
 
   // Reset to camera
   const _resetCamera = () => {
-    console.log('[LeadLockCamera] resetCamera called');
-    // Abort any in-flight detection
-    if (detectingAbortRef.current) {
-      detectingAbortRef.current.abort();
-      detectingAbortRef.current = null;
-    }
-    pausedDuringDetectRef.current = false;
-    setIsPaused(false);
-    setIsStopped(false);
     setPhotoData(null);
     setPhotoExifData(null);
     setDetectionResult(null);
@@ -793,33 +648,6 @@ export default function LeadLockCameraScreen({ navigation }) {
               <Text style={s.zipIndicatorText}>ZIP {location.zip}</Text>
             </View>
           )}
-
-          {/* Pause / Stop controls — only while camera is active and not detecting */}
-          {cameraActive && !detecting && (
-            <View style={s.controlRow}>
-              <TouchableOpacity
-                style={[s.controlBtn, s.pauseBtn]}
-                onPress={handlePauseResume}
-              >
-                <Text style={s.controlBtnText}>
-                  {isPaused ? '▶ Resume' : '⏸ Pause'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.controlBtn, s.stopBtn]}
-                onPress={handleStop}
-              >
-                <Text style={s.controlBtnText}>⏹ Stop</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Paused indicator overlay */}
-          {isPaused && (
-            <View style={s.pausedIndicator}>
-              <Text style={s.pausedIndicatorText}>⏸ PAUSED</Text>
-            </View>
-          )}
         </View>
 
         {/* Centered ZIP acquisition overlay — sibling overlay */}
@@ -835,32 +663,26 @@ export default function LeadLockCameraScreen({ navigation }) {
               ) : (
                 <>
                   <View style={s.zipOrbitWrap}>
-                    <View style={s.zipOrbitRingOuter} />
-                    <View style={s.zipOrbitRingInner} />
                     <Animated.View
                       style={[
-                        s.zipOrbitSpinOuter,
+                        s.zipOrbitArcOuter,
                         {
                           transform: [{
                             rotate: zipArcAAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }),
                           }],
                         },
                       ]}
-                    >
-                      <View style={s.zipOrbitDotA} />
-                    </Animated.View>
+                    />
                     <Animated.View
                       style={[
-                        s.zipOrbitSpinInner,
+                        s.zipOrbitArcInner,
                         {
                           transform: [{
                             rotate: zipArcBAnim.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] }),
                           }],
                         },
                       ]}
-                    >
-                      <View style={s.zipOrbitDotB} />
-                    </Animated.View>
+                    />
                   </View>
                   <Text style={s.zipOverlayTitle}>Location Acquisition in Progress</Text>
                   <Text style={s.zipOverlaySubtitle}>
@@ -1459,46 +1281,6 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  controlRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  controlBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  pauseBtn: {
-    borderColor: 'rgba(0,201,255,0.4)',
-    backgroundColor: 'rgba(0,201,255,0.08)',
-  },
-  stopBtn: {
-    borderColor: 'rgba(204,16,64,0.4)',
-    backgroundColor: 'rgba(204,16,64,0.08)',
-  },
-  controlBtnText: {
-    color: COLORS_THEME.text,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  pausedIndicator: {
-    position: 'absolute',
-    bottom: 100,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS_THEME.accent,
-  },
-  pausedIndicatorText: {
-    color: COLORS_THEME.accent,
-    fontSize: 13,
-    fontWeight: '800',
-  },
   zipOverlayContainer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -1524,47 +1306,25 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  zipOrbitRingOuter: {
+  zipOrbitArcOuter: {
     position: 'absolute',
     width: 56,
     height: 56,
     borderRadius: 28,
-    borderWidth: 2,
-    borderColor: 'rgba(0,201,255,0.25)',
+    borderWidth: 3,
+    borderColor: 'transparent',
+    borderTopColor: COLORS_THEME.accent,
+    borderRightColor: COLORS_THEME.accent,
   },
-  zipOrbitRingInner: {
+  zipOrbitArcInner: {
     position: 'absolute',
     width: 34,
     height: 34,
     borderRadius: 17,
-    borderWidth: 2,
-    borderColor: 'rgba(123,63,190,0.3)',
-  },
-  zipOrbitSpinOuter: {
-    position: 'absolute',
-    width: 56,
-    height: 56,
-    alignItems: 'center',
-  },
-  zipOrbitSpinInner: {
-    position: 'absolute',
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-  },
-  zipOrbitDotA: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: COLORS_THEME.accent,
-    marginTop: -1,
-  },
-  zipOrbitDotB: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: COLORS_THEME.purple,
-    marginTop: -1,
+    borderWidth: 3,
+    borderColor: 'transparent',
+    borderBottomColor: COLORS_THEME.purple,
+    borderLeftColor: COLORS_THEME.purple,
   },
   zipOverlayTitle: {
     color: COLORS_THEME.text,
