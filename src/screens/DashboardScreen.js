@@ -13,7 +13,7 @@ import ManagerDashboardScreen from './ManagerDashboardScreen';
 import { saveLeads } from '../utils/exportProfiles';
 import { getAIWelcomeSuggestions, clearAIWelcomeCache, isAIWelcomeEnabled, hasAIWelcomeBeenShownToday, markAIWelcomeShownToday, loadAIRecommendationSettings, getAIPersonalityStyle } from '../utils/aiWelcome';
 import { logOutreachActivity, OUTREACH_TYPES } from '../utils/outreachUtils';
-import { loadMyZips, buildZipActivity, getRecommendedZipAreas, GOALS_STORAGE_KEY } from '../utils/territoryUtils';
+import { loadMyZips, buildZipActivity, getRecommendedZipAreas, GOALS_STORAGE_KEY, onTerritoryZipChange } from '../utils/territoryUtils';
 import { getCurrentCoords } from '../utils/geoEnrich';
 import { enrichLead, enqueueEnrichLead } from '../utils/claudeApi';
 import { loadUserLearningProfile, recordUserActivityEvent } from '../utils/userLearning';
@@ -280,6 +280,33 @@ export default function DashboardScreen({ navigation, route }) {
   useEffect(() => {
     loadAIRecommendationSettings().then(setRecommendationSettings).catch(() => {});
   }, []);
+
+  // Listen for territory zip changes and refresh zip activity immediately
+  useEffect(() => {
+    console.log('[DashboardScreen] Subscribing to territory zip changes');
+    const unsubscribe = onTerritoryZipChange(async (newZipCodes) => {
+      console.log('[DashboardScreen] Territory zips changed. Refreshing zip activity. New zips:', newZipCodes.join(', '));
+      try {
+        let rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, null);
+        if (!rawLeads) {
+          try {
+            const RawStorage = require('@react-native-async-storage/async-storage').default;
+            const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+            rawLeads = raw ? JSON.parse(raw) : [];
+          } catch { rawLeads = []; }
+        }
+        const myZips = await loadMyZips().catch(() => []);
+        const sortedLeads = sortLeads(rawLeads || [], sortCriteria);
+        setLeads(sortedLeads);
+        const activity = buildZipActivity(myZips, sortedLeads);
+        setZipActivity(activity);
+        console.log('[DashboardScreen] Zip activity refreshed. Count:', activity.length);
+      } catch (e) {
+        console.warn('[DashboardScreen] Zip change refresh failed:', e);
+      }
+    });
+    return unsubscribe;
+  }, [sortCriteria]);
 
   useFocusEffect(useCallback(() => {
     let active = true;

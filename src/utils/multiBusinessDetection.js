@@ -75,7 +75,7 @@ async function detectBusinessesWithVision(base64Image, context) {
 
     const systemPrompt = `You are a business intelligence system analyzing photos of commercial areas for pest control sales prospecting.
 
-Your job is to identify ALL visible businesses and storefronts in the photo.
+Your job is to identify ALL visible businesses and storefronts in the photo and extract as much contact and location data as possible from signage, windows, doors, and surrounding context.
 
 Respond ONLY with valid JSON in this exact format — no markdown, no explanation, nothing else:
 {
@@ -83,7 +83,13 @@ Respond ONLY with valid JSON in this exact format — no markdown, no explanatio
     {
       "name": "Business name from signage",
       "signage": "Exact text visible on sign",
-      "address": "Street address if visible, otherwise null",
+      "streetAddress": "Street number and name if visible (e.g. '1234 Main St'), otherwise null",
+      "city": "City name if visible or inferable, otherwise null",
+      "state": "State abbreviation if visible (e.g. 'TX'), otherwise null",
+      "zip": "ZIP code if visible, otherwise null",
+      "phoneNumber": "Phone number if visible on signage/window/door, otherwise null",
+      "website": "Website URL if visible on signage/window, otherwise null",
+      "email": "Email address if visible, otherwise null",
       "businessType": "restaurant|retail|office|grocery|hotel|warehouse|medical|other",
       "position": "left|center|right|background",
       "confidence": 0.95,
@@ -94,6 +100,13 @@ Respond ONLY with valid JSON in this exact format — no markdown, no explanatio
   "totalDetected": 2,
   "analysisNotes": "brief scene description"
 }
+
+CRITICAL RULES for extraction:
+- Phone numbers: Look carefully at window decals, door signs, menus, and business cards visible in the photo. Format as (XXX) XXX-XXXX if US number.
+- Website: Look for URLs on signage, menus, or window decals. Include full URL with http/https.
+- Address: Extract street number + street name from building numbers, address plaques, or nearby signs. Even partial info like just a street number is valuable.
+- If you cannot read a field from the photo, set it to null — do NOT guess or fabricate data.
+- Business names must come from ACTUAL signage visible in the photo, not inference.
 
 If no businesses are clearly identifiable, return:
 {"businesses": [], "totalDetected": 0, "analysisNotes": "reason no businesses detected"}`;

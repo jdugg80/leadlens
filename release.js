@@ -519,11 +519,11 @@ async function createGitHubRelease(buildInfo, apkPath, repoInfo, newVersion) {
 
   ok(`GitHub Release: ${release.html_url}`);
 
-  // Upload APK asset
+  // Upload APK asset — handle existing asset gracefully
   const fileContent = fs.readFileSync(apkPath);
   const uploadUrl   = `https://uploads.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/releases/${release.id}/assets?name=${encodeURIComponent(fileName)}`;
 
-  const uploadRes = await fetch(uploadUrl, {
+  let uploadRes = await fetch(uploadUrl, {
     method: 'POST',
     headers: {
       'Authorization':        `Bearer ${token}`,
@@ -534,11 +534,71 @@ async function createGitHubRelease(buildInfo, apkPath, repoInfo, newVersion) {
     body: fileContent,
   });
 
+  let asset;
+
+  // If asset already exists, delete it and re-upload
   if (!uploadRes.ok) {
-    throw new Error(`APK upload failed (${uploadRes.status}): ${await uploadRes.text()}`);
+    const errBody = await uploadRes.text();
+    if (uploadRes.status === 422 && errBody.includes('already_exists')) {
+      warn('APK asset already exists — deleting and re-uploading');
+
+      // List existing assets to find the one to delete
+      const assetsRes = await fetch(
+        `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/releases/${release.id}/assets`,
+        {
+          headers: {
+            'Authorization':        `Bearer ${token}`,
+            'Accept':               'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        }
+      );
+
+      if (assetsRes.ok) {
+        const existingAssets = await assetsRes.json();
+        const existingAsset = existingAssets.find(a => a.name === fileName);
+
+        if (existingAsset) {
+          // Delete the existing asset
+          await fetch(
+            `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/releases/assets/${existingAsset.id}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'Authorization':        `Bearer ${token}`,
+                'X-GitHub-Api-Version': '2022-11-28',
+              },
+            }
+          );
+          ok(`Deleted existing asset: ${fileName}`);
+
+          // Re-upload
+          uploadRes = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization':        `Bearer ${token}`,
+              'Accept':               'application/vnd.github+json',
+              'Content-Type':         'application/octet-stream',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+            body: fileContent,
+          });
+
+          if (!uploadRes.ok) {
+            throw new Error(`APK re-upload failed (${uploadRes.status}): ${await uploadRes.text()}`);
+          }
+        } else {
+          throw new Error(`APK upload failed (${uploadRes.status}): ${errBody}`);
+        }
+      } else {
+        throw new Error(`APK upload failed (${uploadRes.status}): ${errBody}`);
+      }
+    } else {
+      throw new Error(`APK upload failed (${uploadRes.status}): ${errBody}`);
+    }
   }
 
-  const asset = await uploadRes.json();
+  asset = await uploadRes.json();
   ok(`APK uploaded: ${fileName}`);
 
   return {

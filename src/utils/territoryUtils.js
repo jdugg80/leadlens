@@ -8,6 +8,27 @@ const TERRITORY_REVISION_KEY = 'leadlens_territory_zips_revision';
 
 const getRaw = require('@react-native-async-storage/async-storage').default;
 
+// ─── Zip Change Event Bus ─────────────────────────────────────────────────────
+// Simple pub/sub so screens can react to territory zip changes without polling.
+const _zipListeners = new Set();
+
+export function onTerritoryZipChange(callback) {
+  _zipListeners.add(callback);
+  console.log('[TerritoryUtils] Listener registered. Total listeners:', _zipListeners.size);
+  return () => {
+    _zipListeners.delete(callback);
+    console.log('[TerritoryUtils] Listener removed. Total listeners:', _zipListeners.size);
+  };
+}
+
+function _broadcastZipChange(zips) {
+  const zipCodes = (zips || []).map(z => z?.zip || z).filter(Boolean);
+  console.log('[TerritoryUtils] Broadcasting zip change. Count:', zipCodes.length, 'Zips:', zipCodes.join(', '));
+  for (const listener of _zipListeners) {
+    try { listener(zipCodes); } catch (e) { console.warn('[TerritoryUtils] Listener error:', e); }
+  }
+}
+
 async function dualRead(key) {
   // Try MMKV first (fast sync), fall back to raw AsyncStorage
   try {
@@ -30,13 +51,17 @@ async function dualWrite(key, value) {
 export async function loadMyZips() {
   try {
     const raw = await dualRead(TERRITORY_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const zips = raw ? JSON.parse(raw) : [];
+    console.log('[TerritoryUtils] loadMyZips:', zips.length, 'zips loaded');
+    return zips;
   } catch { return []; }
 }
 
 export async function saveMyZips(zips) {
   await dualWrite(TERRITORY_STORAGE_KEY, JSON.stringify(zips));
   await dualWrite(TERRITORY_REVISION_KEY, String(Date.now()));
+  console.log('[TerritoryUtils] saveMyZips completed. Broadcasting change...');
+  _broadcastZipChange(zips);
 }
 
 export async function getMyZipsRevision() {

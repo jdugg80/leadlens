@@ -100,7 +100,7 @@ import {
 import { ScreenHeader } from '../components/UI';
 import {
   loadMyZips, saveMyZips, fetchMyTerritoryFromSupabase, getMyZipsRevision, buildZipActivity,
-  getHeatLevel, getHeatColor, getHeatLabel,
+  getHeatLevel, getHeatColor, getHeatLabel, onTerritoryZipChange,
 } from '../utils/territoryUtils';
 import { sortLeadsNewestFirst } from '../utils/leadHelpers';
 import { getBulkZipBounds, getZipBounds } from '../utils/zipBoundaryCache';
@@ -331,12 +331,26 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [addressQuery, setAddressQuery] = useState('');
   const [addressSearching, setAddressSearching] = useState(false);
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState([]);
+  const [searchMarker, setSearchMarker] = useState(null);
   const autocompleteTimerRef = useRef(null);
   const lastFetchedCoordsRef = useRef({ lat: 0, lng: 0 });
   const initialLocationAppliedRef = useRef(false);
   const [clusters, setClusters] = useState([]);
 
   useEffect(() => { BetaTracker.screen('TerritoryMapScreen'); }, []);
+
+  // Listen for territory zip changes from TerritoryManagerScreen or any other screen.
+  // When zips change, re-load the map to refresh markers, boundaries, and subscription.
+  useEffect(() => {
+    console.log('[TerritoryMap] Subscribing to territory zip changes');
+    const unsubscribe = onTerritoryZipChange((newZipCodes) => {
+      console.log('[TerritoryMap] Territory zip change detected. New zips:', newZipCodes.join(', '));
+      // Force reload: clear loadingRef guard so loadMap can re-run even if previous load is stuck
+      loadingRef.current = false;
+      loadMap({ silent: true });
+    });
+    return unsubscribe;
+  }, []);
 
   // Homeowner data loading
   useEffect(() => {
@@ -1261,6 +1275,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const handleAddressChange = (text) => {
     setAddressQuery(text);
     setAutocompleteSuggestions([]);
+    if (text.length < 3) setSearchMarker(null);
     if (autocompleteTimerRef.current) clearTimeout(autocompleteTimerRef.current);
     if (text.length < 3) return;
     autocompleteTimerRef.current = setTimeout(async () => {
@@ -1285,9 +1300,11 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const data = await resp.json();
       const loc = data.results?.[0]?.geometry?.location;
       if (loc) {
-        moveMapTo({ latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+        const coord = { latitude: loc.lat, longitude: loc.lng };
+        setSearchMarker({ coordinate: coord, label: suggestion.description });
+        moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
-        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
+        const results = await searchNearbyBusinesses({ center: coord, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
         if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
       }
     } catch (err) {
@@ -1306,9 +1323,11 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const data = await resp.json();
       const loc = data.results?.[0]?.geometry?.location;
       if (loc) {
-        moveMapTo({ latitude: loc.lat, longitude: loc.lng, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
+        const coord = { latitude: loc.lat, longitude: loc.lng };
+        setSearchMarker({ coordinate: coord, label: addressQuery });
+        moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
-        const results = await searchNearbyBusinesses({ center: { latitude: loc.lat, longitude: loc.lng }, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
+        const results = await searchNearbyBusinesses({ center: coord, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
         if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
         else showThemedAlert('No results', 'No businesses found at that location.');
       } else {
@@ -1607,6 +1626,21 @@ export default function TerritoryMapScreen({ navigation, route }) {
             />
           ))}
           {filters?.targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+
+          {/* Search result marker */}
+          {searchMarker && (
+            <Marker
+              key="search-result-marker"
+              coordinate={searchMarker.coordinate}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+            >
+              <View style={s.searchMarkerPin}>
+                <Text style={s.searchMarkerPinIcon}>{ICON_PIN}</Text>
+              </View>
+              <View style={s.searchMarkerTail} />
+            </Marker>
+          )}
 
           {/* Homeowner mode pins */}
           {filters?.targetLensMode === 'homeowner' && homeownerProspects
@@ -2023,4 +2057,20 @@ const s = StyleSheet.create({
     shadowOpacity: 0.4, shadowRadius: 3,
   },
   homeownerPinEmoji: { fontSize: 16 },
+  searchMarkerPin: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: '#00C9FF', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#fff',
+    elevation: 6, shadowColor: '#00C9FF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5, shadowRadius: 4,
+  },
+  searchMarkerPinIcon: { fontSize: 14 },
+  searchMarkerTail: {
+    width: 0, height: 0,
+    borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 6,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent',
+    borderTopColor: '#fff',
+    alignSelf: 'center',
+  },
 });

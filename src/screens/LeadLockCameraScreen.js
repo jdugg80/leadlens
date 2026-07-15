@@ -31,6 +31,7 @@ import { storageBridge } from '../utils/storage';
 import { LEADS_STORAGE_KEY } from '../constants';
 import { getCurrentCoords, reverseGeocodeCoords } from '../utils/geoEnrich';
 import { checkGooglePlacesApiHealth } from '../utils/nearbySearch';
+import { onTerritoryZipChange } from '../utils/territoryUtils';
 import * as ImageManipulator from 'expo-image-manipulator';
 import useLeadLockLocationSnapshot from '../hooks/useLeadLockLocationSnapshot';
 import resolveZipFromLeadLockPhoto from '../utils/location/resolveZipFromLeadLockPhoto';
@@ -226,6 +227,32 @@ export default function LeadLockCameraScreen({ navigation }) {
 
     return () => { cancelled = true; };
   }, [leadLockGps, location?.zip]);
+
+  // Invalidate cached zip when territory zips change.
+  // If the cached zip is no longer in the territory, clear it so next capture re-resolves.
+  useEffect(() => {
+    console.log('[LeadLockCamera] Subscribing to territory zip changes for cache invalidation');
+    const unsubscribe = onTerritoryZipChange(async (newZipCodes) => {
+      console.log('[LeadLockCamera] Territory zips changed. New zips:', newZipCodes.join(', '));
+      if (resolvedZipRef.current && newZipCodes.length > 0 && !newZipCodes.includes(resolvedZipRef.current)) {
+        console.log('[LeadLockCamera] Cached zip', resolvedZipRef.current, 'not in new territory. Clearing cache.');
+        resolvedZipRef.current = null;
+        locationResolveKeyRef.current = null;
+        // Clear location.zip so GPS useEffect can re-resolve
+        if (mountedRef.current) {
+          setLocation(prev => prev ? { ...prev, zip: null } : prev);
+        }
+      } else if (newZipCodes.length === 0) {
+        console.log('[LeadLockCamera] Territory emptied. Clearing cached zip.');
+        resolvedZipRef.current = null;
+        locationResolveKeyRef.current = null;
+        if (mountedRef.current) {
+          setLocation(prev => prev ? { ...prev, zip: null } : prev);
+        }
+      }
+    });
+    return unsubscribe;
+  }, [leadLockGps]);
 
   const initLocation = async () => {
     // Use hook's leadLockGps if available (avoids duplicate permission request)
