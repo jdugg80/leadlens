@@ -113,6 +113,19 @@ export const MAP_NEARBY_PLACES_KEY = '@leadlens_map_nearby_places';
 
 export const PROSPECT_FILTERS_KEY = 'prospect_filters';
 
+export const EXPORT_DESTINATION_PREFS_KEY = '@leadlens_export_destination_prefs';
+
+export const EXPORT_DESTINATIONS = {
+  ONEDRIVE: 'onedrive',
+  GOOGLE_DRIVE: 'google_drive',
+  LOCAL: 'local',
+};
+
+export const EXPORT_FORMATS = {
+  XLSX: 'xlsx',
+  CSV: 'csv',
+};
+
 export const PROSPECT_STATUS_OPTIONS = [
   { key: 'hot', label: 'Hot', color: '#FF3B5C' },
   { key: 'warm', label: 'Warm', color: '#FFC800' },

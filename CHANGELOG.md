@@ -1,6 +1,15 @@
 # Changelog
 
-## BETA-57 | 2026-07-10
+## BETA-57 | 2026-07-15
+
+### 📤 Prospect Export
+- **ExportModal Component** — New modal in ProspectQueueScreen with format selection (XLSX/CSV) and three destination buttons: OneDrive, Google Drive, and Local Storage.
+- **Export Formatters** — New `exportFormatters.ts` utility with CSV and XLSX generation, file naming convention `leadlens-prospects-[territory]-[date]`, and base64/UTF-8 encoding support.
+- **OneDrive Integration** — OAuth flow with Microsoft Graph API for direct uploads to OneDrive, with token refresh and folder creation.
+- **Google Drive Integration** — OAuth flow with Google Drive API v3 for direct uploads, with automatic folder creation and token management.
+- **Local Export** — Share sheet integration via `expo-sharing` for saving to device or sharing to other apps.
+- **Export Preferences** — Last-used destination saved in MMKV for quick access.
+- **Header Export Button** — Export button added to ProspectQueueScreen header (disabled when no prospects).
 
 ### 🎯 LeadLock
 - **ZIP Acquisition UX Overhaul** — Capture now blocked until ZIP resolves; centered acquisition overlay with solid-orbiting-dots dual animation (replaced border-arc technique); 18s timeout + retry; header restructured as siblings of CameraView (fixed Android rendering bug); ZIP badge restored in header once acquired.

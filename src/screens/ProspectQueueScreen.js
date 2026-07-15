@@ -27,6 +27,7 @@ import { matchLeadByAnyId, normalizeLead, sortQueueProspects, mergeProspectWithS
 import { extractLeadsWithDebugFromImage } from '../utils/claudeApi';
 import { checkPermitStatus } from '../utils/txPermitCheck';
 import { useProcessing } from '../context/ProcessingContext';
+import ExportModal from '../components/ExportModal';
 
 const emptyForm = {
   businessName: '',
@@ -82,6 +83,7 @@ export default function ProspectQueueScreen({ navigation, route }) {
   const [filterSource, setFilterSource] = useState('all');
   const [filterViability, setFilterViability] = useState('all');
   const [filterPanelVisible, setFilterPanelVisible] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
   const scrollRef = useRef(null);
   const filterScrollRef = useRef(null);
   const [scrollLocked, setScrollLocked] = useState(false);
@@ -650,10 +652,21 @@ export default function ProspectQueueScreen({ navigation, route }) {
         >
           <View style={styles.headerRow}>
             <Text style={styles.title}>Prospect Queue</Text>
-            <TouchableOpacity style={styles.importBtn} onPress={() => setImportModalVisible(true)} activeOpacity={0.7} disabled={globalProcessing}>
-              <Text style={styles.importBtnIcon}>↓</Text>
-              <Text style={styles.importBtnText}>Import</Text>
-            </TouchableOpacity>
+            <View style={styles.headerButtons}>
+              <TouchableOpacity
+                style={styles.exportBtn}
+                onPress={() => setExportModalVisible(true)}
+                activeOpacity={0.7}
+                disabled={globalProcessing || sortedLeads.length === 0}
+              >
+                <Text style={styles.exportBtnIcon}>↑</Text>
+                <Text style={styles.exportBtnText}>Export</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.importBtn} onPress={() => setImportModalVisible(true)} activeOpacity={0.7} disabled={globalProcessing}>
+                <Text style={styles.importBtnIcon}>↓</Text>
+                <Text style={styles.importBtnText}>Import</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Filter toggle button */}
@@ -903,6 +916,13 @@ export default function ProspectQueueScreen({ navigation, route }) {
         </KeyboardAvoidingView>
       </Modal>
 
+      <ExportModal
+        visible={exportModalVisible}
+        onClose={() => setExportModalVisible(false)}
+        prospects={sortedLeads}
+        territory={user?.branchNum || 'all'}
+      />
+
       {processing && (
         <View style={styles.processingOverlay}>
           <View style={styles.processingBox}>
@@ -927,6 +947,24 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   title: { color: '#FFFFFF', fontSize: 26, fontWeight: '800' },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+    gap: 6,
+  },
+  exportBtnIcon: { color: COLORS.accent, fontSize: 16, fontWeight: '900' },
+  exportBtnText: { color: COLORS.accent, fontSize: 14, fontWeight: '800' },
   importBtn: {
     flexDirection: 'row',
     alignItems: 'center',
