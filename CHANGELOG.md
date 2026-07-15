@@ -1,6 +1,9 @@
 # Changelog
 
-## BETA-57 | 2026-07-15
+## BETA-58 | 2026-07-15
+
+### 🔧 Core App
+- **Release Script Fix** — `release.js` now handles APK asset already_exists error by deleting the existing asset and re-uploading, preventing 422 failures on re-releases.
 
 ### 📤 Prospect Export
 - **ExportModal Component** — New modal in ProspectQueueScreen with format selection (XLSX/CSV) and three destination buttons: OneDrive, Google Drive, and Local Storage.
@@ -10,6 +13,8 @@
 - **Local Export** — Share sheet integration via `expo-sharing` for saving to device or sharing to other apps.
 - **Export Preferences** — Last-used destination saved in MMKV for quick access.
 - **Header Export Button** — Export button added to ProspectQueueScreen header (disabled when no prospects).
+
+## BETA-57 | 2026-07-15
 
 ### 🎯 LeadLock
 - **ZIP Acquisition UX Overhaul** — Capture now blocked until ZIP resolves; centered acquisition overlay with solid-orbiting-dots dual animation (replaced border-arc technique); 18s timeout + retry; header restructured as siblings of CameraView (fixed Android rendering bug); ZIP badge restored in header once acquired.
