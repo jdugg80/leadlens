@@ -2,7 +2,7 @@
   "expo": {
     "name": "LeadLens",
     "slug": "leadlens",
-    "version": "2.0.57",
+    "version": "2.0.58",
     "orientation": "portrait",
     "icon": "./assets/leadlens/LeadLens_app_icon_v3.png",
     "userInterfaceStyle": "dark",
@@ -12,14 +12,14 @@
       "fallbackToCacheTimeout": 0,
       "checkAutomatically": "ON_LOAD"
     },
-    "runtimeVersion": "2.0.57",
+    "runtimeVersion": "2.0.58",
     "splash": {
       "image": "./assets/leadlens/LeadLens_splash_static_v3.png",
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
     "android": {
-      "versionCode": 57,
+      "versionCode": 58,
       "adaptiveIcon": {
         "foregroundImage": "./assets/leadlens/LeadLens_adaptive_icon.png",
         "backgroundColor": "#000000"
@@ -84,7 +84,7 @@
       "eas": {
         "projectId": "a479ffad-128e-455c-8148-7504f53b83e4"
       },
-      "betaBuild": 57
+      "betaBuild": 58
     },
     "sdkVersion": "51.0.0",
     "platforms": [
