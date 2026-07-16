@@ -25,6 +25,7 @@ import { getStyledMessage } from '../utils/aiPersonality';
 import { saveUserLocationStatus } from '../features/lenssignal/saveUserLocationStatus';
 
 import { registerLensSignalPushToken } from '../features/lenssignal/registerPushToken';
+import { unregisterPushToken } from '../utils/pushNotifications';
 import { processQueue } from '../utils/taskRunner';
 import { deleteProspect, deleteProspects } from '../utils/backendSync';
 import { hasRequestedBulkPermissions, markBulkPermissionsRequested, requestAllPermissions } from '../utils/permissionManager';
@@ -602,21 +603,26 @@ export default function DashboardScreen({ navigation, route }) {
       { text: 'Sign Out', style: 'destructive', onPress: async () => {
         // Best-effort cleanup — navigation always happens even if something fails
         try {
-          await AsyncStorage.removeItem('@leadlens_auth_profile').catch(() => {});
-          await AsyncStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
-
           const rawSupa = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY).catch(() => null);
           const settings = rawSupa ? JSON.parse(rawSupa) : {};
           const supabase = createSupabaseClient(settings);
-          if (supabase) await supabase.auth.signOut().catch(() => {});
+          if (supabase) {
+            const { data: { user: authUser } } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+            if (authUser?.id) await unregisterPushToken(authUser.id).catch(() => {});
+            await supabase.auth.signOut().catch(() => {});
+          }
 
+          BetaTracker.setEmail('');
           await BetaTracker.endSession().catch(() => {});
+
+          await AsyncStorage.clearUserSession().catch(() => {});
         } catch (err) {
           console.warn('[Dashboard] Sign out cleanup failed:', err?.message);
         }
 
         // Always navigate — never block sign out on cleanup failures
-        navigation.replace('Login');
+        // Use reset() to clear entire stack so back button won't return
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
       }},
     ]);
   };

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   ScrollView, StyleSheet, KeyboardAvoidingView,
-  Platform, Image, Animated, Pressable,
+  Platform, Image, Animated, Pressable, Dimensions,
 } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
@@ -27,6 +27,18 @@ import BetaTracker from '../../utils/betaTracker';
 import Constants from 'expo-constants';
 
 import { syncProspectsFromSupabase, syncUserSettingsFromSupabase, syncAllDataToSupabase } from '../utils/backendSync';
+
+// ── Responsive logo sizing ──────────────────────────────────────────────────
+// The logo image is 1522x546 (aspect ratio ~2.79:1). Calculate dimensions
+// so the logo occupies ~28% of screen height, clamped between 56–120px to
+// stay legible on small phones without dominating tablets.
+const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
+const LOGO_ASPECT = 1522 / 546; // ≈ 2.79
+const LOGO_H_RAW = Math.round(SCREEN_H * 0.28);
+const LOGO_H = Math.max(56, Math.min(120, LOGO_H_RAW));
+const LOGO_W = Math.round(LOGO_H * LOGO_ASPECT);
+const LOGO_WRAP_MB = Math.max(10, Math.round(SCREEN_H * 0.018));
+const LOGO_ACCENT_W = Math.max(120, Math.min(280, Math.round(SCREEN_W * 0.65)));
 
 async function ensureAuthenticatedClient(client, maxAttempts = 3) {
   for (let i = 0; i < maxAttempts; i++) {
@@ -913,15 +925,15 @@ const s = StyleSheet.create({
   scroll: { padding: 20, paddingBottom: 48 },
 
   // Logo
-  logoWrap: { alignItems: 'center', marginBottom: 22, marginTop: 8 },
+  logoWrap: { alignItems: 'center', marginBottom: LOGO_WRAP_MB, marginTop: 8 },
   logoBorder: {
     borderWidth: 1, borderColor: COLORS.borderLit,
     borderRadius: 16, paddingHorizontal: 10, paddingVertical: 8,
     backgroundColor: COLORS.surface,
   },
-  logoHeroImg: { width: 220, height: 80 },
-  logoProfileImg: { width: '65%', maxWidth: 250, aspectRatio: 250 / 96 },
-  logoAccentLine: { flexDirection: 'row', width: '70%', maxWidth: 280, height: 2, marginTop: 8 },
+  logoHeroImg: { width: LOGO_W, height: LOGO_H },
+  logoProfileImg: { width: '50%', maxWidth: 200, aspectRatio: LOGO_ASPECT },
+  logoAccentLine: { flexDirection: 'row', width: LOGO_ACCENT_W, height: 2, marginTop: 8 },
   logoAccentL: { flex: 1, backgroundColor: COLORS.purple, opacity: 0.7 },
   logoAccentR: { flex: 1, backgroundColor: COLORS.accent2, opacity: 0.7 },
 

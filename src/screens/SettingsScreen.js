@@ -591,8 +591,7 @@ export default function SettingsScreen({ navigation, route }) {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
-          await AsyncStorage.removeItem(USER_STORAGE_KEY);
-          BetaTracker.setEmail('');
+          // 1. Sign out of Supabase first (clears auth tokens from AsyncStorage)
           try {
             const sb = createSupabaseClient(supabaseSettings);
             if (sb) {
@@ -601,6 +600,17 @@ export default function SettingsScreen({ navigation, route }) {
               await sb.auth.signOut();
             }
           } catch {}
+
+          // 2. Clear BetaTracker session
+          BetaTracker.setEmail('');
+          BetaTracker.endSession().catch(() => {});
+
+          // 3. Clear ALL user data from MMKV + AsyncStorage
+          try {
+            await AsyncStorage.clearUserSession();
+          } catch {}
+
+          // 4. Reset navigation — clears entire stack so back button won't return
           navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         },
       },

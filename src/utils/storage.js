@@ -395,7 +395,7 @@ export const storage = {
   },
 
   /**
-   * Clear the entire storage (use with caution!)
+   * Clear the entire storage — both MMKV and AsyncStorage (use with caution!)
    */
   clear: async () => {
     try {
@@ -403,13 +403,105 @@ export const storage = {
       if (s) {
         s.clearAll();
         _jsonCache.clear();
-        return;
       }
     } catch (err) {
-      console.error('[Storage] clear error:', err.message);
+      console.error('[Storage] clear MMKV error:', err.message);
       _fallback = true;
       _storage = null;
     }
+    try {
+      await AsyncStorage.clear();
+    } catch (err) {
+      console.error('[Storage] clear AsyncStorage error:', err.message);
+    }
+  },
+
+  /**
+   * Remove all user-session keys from both MMKV and AsyncStorage.
+   * Keeps app-level config (Supabase URL/key, admin PIN, feature flags)
+   * so the user doesn't need to reconfigure the app after logging back in.
+   */
+  clearUserSession: async () => {
+    const userKeys = [
+      '@leadlens_user',
+      '@leadlens_leads',
+      '@leadlens_all_leads',
+      '@leadlens_user_goals',
+      '@leadlens_auth_profile',
+      '@leadlens_legal_acceptance',
+      '@leadlens_outreach_history',
+      '@leadlens_outreach_settings',
+      '@leadlens_outreach_review_templates',
+      '@leadlens_auto_intro',
+      '@leadlens_intro_template_settings',
+      '@leadlens_export_settings',
+      '@leadlens_auto_export_settings',
+      '@leadlens_auto_export_profile',
+      '@leadlens_export_destination_prefs',
+      '@leadlens_automation_settings',
+      '@leadlens_last_automation_run',
+      '@leadlens_map_filters',
+      '@leadlens_map_region',
+      '@leadlens_map_nearby_places',
+      '@leadlens_storefront_scan_history',
+      '@leadlens_daily_goal_chime_enabled',
+      '@leadlens_ai_welcome_enabled',
+      '@leadlens_ai_welcome_shown_date',
+      '@leadlens_ai_recommendation_settings',
+      '@leadlens_ai_personality_style',
+      '@leadlens_ai_voice_profile',
+      '@leadlens_tcpa_consent',
+      '@leadlens_target_lens_profile',
+      '@leadlens_target_lens_search_mode',
+      '@leadlens_target_lens_mode',
+      '@leadlens_disabled_users',
+      '@leadlens_bg_opt_prompted_v1',
+      '@leadlens_last_active_at',
+      '@leadlens_last_active_route',
+      '@leadlens_permissions_setup_v1',
+      '@leadlens_processing_state',
+      '@leadlens_onedrive_tokens',
+      '@leadlens_google_drive_tokens',
+      'prospect_filters',
+      'BACKEND_EMAIL_SETTINGS',
+      'currentLocation',
+      'dailyGoalChimePlayed:',
+    ];
+
+    const keysToRemove = [];
+    for (const key of userKeys) {
+      if (key.endsWith(':')) {
+        // Prefix keys: get all matching keys from both stores
+        try {
+          const allKeys = storage.getAllKeysSync();
+          for (const k of allKeys) {
+            if (k.startsWith(key)) keysToRemove.push(k);
+          }
+        } catch {}
+      } else {
+        keysToRemove.push(key);
+      }
+    }
+
+    // Remove from MMKV
+    for (const key of keysToRemove) {
+      storage.removeSync(key);
+    }
+
+    // Remove from AsyncStorage
+    try {
+      const asyncKeys = await AsyncStorage.getAllKeys();
+      const toRemove = asyncKeys.filter(
+        (k) => k.startsWith('@leadlens_') || k === 'prospect_filters' || k === 'currentLocation' || k.startsWith('dailyGoalChimePlayed:')
+      );
+      if (toRemove.length > 0) {
+        await AsyncStorage.multiRemove(toRemove);
+      }
+    } catch (err) {
+      console.warn('[Storage] clearUserSession AsyncStorage error:', err.message);
+    }
+
+    _jsonCache.clear();
   },
 
   /**

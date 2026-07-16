@@ -1674,7 +1674,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
           }
         </MapView>
         {activeProfile && activeProfile.category !== 'Pest Control' && (
-          <View style={s.activeProfileBadge}>
+          <View style={[s.activeProfileBadge, { top: insets.top + 16 }]}>
             <Text style={s.activeProfileLabel}>ACTIVE PROFILE</Text>
             <Text style={s.activeProfileValue}>{activeProfile.label}</Text>
           </View>
@@ -1690,7 +1690,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={s.filterBtn}
+              style={[s.filterBtn, activeFilterCount > 0 && s.filterBtnActive]}
               onPress={() => setFiltersVisible(true)}
               activeOpacity={0.75}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -1976,19 +1976,26 @@ const s = StyleSheet.create({
   poiPinText: { color: '#fff', fontSize: 14, fontWeight: '900' },
   placePin: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
   bottomActions: { position: 'absolute', right: 16, gap: 10, zIndex: 10000, elevation: 34 },
-  actionBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center', elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit },
+  actionBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center',
+    elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit,
+  },
+  actionBtnActive: {
+    backgroundColor: 'rgba(0,201,255,0.15)',
+    borderColor: COLORS.accent,
+  },
   filterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 48,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 24,
+    flexDirection: 'row', alignItems: 'center',
+    height: 44, paddingHorizontal: 14,
+    borderRadius: 22,
     backgroundColor: COLORS.surface,
-    elevation: 12,
-    borderWidth: 1,
-    borderColor: COLORS.borderLit,
+    elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit,
     gap: 8,
+  },
+  filterBtnActive: {
+    backgroundColor: 'rgba(0,201,255,0.15)',
+    borderColor: COLORS.accent,
   },
   filterBtnIcon: { fontSize: 16 },
   filterBtnText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
@@ -2002,10 +2009,10 @@ const s = StyleSheet.create({
   actionBtnIcon: { fontSize: 20 },
   filterBadge: { position: 'absolute', top: -2, right: -2, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: COLORS.surface },
   filterBadgeText: { color: '#000', fontSize: 11, fontWeight: '800' },
-  activeProfileBadge: { position: 'absolute', top: 80, left: 16, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 8 },
+  activeProfileBadge: { position: 'absolute', left: 16, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 8 },
   activeProfileLabel: { color: COLORS.label, fontSize: 8 },
   activeProfileValue: { color: COLORS.accent, fontSize: 10, fontWeight: '800' },
-  mapHintBar: { position: 'absolute', top: 120, left: 16, right: 16, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 4 },
+  mapHintBar: { position: 'absolute', left: 16, right: 16, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 4 },
   mapHintText: { color: '#fff', fontSize: 10, textAlign: 'center' },
   leadCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 50 },
   nearbyBatchCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 40 },

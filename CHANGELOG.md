@@ -1,5 +1,25 @@
 # Changelog
 
+## BETA-59 | 2026-07-16
+
+### 🔐 Auth & Security
+- **Logout Flow Overhaul** — Centralized `clearUserSession()` in `storage.js` now wipes all 35+ user-session keys from both MMKV and AsyncStorage (prospects, leads, territory, auth tokens, map filters, AI settings, export prefs, push tokens). Supabase `signOut()` called first to clear auth tokens, then all local data cleared. `storage.clear()` also fixed to clear both MMKV *and* AsyncStorage (previously only cleared MMKV, leaving Supabase session tokens intact).
+- **SettingsScreen Logout** — Rewritten to call `signOut()` → `unregisterPushToken()` → `BetaTracker.endSession()` → `clearUserSession()` → `navigation.reset()` in correct order. Previously only removed `@leadlens_user`.
+- **DashboardScreen Logout** — Same 5-step cleanup. Changed `navigation.replace('Login')` to `navigation.reset()` so the back stack is fully cleared (Android back button no longer returns to Dashboard after logout). Added missing `unregisterPushToken` import.
+- **Navigation Reset** — Both screens now use `navigation.reset({ index: 0, routes: [{ name: 'Login' }] })` instead of `replace()`, ensuring the entire navigation stack is cleared on logout.
+
+### 🖼️ Login Screen
+- **Responsive Logo Sizing** — Logo dimensions now scale with screen height using `Dimensions` API: height = 28% of screen (clamped 56–120px), width derived from actual image aspect ratio (2.79:1). `logoProfileImg` updated to match. Accent line width and wrap margin also responsive. Reduces logo footprint from ~15% to ~12% of screen height, improving form visibility on all device sizes.
+
+### 🗺️ Territory Map
+- **Button Styling Unification** — `actionBtn` and `filterBtn` now share consistent 44px height, `borderRadius: 22`, `COLORS.surface` background, and `COLORS.borderLit` border. Filter button lost oversized `minHeight: 48` and extra vertical padding.
+- **Active Filter State** — New `filterBtnActive` style: cyan `#00C9FF` border + translucent cyan background when `activeFilterCount > 0`. `actionBtnActive` also available for future use.
+- **Safe Area Fixes** — `activeProfileBadge` and `mapHintBar` no longer use hardcoded `top` values; now positioned dynamically via `insets.top`.
+
+### 🔧 Release Infrastructure
+- **release.js CRLF Fix** — CHANGELOG date stamping now preserves original CRLF line endings (was normalizing to LF and writing back, corrupting Windows-created files). Added dry-run guard for date stamping.
+- **Runtime Version Bump** — `expo_runtime_version` updated to `2.0.58`.
+
 ## BETA-58 | 2026-07-15
 
 ### 🔧 Core App

@@ -155,8 +155,10 @@ function parseChangelog() {
     throw new Error(`CHANGELOG.md not found at ${CHANGELOG_PATH}`);
   }
 
-  // Normalize CRLF (Windows) to LF so \n-based regexes below work reliably
-  const content  = fs.readFileSync(CHANGELOG_PATH, 'utf-8').replace(/\r\n/g, '\n');
+  // Keep the original (CRLF-intact) content separately — only the LF-normalized
+  // copy below is used for regex matching, never written back to disk.
+  const rawContent = fs.readFileSync(CHANGELOG_PATH, 'utf-8');
+  const content     = rawContent.replace(/\r\n/g, '\n');
 
   // Auto-stamp today's date if the top entry date differs
   const today   = new Date().toISOString().slice(0, 10);
@@ -164,8 +166,14 @@ function parseChangelog() {
     /^(## BETA-\d+\s*\|\s*)(\d{4}-\d{2}-\d{2})/m,
     (_, prefix, date) => {
       if (date !== today) {
-        fs.writeFileSync(CHANGELOG_PATH, content.replace(date, today), 'utf-8');
-        ok(`CHANGELOG date stamped: ${date} → ${today}`);
+        if (DRY_RUN) {
+          dryLog(`Would stamp CHANGELOG date: ${date} → ${today}`);
+        } else {
+          // Swap only the date substring in the ORIGINAL CRLF content —
+          // never write the LF-normalized `content` back to disk.
+          fs.writeFileSync(CHANGELOG_PATH, rawContent.replace(date, today), 'utf-8');
+          ok(`CHANGELOG date stamped: ${date} → ${today}`);
+        }
         return `${prefix}${today}`;
       }
       return `${prefix}${date}`;
@@ -885,6 +893,7 @@ async function main() {
     // Always bump versions — even in --apk mode, app.json must reflect the correct build
     const newVersion = bumpVersions(buildInfo.buildNumber);
 
+    step(4, TOTAL, 'Reading git repo info');
     const repoInfo = getGitRepoInfo();
     console.log(`\n   Repo: ${repoInfo.owner}/${repoInfo.repo}`);
 
