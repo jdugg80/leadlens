@@ -607,7 +607,10 @@ export default function LeadLockCameraScreen({ navigation }) {
         stopProcessing();
       } else {
         console.warn('[LeadLockCamera] Detection failed:', result.error);
-        showToast('No businesses detected. Try a clearer angle with more storefronts visible.', 'error');
+        const errorMsg = result.error
+          ? `Detection failed: ${result.error}`
+          : 'No businesses detected. Try a clearer angle with more storefronts visible.';
+        showToast(errorMsg, 'error');
         stopProcessing();
       }
     } catch (error) {

@@ -120,7 +120,7 @@ If no businesses are clearly identifiable, return:
       },
       body: JSON.stringify({
         model: 'claude-opus-4-5',
-        max_tokens: 2000,
+        max_tokens: 4096,
         system: systemPrompt,
         messages: [
           {
@@ -163,7 +163,12 @@ If no businesses are clearly identifiable, return:
       throw new Error('Claude returned non-JSON response');
     }
 
-    const businesses = parsed.businesses || [];
+    const businesses = (parsed.businesses || []).map(b => ({
+      ...b,
+      // Bridge BETA-58 schema change: Claude now returns 'streetAddress'
+      // but enrichment code reads 'address' — normalize on output
+      address: b.address || b.streetAddress || '',
+    }));
     console.log(`[LeadLock] Detected ${businesses.length} businesses`);
 
     return {
@@ -631,7 +636,7 @@ If no business cards are found return:
       },
       body: JSON.stringify({
         model: 'claude-opus-4-5',
-        max_tokens: 2000,
+        max_tokens: 4096,
         system: systemPrompt,
         messages: [
           {
