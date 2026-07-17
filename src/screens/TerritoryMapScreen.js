@@ -1280,13 +1280,39 @@ export default function TerritoryMapScreen({ navigation, route }) {
     if (text.length < 3) return;
     autocompleteTimerRef.current = setTimeout(async () => {
       try {
-        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_MAPS_API_KEY}&types=geocode|establishment&components=country:us`;
-        const resp = await fetch(url);
-        const data = await resp.json();
-        if (data.predictions?.length) {
-          setAutocompleteSuggestions(data.predictions.slice(0, 5));
+        const resp = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+            'X-Goog-FieldMask': 'suggestions.placePrediction.text,suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat',
+          },
+          body: JSON.stringify({ input: text }),
+        });
+        const rawText = await resp.text();
+        let data;
+        try { data = JSON.parse(rawText); } catch { data = null; }
+        if (!data || data.error) {
+          console.warn('[TerritoryMap Autocomplete] API error, status:', resp.status, 'body:', rawText.slice(0, 500));
+          return;
         }
-      } catch {}
+        const predictions = (data.suggestions || []).map(s => {
+          const p = s.placePrediction;
+          return {
+            description: p?.text?.text || '',
+            place_id: p?.placeId || '',
+            structured_formatting: {
+              main_text: p?.structuredFormat?.mainText?.text || '',
+              secondary_text: p?.structuredFormat?.secondaryText?.text || '',
+            },
+          };
+        }).filter(p => p.place_id);
+        if (predictions.length) {
+          setAutocompleteSuggestions(predictions.slice(0, 5));
+        }
+      } catch (error) {
+        console.warn('[TerritoryMap Autocomplete] Request failed:', error?.message || error);
+      }
     }, 350);
   };
 
@@ -1295,12 +1321,20 @@ export default function TerritoryMapScreen({ navigation, route }) {
     setAutocompleteSuggestions([]);
     setAddressSearching(true);
     try {
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?place_id=${suggestion.place_id}&key=${GOOGLE_MAPS_API_KEY}`;
-      const resp = await fetch(url);
+      const resp = await fetch(`https://places.googleapis.com/v1/places/${suggestion.place_id}`, {
+        headers: {
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          'X-Goog-FieldMask': 'id,displayName,formattedAddress,location',
+        },
+      });
       const data = await resp.json();
-      const loc = data.results?.[0]?.geometry?.location;
+      if (data.error) {
+        console.warn('[TerritoryMap] Place details error:', data.error.message || JSON.stringify(data.error));
+        return;
+      }
+      const loc = data.location;
       if (loc) {
-        const coord = { latitude: loc.lat, longitude: loc.lng };
+        const coord = { latitude: loc.latitude, longitude: loc.longitude };
         setSearchMarker({ coordinate: coord, label: suggestion.description });
         moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
@@ -1568,7 +1602,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
           </View>
         )}
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} pointerEvents="box-none">
         <MapView
           ref={mapRef}
           style={s.map}
@@ -1690,13 +1724,13 @@ export default function TerritoryMapScreen({ navigation, route }) {
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[s.filterBtn, activeFilterCount > 0 && s.filterBtnActive]}
+              style={[s.actionBtn, activeFilterCount > 0 && s.actionBtnActive]}
               onPress={() => setFiltersVisible(true)}
               activeOpacity={0.75}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityLabel="Prospect filters"
             >
-              <Text style={s.filterBtnIcon}>{ICON_GEAR}</Text>
-              <Text style={s.filterBtnText}>Prospect filters</Text>
+              <Text style={s.actionBtnIcon}>{ICON_GEAR}</Text>
               {activeFilterCount > 0 && (
                 <View style={s.filterBadge}>
                   <Text style={s.filterBadgeText}>{activeFilterCount}</Text>
@@ -1975,7 +2009,7 @@ const s = StyleSheet.create({
   poiPinSignal: { backgroundColor: COLORS.purple, width: 28, height: 28, borderRadius: 14 },
   poiPinText: { color: '#fff', fontSize: 14, fontWeight: '900' },
   placePin: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
-  bottomActions: { position: 'absolute', right: 16, gap: 10, zIndex: 10000, elevation: 34 },
+  bottomActions: { position: 'absolute', right: 16, bottom: 0, gap: 10, zIndex: 10000, elevation: 34 },
   actionBtn: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center',
@@ -1985,20 +2019,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(0,201,255,0.15)',
     borderColor: COLORS.accent,
   },
-  filterBtn: {
-    flexDirection: 'row', alignItems: 'center',
-    height: 44, paddingHorizontal: 14,
-    borderRadius: 22,
-    backgroundColor: COLORS.surface,
-    elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit,
-    gap: 8,
-  },
-  filterBtnActive: {
-    backgroundColor: 'rgba(0,201,255,0.15)',
-    borderColor: COLORS.accent,
-  },
-  filterBtnIcon: { fontSize: 16 },
-  filterBtnText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+
   searchBar: { flexDirection: 'row', backgroundColor: COLORS.surface || '#111318', borderRadius: 12, borderWidth: 1, borderColor: COLORS.borderLit || '#2a3038', overflow: 'hidden' },
   searchInput: { flex: 1, paddingHorizontal: 14, paddingVertical: 10, color: COLORS.text || '#fff', fontSize: 13 },
   searchBtn: { width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#00C9FF' },

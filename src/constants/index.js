@@ -97,6 +97,7 @@ export const EMPTY_LEAD = {
 
 export const USER_STORAGE_KEY = '@leadlens_user';
 export const LEADS_STORAGE_KEY = '@leadlens_leads';
+export const LEADS_BACKUP_KEY = '@leadlens_leads_backup';
 export const GOALS_STORAGE_KEY = '@leadlens_user_goals';
 export const ALL_LEADS_KEY = '@leadlens_all_leads';
 export const AUTO_INTRO_KEY = '@leadlens_auto_intro';

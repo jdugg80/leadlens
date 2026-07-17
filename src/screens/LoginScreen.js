@@ -6,8 +6,8 @@ import {
 } from 'react-native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
 import {
-  AUTH_PROFILE_KEY, COLORS, LEADS_STORAGE_KEY, LEGAL_ACCEPTANCE_KEY,
-  PRIVACY_POLICY_VERSION, ROLES, SUPABASE_SETTINGS_KEY,
+  AUTH_PROFILE_KEY, COLORS, LEADS_STORAGE_KEY, LEADS_BACKUP_KEY,
+  LEGAL_ACCEPTANCE_KEY, PRIVACY_POLICY_VERSION, ROLES, SUPABASE_SETTINGS_KEY,
   TERMS_VERSION, USER_STORAGE_KEY, DISABLED_USERS_KEY,
 } from '../constants';
 import { PrimaryButton } from '../components/UI';
@@ -388,7 +388,25 @@ export default function LoginScreen({ navigation }) {
     try {
       const RawStorage = require('@react-native-async-storage/async-storage').default;
       const localRaw = await RawStorage.getItem(LEADS_STORAGE_KEY).catch(() => null);
-      const localLeads = localRaw ? JSON.parse(localRaw) : [];
+      let localLeads = localRaw ? JSON.parse(localRaw) : [];
+
+      // Restore from logout backup if local queue is empty. clearUserSession()
+      // copies @leadlens_leads → @leadlens_leads_backup before wiping so that
+      // re-login can restore the user's previous queue without a full pull.
+      if (!localLeads.length) {
+        const backupRaw = await RawStorage.getItem(LEADS_BACKUP_KEY).catch(() => null);
+        if (backupRaw) {
+          const backupLeads = JSON.parse(backupRaw);
+          if (backupLeads.length) {
+            console.log(`[Login] Restoring ${backupLeads.length} prospects from logout backup`);
+            await AsyncStorage.setItem(LEADS_STORAGE_KEY, backupRaw);
+            localLeads = backupLeads;
+          }
+          // Clean up the backup after restore
+          await RawStorage.removeItem(LEADS_BACKUP_KEY).catch(() => {});
+        }
+      }
+
       if (!localLeads.length) {
         console.log('[Login] Local queue empty — pulling from Supabase');
         await syncProspectsFromSupabase(supabaseSettings);

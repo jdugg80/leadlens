@@ -194,14 +194,14 @@ export default function ReviewScreen({ navigation, route }) {
 
         if (enriched.website) runBackgroundSocialScan(enriched);
 
-        showThemedAlert('Profile Enriched', 'Found data from Google, Texas Comptroller, and public records.');
+        showThemedAlert('Profile Enriched', 'Business profile updated.');
       } else {
-        showThemedAlert('No Results', 'Could not find reliable public information for this business.');
+        showThemedAlert('No Results', 'No additional business info found.');
       }
     } catch (error) {
       console.error('[ReviewScreen] Enrichment failed:', error);
       BetaTracker.crash('ReviewScreen', error);
-      showThemedAlert('Enrichment Error', 'An error occurred while fetching public records.');
+      showThemedAlert('Enrichment Error', 'Unable to look up business profile at this time.');
     } finally {
       setProfileLoading(false);
     }

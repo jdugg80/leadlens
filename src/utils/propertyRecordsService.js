@@ -81,15 +81,23 @@ async function estimatePropertyRiskWithAI(address) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
-      system: 'You estimate commercial property pest risk from an address. Return ONLY JSON: {"property":{"propertyType":"COMMERCIAL|INDUSTRIAL|RETAIL|OFFICE|OTHER","estimatedAge":years_or_null,"landUse":"description"},"riskScore":0-100,"riskFactors":{"factors":["factor1"],"warnings":["warning1"]}}',
+      system: 'You estimate commercial property pest risk from an address. Return ONLY valid JSON — no markdown, no code fences, no commentary, no bullet points before or after. Just the raw JSON object: {"property":{"propertyType":"COMMERCIAL|INDUSTRIAL|RETAIL|OFFICE|OTHER","estimatedAge":years_or_null,"landUse":"description"},"riskScore":0-100,"riskFactors":{"factors":["factor1"],"warnings":["warning1"]}}',
       messages: [{ role: 'user', content: `Estimate pest control risk for: "${address}". Base on address clues (street name, business district, area type).` }],
     }),
   });
   clearTimeout(timeout);
 
   const data = await response.json();
-  const raw = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
-  return JSON.parse(raw);
+  const text = (data.content?.[0]?.text || '').trim();
+  // Strip markdown code fences and leading bullet/heading characters
+  const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '')
+    .replace(/^[\s]*[-*]\s*/gm, '').trim();
+  try {
+    return JSON.parse(clean);
+  } catch (parseErr) {
+    console.warn('[PropertyService] JSON parse failed, raw:', text.slice(0, 200));
+    throw new Error(`JSON Parse error: ${parseErr.message}`);
+  }
 }
 
 function parsePropertyRecord(record) {

@@ -158,7 +158,7 @@ export default function LeadFiltersBottomSheet({
     Animated.timing(slideAnim, {
       toValue: visible ? 1 : 0,
       duration: 300,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [visible, slideAnim]);
 
@@ -252,15 +252,14 @@ export default function LeadFiltersBottomSheet({
         <View style={s.overlay}>
           <TouchableWithoutFeedback>
             <Animated.View
+              pointerEvents="box-none"
               style={[
                 s.sheet,
                 {
-                  transform: [{
-                    translateY: slideAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [300, 0],
-                    }),
-                  }],
+                  bottom: slideAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-300, 0],
+                  }),
                   opacity: slideAnim,
                 },
               ]}
@@ -279,6 +278,7 @@ export default function LeadFiltersBottomSheet({
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
               >
+                {console.log('[LeadFiltersBottomSheet] rendering filter sections')}
                 {/* ── Residential / Commercial Toggle ───────────────── */}
                 <Text style={s.sectionTitle}>Prospect Type</Text>
                 <View style={s.toggleRow}>
@@ -656,15 +656,15 @@ const s = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     backgroundColor: COLORS.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '90%',
-    width: '100%',
-    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',

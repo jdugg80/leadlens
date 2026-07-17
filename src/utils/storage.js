@@ -422,6 +422,18 @@ export const storage = {
    * so the user doesn't need to reconfigure the app after logging back in.
    */
   clearUserSession: async () => {
+    // Back up the prospect queue BEFORE clearing so it can be restored on
+    // re-login.  This prevents the "sync ALL prospects" regression where an
+    // empty queue triggers a full pull from Supabase.
+    try {
+      const currentLeads = storage.getSync('@leadlens_leads');
+      if (currentLeads) {
+        storage.setSync('@leadlens_leads_backup', currentLeads);
+      }
+    } catch (backupErr) {
+      console.warn('[Storage] clearUserSession lead backup failed:', backupErr?.message);
+    }
+
     const userKeys = [
       '@leadlens_user',
       '@leadlens_leads',
@@ -492,7 +504,7 @@ export const storage = {
     try {
       const asyncKeys = await AsyncStorage.getAllKeys();
       const toRemove = asyncKeys.filter(
-        (k) => k.startsWith('@leadlens_') || k === 'prospect_filters' || k === 'currentLocation' || k.startsWith('dailyGoalChimePlayed:')
+        (k) => (k.startsWith('@leadlens_') && k !== '@leadlens_leads_backup') || k === 'prospect_filters' || k === 'currentLocation' || k.startsWith('dailyGoalChimePlayed:')
       );
       if (toRemove.length > 0) {
         await AsyncStorage.multiRemove(toRemove);

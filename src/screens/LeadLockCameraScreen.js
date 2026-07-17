@@ -137,6 +137,7 @@ export default function LeadLockCameraScreen({ navigation }) {
   // ZIP acquisition UX state (LeadLock centered overlay + capture gating)
   const [zipJustAcquired, setZipJustAcquired] = useState(false);
   const [zipTimedOut, setZipTimedOut] = useState(false);
+  const [reacquiringZip, setReacquiringZip] = useState(false);
   const zipArcAAnim = useRef(new Animated.Value(0)).current;
   const zipArcBAnim = useRef(new Animated.Value(0)).current;
   const prevHasZipRef = useRef(false);
@@ -374,81 +375,40 @@ export default function LeadLockCameraScreen({ navigation }) {
     return () => clearTimeout(t);
   }, [location?.zip, zipRetryTick]);
 
-  const handleRetryLocation = () => {
+  const handleRetryLocation = async () => {
+    if (reacquiringZip) return;
+    setReacquiringZip(true);
     setZipTimedOut(false);
-    zipRetryTickRef.current += 1;
-    setZipRetryTick(zipRetryTickRef.current);
-    initLocation();
+    try {
+      // Fetch fresh GPS (not cached)
+      const liveCoords = await Promise.race([
+        getCurrentCoords(),
+        new Promise(resolve => setTimeout(() => resolve(null), 8000)),
+      ]).catch(() => null);
+      if (!mountedRef.current) return;
+      if (liveCoords) {
+        const geoInfo = await reverseGeocodeCoords(liveCoords).catch(() => null);
+        if (!mountedRef.current) return;
+        if (geoInfo) {
+          const newZip = geoInfo.postcode || geoInfo.zip || geoInfo.postal_code || null;
+          const loc = {
+            latitude: liveCoords.latitude,
+            longitude: liveCoords.longitude,
+            city: geoInfo.city || geoInfo.town || geoInfo.village || 'Houston',
+            county: geoInfo.county || 'Harris',
+            zip: newZip,
+          };
+          setLocation(loc);
+          if (newZip) resolvedZipRef.current = newZip;
+          await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn('[LeadLockCamera] Reacquire ZIP failed:', err);
+    } finally {
+      if (mountedRef.current) setReacquiringZip(false);
+    }
   };
-
-  // ── Pause / Resume ───────────────────────────────────────────────────────
-  const handlePauseResume = useCallback(async () => {
-    if (isPaused) {
-      // ── RESUME ──
-      console.log('[LeadLockCamera] Resume requested');
-      try {
-        if (cameraRef.current?.resumePreview) {
-          await cameraRef.current.resumePreview();
-          console.log('[LeadLockCamera] Camera preview resumed');
-        }
-      } catch (err) {
-        console.warn('[LeadLockCamera] resumePreview failed:', err);
-      }
-      setIsPaused(false);
-
-      // If detection finished while paused, surface the results now
-      if (pausedDuringDetectRef.current) {
-        pausedDuringDetectRef.current = false;
-        console.log('[LeadLockCamera] Detection had completed while paused — showing results');
-      }
-    } else {
-      // ── PAUSE ──
-      console.log('[LeadLockCamera] Pause requested');
-      setIsPaused(true);
-      try {
-        if (cameraRef.current?.pausePreview) {
-          await cameraRef.current.pausePreview();
-          console.log('[LeadLockCamera] Camera preview paused');
-        }
-      } catch (err) {
-        console.warn('[LeadLockCamera] pausePreview failed:', err);
-      }
-    }
-  }, [isPaused]);
-
-  // ── Stop (full halt) ─────────────────────────────────────────────────────
-  const handleStop = useCallback(() => {
-    console.log('[LeadLockCamera] Stop requested — halting all activity');
-
-    // 1. Abort in-flight detection (Claude AI call)
-    if (detectingAbortRef.current) {
-      console.log('[LeadLockCamera] Aborting in-flight detection');
-      detectingAbortRef.current.abort();
-      detectingAbortRef.current = null;
-    }
-
-    // 2. Cancel any paused-detection state
-    pausedDuringDetectRef.current = false;
-
-    // 3. Stop camera preview
-    if (cameraRef.current?.pausePreview) {
-      cameraRef.current.pausePreview().catch(() => {});
-    }
-
-    // 4. Reset all state to idle
-    setIsPaused(false);
-    setIsStopped(true);
-    setDetecting(false);
-    setDetectionResult(null);
-    setSelectedBusinesses([]);
-    setPhotoData(null);
-    setPhotoExifData(null);
-
-    // 5. Fully deactivate camera (unmounts CameraView)
-    setCameraActive(false);
-
-    console.log('[LeadLockCamera] Stop complete — all activity halted');
-  }, []);
 
   // Request camera permission
   if (!permission) {
@@ -824,22 +784,17 @@ export default function LeadLockCameraScreen({ navigation }) {
             </View>
           )}
 
-          {/* Pause / Stop controls — only while camera is active and not detecting */}
+          {/* Reacquire ZIP button — persistent, always visible in the header row */}
           {cameraActive && !detecting && (
             <View style={s.controlRow}>
               <TouchableOpacity
-                style={[s.controlBtn, s.pauseBtn]}
-                onPress={handlePauseResume}
+                style={[s.controlBtn, s.reacquireBtn]}
+                onPress={handleRetryLocation}
+                disabled={reacquiringZip}
               >
                 <Text style={s.controlBtnText}>
-                  {isPaused ? '▶ Resume' : '⏸ Pause'}
+                  {reacquiringZip ? '⏳ Acquiring…' : '↻ Reacquire ZIP'}
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.controlBtn, s.stopBtn]}
-                onPress={handleStop}
-              >
-                <Text style={s.controlBtnText}>⏹ Stop</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1500,13 +1455,9 @@ const s = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  pauseBtn: {
-    borderColor: 'rgba(0,201,255,0.4)',
-    backgroundColor: 'rgba(0,201,255,0.08)',
-  },
-  stopBtn: {
-    borderColor: 'rgba(204,16,64,0.4)',
-    backgroundColor: 'rgba(204,16,64,0.08)',
+  reacquireBtn: {
+    borderColor: 'rgba(81,207,102,0.4)',
+    backgroundColor: 'rgba(81,207,102,0.08)',
   },
   controlBtnText: {
     color: COLORS_THEME.text,

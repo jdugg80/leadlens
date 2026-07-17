@@ -46,32 +46,28 @@ function rectsOverlap(a, b) {
 }
 
 function findSafeCorner(currentX, currentY, keyboardHeight, protectedZones) {
-  const buttonRect = {
-    x: currentX,
-    y: currentY,
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-  };
-
   const availableHeight = SCREEN_HEIGHT - keyboardHeight;
-  const candidateCorners = [
+  const candidates = [
     { key: 'topLeft',     ...CORNERS.topLeft },
     { key: 'topRight',    ...CORNERS.topRight },
     { key: 'bottomLeft',  ...CORNERS.bottomLeft },
     { key: 'bottomRight', ...CORNERS.bottomRight },
-  ];
+  ]
+    .filter(c => c.y + BUTTON_SIZE <= availableHeight)
+    .filter(c => !protectedZones.some(z => rectsOverlap(
+      { x: c.x, y: c.y, width: BUTTON_SIZE, height: BUTTON_SIZE }, z
+    )))
+    .sort((a, b) => {
+      const distA = Math.hypot(a.x - currentX, a.y - currentY);
+      const distB = Math.hypot(b.x - currentX, b.y - currentY);
+      return distA - distB;
+    });
 
-  for (const corner of candidateCorners) {
-    const testRect = { x: corner.x, y: corner.y, width: BUTTON_SIZE, height: BUTTON_SIZE };
+  if (candidates.length > 0) return candidates[0];
 
-    if (testRect.y + testRect.height > availableHeight) continue;
-
-    const overlaps = protectedZones.some(zone => rectsOverlap(testRect, zone));
-    if (!overlaps) return corner;
-  }
-
-  const fallback = keyboardHeight > 0 ? candidateCorners[0] : candidateCorners.find(c => c.key === DEFAULT_CORNER);
-  return fallback;
+  return keyboardHeight > 0
+    ? { key: 'topLeft', ...CORNERS.topLeft }
+    : { key: DEFAULT_CORNER, ...CORNERS[DEFAULT_CORNER] };
 }
 
 function getCurrentCorner(x, y) {

@@ -1,5 +1,28 @@
 # Changelog
 
+## BETA-60 | 2026-07-17
+
+### 🎯 LeadLock
+- **Detection Regression Fix** — `max_tokens` increased from 2000 to 4096 on both Claude Vision API calls, preventing response truncation that silently dropped business detections. `streetAddress` field from Claude's response now bridged to `address` for enrichment compatibility. API errors (HTTP status + response body) now surfaced to the user via toast instead of being silently swallowed.
+- **Reacquire ZIP Button** — Pause and Stop buttons removed from camera header. Replaced with a persistent "Reacquire ZIP" button that fetches a fresh GPS position and reverse-geocodes it on tap, updating the ZIP indicator in place. Inline loading state on the button itself — no modal, no overlay.
+
+### 🐛 Bug Fixes
+- **Prospect Sync on Logout** — `clearUserSession()` in `storage.js` now backs up prospects to a temporary key before wiping session data, then restores them after auth completes. `LoginScreen.js` `afterSecureAuth()` restores the backup. `backendSync.js` `syncProspectsFromSupabase()` now filters to `queue_status = 'new'` only, preventing stale reviewed leads from being overwritten.
+- **JSON Parse Errors in AI Enrichment** — Health department and property record AI enrichment prompts now request raw JSON only (no markdown). Response parsing strips `` ``` `` blocks, leading bullets, and asterisks before `JSON.parse()`. Nested try/catch prevents unhandled parse failures from crashing the enrichment pipeline.
+- **Feedback Button Snap Position** — `findSafeCorner()` in `useFeedbackButtonPosition.js` now sorts corner candidates by Euclidean distance to the drop position instead of returning the first non-overlapping corner in a fixed order. Button now snaps to the nearest safe corner, not always top-left.
+- **Territory Map Filters Modal** — Filters bottom sheet opened empty on Android due to `overflow: 'hidden'` clipping ScrollView content and `transform: [{translateY}]` preventing proper height measurement. Fixed by switching sheet animation from transform to `bottom` layout property, removing overflow clipping, and using `position: 'absolute'` on the sheet.
+- **Address Autocomplete** — Migrated from legacy Google Places API (disabled) to new Places API (POST `places:autocomplete`). Error responses now logged with full HTTP status and body instead of being silently caught. Response parsing updated for new API shape (`suggestions[].placePrediction`).
+- **Prospect Save Street Address** — `convertSelectedBusinessesToProspects()` now sets `streetAddress` from the full address string, allowing `normalizeLead()`'s existing parser to extract `streetNumber`/`streetName` when Google Places enrichment fails to provide them separately.
+
+### 🗺️ Territory Map
+- **Filter Button Style** — Converted from wide pill to 44px icon-only circle, matching the other floating action buttons.
+
+### 💬 Enrichment Messages
+- **Simplified Lookup Result** — "Look up business profile" success/failure messages no longer mention specific data sources (Google, Comptroller, HCAD, etc.). Success shows "Business profile updated"; failure shows "No additional business info found".
+
+### 🔧 Release Infrastructure
+- **Runtime Version Bump** — `expo_runtime_version` updated to `2.0.59`.
+
 ## BETA-59 | 2026-07-16
 
 ### 🔐 Auth & Security

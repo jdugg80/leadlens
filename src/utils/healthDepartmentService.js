@@ -82,7 +82,7 @@ async function assessRiskWithClaude(businessName, city, businessType) {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 600,
         system: `You are a pest control risk assessment system. Based on business name and type, estimate pest/health risk.
-Return ONLY valid JSON: {"riskScore":0-100,"riskLevel":"LOW|MEDIUM|HIGH|CRITICAL","riskFactors":["factor1"],"violations":[{"description":"desc","severity":"MINOR|MAJOR|CRITICAL_PEST","riskFactors":["factor"]}],"notes":"brief explanation"}`,
+Return ONLY valid JSON — no markdown, no code fences, no commentary, no bullet points before or after. Just the raw JSON object: {"riskScore":0-100,"riskLevel":"LOW|MEDIUM|HIGH|CRITICAL","riskFactors":["factor1"],"violations":[{"description":"desc","severity":"MINOR|MAJOR|CRITICAL_PEST","riskFactors":["factor"]}],"notes":"brief explanation"}`,
         messages: [{
           role: 'user',
           content: `Business: "${businessName}", Type: "${businessType || 'unknown'}", City: "${city}". Assess pest/health risk for a pest control sales prospect. Be specific about why this business type has the risk level you assign.`
@@ -93,8 +93,16 @@ Return ONLY valid JSON: {"riskScore":0-100,"riskLevel":"LOW|MEDIUM|HIGH|CRITICAL
     clearTimeout(timeout);
     if (!response.ok) throw new Error(`API ${response.status}`);
     const data = await response.json();
-    const raw = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
-    return JSON.parse(raw);
+    const text = (data.content?.[0]?.text || '').trim();
+    // Strip markdown code fences and leading bullet/heading characters
+    const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '')
+      .replace(/^[\s]*[-*]\s*/gm, '').trim();
+    try {
+      return JSON.parse(clean);
+    } catch (parseErr) {
+      console.warn('[HealthService] JSON parse failed, raw:', text.slice(0, 200));
+      throw new Error(`JSON Parse error: ${parseErr.message}`);
+    }
   } catch (err) {
     clearTimeout(timeout);
     console.warn('[HealthService] Claude assessment failed, using rules:', err.message);

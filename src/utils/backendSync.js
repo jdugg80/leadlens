@@ -246,11 +246,13 @@ export async function syncProspectsFromSupabase(supabaseSettings = {}) {
 
     console.log('[PullSync] Starting deep sync for:', authUser.email);
 
-    // 1. Fetch Prospects
+    // 1. Fetch Prospects — only pull active-queue prospects (not already reviewed)
+    //    to avoid flooding the local queue with the full account prospect pool.
     const { data: remoteProspects, error: pError } = await supabase
       .from('prospects')
       .select('*')
-      .eq('user_id', authUser.id);
+      .eq('user_id', authUser.id)
+      .in('queue_status', ['new']);
 
     if (pError) throw pError;
 

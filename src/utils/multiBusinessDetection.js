@@ -504,6 +504,7 @@ export function convertSelectedBusinessesToProspects(selectedBusinesses, resolve
         // Core data
         businessName: business.name,
         address: publicSources.formatted_address || business.address,
+        streetAddress: publicSources.formatted_address || business.address,
         businessType: business.businessType,
         latitude: (resolvedLocation && resolvedLocation.latitude) || business.fullData.location.latitude,
         longitude: (resolvedLocation && resolvedLocation.longitude) || business.fullData.location.longitude,
