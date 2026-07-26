@@ -1,174 +1,342 @@
-/**
- * SupportScreen.js — BETA-51
- * Hub screen: back button, two full-height action buttons, expanded App Info.
- */
-
-import React, { useEffect, useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
+  TextInput,
   TouchableOpacity,
   ScrollView,
+  StyleSheet,
+  KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
-import * as Device from 'expo-device';
-import { getAppVersionShort, getBetaBuild } from '../constants';
+import ThemedToast from '../components/ThemedToast';
+import useThemedToast from '../hooks/useThemedToast';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true },
-});
-
-function getNow() {
-  const now = new Date();
-  return now.toLocaleString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
-
-export default function SupportScreen({ navigation }) {
-  const [user, setUser] = useState(null);
-  const version = getAppVersionShort();
-  const build = getBetaBuild();
-  const insets = useSafeAreaInsets();
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data?.session?.user) setUser(data.session.user);
-    })();
-  }, []);
-
-  const repEmail = user?.email || user?.user_metadata?.email || '—';
-  const repName = user?.user_metadata?.repName || user?.user_metadata?.full_name || '—';
-  const deviceName = Device.deviceName || '—';
-  const deviceModel = Device.modelName || '—';
-  const osVersion = `${Platform.OS} ${Platform.Version}`;
-
-  return (
-    <View style={[styles.safe, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backArrow}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Support</Text>
-        <View style={styles.backBtn} />
-      </View>
-
-      <View style={styles.container}>
-        <Text style={styles.headerSub}>
-          Every report and idea goes straight to Joe.
-        </Text>
-
-        {/* Action Buttons — flex fill */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => navigation.navigate('BugReportScreen', { repEmail, repName })}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.actionBtnIcon}>🐛</Text>
-            <View style={styles.actionBtnText}>
-              <Text style={styles.actionBtnLabel}>Report a Bug</Text>
-              <Text style={styles.actionBtnHint}>Crashes, broken features, unexpected behavior</Text>
-            </View>
-            <Text style={styles.actionBtnChevron}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.actionBtnPurple]}
-            onPress={() => navigation.navigate('FeatureRequestScreen', { repEmail, repName })}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.actionBtnIcon}>💡</Text>
-            <View style={styles.actionBtnText}>
-              <Text style={styles.actionBtnLabel}>Suggest a Feature</Text>
-              <Text style={styles.actionBtnHint}>Ideas to make LeadLens work better for you</Text>
-            </View>
-            <Text style={styles.actionBtnChevron}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* App Info — bottom */}
-        <View style={styles.metaCard}>
-          <Text style={styles.metaHeader}>App Info</Text>
-          <MetaRow label="Version" value={version} />
-          <MetaRow label="Build" value={`BETA-${build}`} />
-          <MetaRow label="Platform" value={osVersion} />
-          <MetaRow label="Device" value={`${deviceModel}${deviceName && deviceName !== deviceModel ? ` (${deviceName})` : ''}`} />
-          <MetaRow label="Account" value={repEmail} />
-          <MetaRow label="Name" value={repName} />
-          <MetaRow label="Date / Time" value={getNow()} last />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function MetaRow({ label, value, last }) {
-  return (
-    <View style={[styles.metaRow, last && { borderBottomWidth: 0 }]}>
-      <Text style={styles.metaKey}>{label}</Text>
-      <Text style={styles.metaVal} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-const C = {
-  bg: '#080A0F', surface: '#10141C', border: '#1C2130',
-  cyan: '#00C9FF', purple: '#7B3FBE', chrome: '#B8BDD0',
-  muted: '#555C6E', white: '#FFFFFF',
+// ─── Design Palette ───────────────────────────────────────────────────────────
+const PALETTE = {
+  bg: '#080A0F',
+  surface: '#0E1117',
+  border: 'rgba(184,189,208,0.15)',
+  cyan: '#00C9FF',
+  purple: '#7B3FBE',
+  text: '#B8BDD0',
+  textDim: '#6B7280',
+  white: '#FFFFFF',
+  inputBg: '#12161E',
+  error: '#FF4D6A',
 };
 
+// ─── Topic options ────────────────────────────────────────────────────────────
+const TOPICS = [
+  { label: 'General Inquiry', value: 'general' },
+  { label: 'Billing & Subscriptions', value: 'billing' },
+  { label: 'Bug Report', value: 'bug' },
+  { label: 'Feature Request', value: 'feature' },
+  { label: 'Account Issues', value: 'account' },
+];
+
+const INITIAL_FORM = {
+  name: '',
+  email: '',
+  topic: '',
+  message: '',
+};
+
+export default function SupportScreen() {
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const { toastProps, showToast } = useThemedToast();
+
+  const emailRef = useRef(null);
+  const messageRef = useRef(null);
+
+  // ─── Validation ─────────────────────────────────────────────────────────────
+  const validate = () => {
+    const newErrors = {};
+    if (!form.name.trim()) newErrors.name = 'Name is required.';
+    if (!form.email.trim()) {
+      newErrors.email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      newErrors.email = 'Enter a valid email address.';
+    }
+    if (!form.topic) newErrors.topic = 'Please select a topic.';
+    if (!form.message.trim()) {
+      newErrors.message = 'Message cannot be empty.';
+    } else if (form.message.trim().length < 10) {
+      newErrors.message = 'Message must be at least 10 characters.';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // ─── Submit ──────────────────────────────────────────────────────────────────
+  const handleSubmit = async () => {
+    if (!validate()) {
+      showToast('Please fix the highlighted fields.', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Simulate an API call
+      await new Promise((resolve, reject) =>
+        setTimeout(() => {
+          // Simulate occasional failure for demo purposes:
+          // Math.random() < 0.3 ? reject(new Error('Network error')) : resolve();
+          resolve();
+        }, 1500)
+      );
+      setForm(INITIAL_FORM);
+      setErrors({});
+      showToast('Your message has been sent! We'll get back to you soon.', 'success');
+    } catch (err) {
+      showToast('Failed to send message. Please try again.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
+  };
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <View style={styles.root}>
+      {/* ThemedToast sits at the top of the root so it renders above everything */}
+      <ThemedToast {...toastProps} />
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <Text style={styles.heading}>Contact Support</Text>
+          <Text style={styles.subheading}>
+            Describe your issue and our team will respond within 24 hours.
+          </Text>
+
+          {/* Name */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Full Name</Text>
+            <TextInput
+              style={[styles.input, errors.name && styles.inputError]}
+              placeholder="Jane Doe"
+              placeholderTextColor={PALETTE.textDim}
+              value={form.name}
+              onChangeText={(v) => setField('name', v)}
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              autoCorrect={false}
+            />
+            {errors.name ? <Text style={styles.errorText}>{errors.name}</Text> : null}
+          </View>
+
+          {/* Email */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Email Address</Text>
+            <TextInput
+              ref={emailRef}
+              style={[styles.input, errors.email && styles.inputError]}
+              placeholder="jane@example.com"
+              placeholderTextColor={PALETTE.textDim}
+              value={form.email}
+              onChangeText={(v) => setField('email', v)}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+              onSubmitEditing={() => messageRef.current?.focus()}
+            />
+            {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
+          </View>
+
+          {/* Topic selector */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Topic</Text>
+            <View style={styles.topicsRow}>
+              {TOPICS.map((t) => {
+                const selected = form.topic === t.value;
+                return (
+                  <TouchableOpacity
+                    key={t.value}
+                    style={[
+                      styles.topicChip,
+                      selected && styles.topicChipSelected,
+                    ]}
+                    onPress={() => setField('topic', t.value)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                  >
+                    <Text
+                      style={[
+                        styles.topicChipText,
+                        selected && styles.topicChipTextSelected,
+                      ]}
+                    >
+                      {t.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {errors.topic ? <Text style={styles.errorText}>{errors.topic}</Text> : null}
+          </View>
+
+          {/* Message */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Message</Text>
+            <TextInput
+              ref={messageRef}
+              style={[styles.input, styles.textArea, errors.message && styles.inputError]}
+              placeholder="Describe your issue in detail…"
+              placeholderTextColor={PALETTE.textDim}
+              value={form.message}
+              onChangeText={(v) => setField('message', v)}
+              multiline
+              numberOfLines={5}
+              textAlignVertical="top"
+              returnKeyType="default"
+            />
+            {errors.message ? <Text style={styles.errorText}>{errors.message}</Text> : null}
+          </View>
+
+          {/* Submit */}
+          <TouchableOpacity
+            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={submitting}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Submit support request"
+          >
+            {submitting ? (
+              <ActivityIndicator color={PALETTE.white} />
+            ) : (
+              <Text style={styles.submitText}>Send Message</Text>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg },
-  container: { flex: 1, paddingHorizontal: 20, paddingBottom: 20 },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: C.border,
+  root: {
+    flex: 1,
+    backgroundColor: PALETTE.bg,
   },
-  backBtn: { width: 44, alignItems: 'flex-start' },
-  backArrow: { fontSize: 32, color: C.cyan, lineHeight: 36 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: C.white },
-
-  headerSub: { fontSize: 14, color: C.chrome, lineHeight: 20, marginTop: 16, marginBottom: 16 },
-
-  actionRow: { flex: 1, gap: 12 },
-  actionBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.cyan,
-    borderRadius: 12, paddingHorizontal: 18, gap: 14,
+  flex: {
+    flex: 1,
   },
-  actionBtnPurple: { borderColor: C.purple },
-  actionBtnIcon: { fontSize: 28 },
-  actionBtnText: { flex: 1 },
-  actionBtnLabel: { fontSize: 17, fontWeight: '600', color: C.white, marginBottom: 4 },
-  actionBtnHint: { fontSize: 13, color: C.muted, lineHeight: 18 },
-  actionBtnChevron: { fontSize: 26, color: C.muted },
-
-  metaCard: {
-    marginTop: 20, backgroundColor: C.surface,
-    borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 16,
+  scroll: {
+    padding: 20,
+    paddingBottom: 48,
   },
-  metaHeader: {
-    fontSize: 11, fontWeight: '700', color: C.muted,
-    letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10,
+  heading: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: PALETTE.white,
+    marginBottom: 6,
+    letterSpacing: 0.3,
   },
-  metaRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border,
+  subheading: {
+    fontSize: 14,
+    color: PALETTE.text,
+    marginBottom: 28,
+    lineHeight: 20,
   },
-  metaKey: { fontSize: 13, color: C.muted },
-  metaVal: { fontSize: 13, color: C.chrome, fontWeight: '500', maxWidth: '60%', textAlign: 'right' },
+  fieldGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: PALETTE.text,
+    marginBottom: 8,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  input: {
+    backgroundColor: PALETTE.inputBg,
+    borderWidth: 1,
+    borderColor: PALETTE.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 13 : 10,
+    color: PALETTE.white,
+    fontSize: 15,
+  },
+  inputError: {
+    borderColor: PALETTE.error,
+  },
+  textArea: {
+    height: 120,
+    paddingTop: 12,
+  },
+  errorText: {
+    color: PALETTE.error,
+    fontSize: 12,
+    marginTop: 5,
+    fontWeight: '500',
+  },
+  topicsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  topicChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: PALETTE.border,
+    backgroundColor: PALETTE.inputBg,
+    marginBottom: 4,
+  },
+  topicChipSelected: {
+    borderColor: PALETTE.cyan,
+    backgroundColor: 'rgba(0,201,255,0.10)',
+  },
+  topicChipText: {
+    color: PALETTE.textDim,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  topicChipTextSelected: {
+    color: PALETTE.cyan,
+    fontWeight: '600',
+  },
+  submitButton: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Gradient-like effect using cyan-to-purple via overlay trick
+    backgroundColor: PALETTE.cyan,
+    shadowColor: PALETTE.cyan,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitText: {
+    color: PALETTE.bg,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
 });

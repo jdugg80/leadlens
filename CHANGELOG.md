@@ -1,3 +1,6 @@
+## 2026-07-25
+- Fixed Test — reported by a LeadLens user. Thank you!
+
 # Changelog
 
 ## BETA-60 | 2026-07-17

@@ -1,186 +1,212 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
   Animated,
   StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
   Platform,
+  Dimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const C = {
-  bg: '#080A0F',
-  surface: '#111318',
-  border: '#252A3A',
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const PALETTE = {
+  background: '#080A0F',
   cyan: '#00C9FF',
   purple: '#7B3FBE',
-  red: '#CC1040',
-  chrome: '#B8BDD0',
+  text: '#B8BDD0',
+  successBorder: '#00C9FF',
+  errorBorder: '#7B3FBE',
+  successIcon: '#00C9FF',
+  errorIcon: '#7B3FBE',
   white: '#FFFFFF',
+  overlay: 'rgba(8,10,15,0.85)',
 };
 
-const AUTO_HIDE_MS = 5000;
+const AUTO_DISMISS_MS = 2500;
 
-export default function ThemedToast({
-  visible,
-  message,
-  type = 'success',
-  onDismiss,
-  duration = AUTO_HIDE_MS,
-}) {
-  const insets = useSafeAreaInsets();
-  const [rendered, setRendered] = useState(visible);
+/**
+ * ThemedToast
+ *
+ * Props:
+ *   visible   {boolean}  – controls visibility
+ *   message   {string}   – toast body text
+ *   variant   {'success'|'error'}  – controls accent colour
+ *   onDismiss {function} – called when toast hides (auto or manual)
+ */
+export default function ThemedToast({ visible, message, variant = 'success', onDismiss }) {
   const translateY = useRef(new Animated.Value(-120)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const timerRef = useRef(null);
 
-  const clearTimer = useCallback(() => {
+  const accentColor = variant === 'error' ? PALETTE.errorBorder : PALETTE.successBorder;
+  const iconLabel = variant === 'error' ? '✕' : '✓';
+
+  const hide = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-  }, []);
-
-  const runHideAnimation = useCallback((cb) => {
-    clearTimer();
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: -120,
-        duration: 220,
+        duration: 300,
         useNativeDriver: true,
       }),
       Animated.timing(opacity, {
         toValue: 0,
-        duration: 220,
+        duration: 300,
         useNativeDriver: true,
       }),
     ]).start(() => {
-      if (cb) cb();
-    });
-  }, [clearTimer, opacity, translateY]);
-
-  const dismiss = useCallback(() => {
-    runHideAnimation(() => {
-      setRendered(false);
       if (onDismiss) onDismiss();
     });
-  }, [runHideAnimation, onDismiss]);
+  }, [onDismiss, translateY, opacity]);
 
-  useEffect(() => {
-    if (!visible) return;
-    setRendered(true);
-    clearTimer();
+  const show = useCallback(() => {
     Animated.parallel([
-      Animated.timing(translateY, {
+      Animated.spring(translateY, {
         toValue: 0,
-        duration: 260,
         useNativeDriver: true,
+        tension: 60,
+        friction: 10,
       }),
       Animated.timing(opacity, {
         toValue: 1,
-        duration: 260,
+        duration: 250,
         useNativeDriver: true,
       }),
-    ]).start();
-    timerRef.current = setTimeout(() => {
-      dismiss();
-    }, duration);
-    return () => clearTimer();
-  }, [visible, duration, dismiss, clearTimer, opacity, translateY]);
+    ]).start(() => {
+      timerRef.current = setTimeout(() => {
+        hide();
+      }, AUTO_DISMISS_MS);
+    });
+  }, [translateY, opacity, hide]);
 
   useEffect(() => {
-    if (visible || !rendered) return;
-    runHideAnimation(() => {
-      setRendered(false);
-      if (onDismiss) onDismiss();
-    });
-  }, [visible, rendered, runHideAnimation, onDismiss]);
+    if (visible) {
+      show();
+    } else {
+      // Reset silently when parent sets visible=false externally
+      translateY.setValue(-120);
+      opacity.setValue(0);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [visible]);
 
-  if (!rendered) return null;
-
-  const isError = type === 'error';
-  const accentColor = isError ? C.red : C.cyan;
+  if (!visible) return null;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]} pointerEvents="box-none">
-      <Animated.View
-        style={[
-          styles.toast,
-          {
-            borderColor: accentColor,
-            transform: [{ translateY }],
-            opacity,
-          },
-        ]}
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          opacity,
+          transform: [{ translateY }],
+          borderLeftColor: accentColor,
+        },
+      ]}
+      pointerEvents="box-none"
+    >
+      {/* Accent glow strip */}
+      <View style={[styles.glowStrip, { backgroundColor: accentColor }]} />
+
+      {/* Icon badge */}
+      <View style={[styles.iconBadge, { borderColor: accentColor }]}>
+        <Text style={[styles.iconText, { color: accentColor }]}>{iconLabel}</Text>
+      </View>
+
+      {/* Message */}
+      <Text style={styles.message} numberOfLines={3}>
+        {message}
+      </Text>
+
+      {/* Dismiss button */}
+      <TouchableOpacity
+        onPress={hide}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={styles.closeButton}
+        accessibilityLabel="Dismiss notification"
+        accessibilityRole="button"
       >
-        <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-        <View style={styles.content}>
-          <Text style={styles.message} numberOfLines={3}>
-            {message}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={styles.dismissBtn}
-          onPress={dismiss}
-          activeOpacity={0.7}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={[styles.dismissText, { color: accentColor }]}>✕</Text>
-        </TouchableOpacity>
-      </Animated.View>
-    </View>
+        <Text style={[styles.closeText, { color: PALETTE.text }]}>✕</Text>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 999,
-    elevation: 999,
-    pointerEvents: 'box-none',
-  },
-  toast: {
+    top: Platform.OS === 'ios' ? 56 : 36,
+    left: 16,
+    right: 16,
+    zIndex: 9999,
+    elevation: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.surface,
-    borderWidth: 1,
+    backgroundColor: PALETTE.background,
     borderRadius: 12,
-    marginHorizontal: 16,
-    marginTop: Platform.OS === 'ios' ? 6 : 16,
-    minHeight: 56,
+    borderLeftWidth: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.5,
     shadowRadius: 8,
-    elevation: 10,
-    overflow: 'hidden',
+    maxWidth: SCREEN_WIDTH - 32,
+    // Subtle inner border
+    borderWidth: 1,
+    borderColor: 'rgba(184,189,208,0.12)',
   },
-  accentBar: {
+  glowStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
     width: 4,
-    alignSelf: 'stretch',
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+    opacity: 0.9,
   },
-  content: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+  iconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    flexShrink: 0,
+  },
+  iconText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   message: {
-    color: C.chrome,
+    flex: 1,
+    color: PALETTE.text,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '500',
+    letterSpacing: 0.2,
   },
-  dismissBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    justifyContent: 'center',
+  closeButton: {
+    marginLeft: 8,
+    flexShrink: 0,
   },
-  dismissText: {
-    fontSize: 16,
-    fontWeight: '700',
+  closeText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
