@@ -89,7 +89,7 @@ export default function SupportScreen() {
       );
       setForm(INITIAL_FORM);
       setErrors({});
-      showToast('Your message has been sent! We'll get back to you soon.', 'success');
+      showToast("Your message has been sent! We'll get back to you soon.", 'success');
     } catch (err) {
       showToast('Failed to send message. Please try again.', 'error');
     } finally {
