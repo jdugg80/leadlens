@@ -72,7 +72,9 @@ export default function ExportModal({
         const prefs = JSON.parse(raw);
         return prefs.lastDestination || 'local';
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[ExportModal] Failed to read saved export preference:', err?.message || String(err));
+    }
     return 'local';
   });
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('xlsx');
@@ -89,7 +91,9 @@ export default function ExportModal({
         EXPORT_PREFS_KEY,
         JSON.stringify({ lastDestination: destination, updatedAt: new Date().toISOString() })
       );
-    } catch {}
+    } catch (err) {
+      console.warn('[ExportModal] Failed to save export preference:', err?.message || String(err));
+    }
   }, []);
 
   useEffect(() => {

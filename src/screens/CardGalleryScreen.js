@@ -74,7 +74,9 @@ export default function CardGalleryScreen({ navigation, route }) {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[CardGallery] Failed to load card images:', err?.message || String(err));
+      }
 
       setCards(withImages);
     } catch (err) {

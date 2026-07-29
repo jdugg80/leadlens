@@ -139,7 +139,8 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         try {
           const profile = JSON.parse(profileVal);
           setActiveProfileLabel(profile.label || 'Pest Control');
-        } catch {
+        } catch (err) {
+          console.warn('[TerritoryManager] Failed to parse profile:', err?.message || String(err));
           setActiveProfileLabel('Pest Control');
         }
       } else {

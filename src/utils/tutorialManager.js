@@ -20,14 +20,18 @@ export async function markTutorialSeen(tutorialId) {
   try {
     // Write to MMKV synchronously
     AsyncStorage.setSync(PREFIX + tutorialId, 'true');
-  } catch {}
+  } catch (err) {
+    console.warn('[TutorialManager] MMKV write failed for tutorial:', tutorialId, err?.message || String(err));
+  }
   try {
     // Also write directly to raw AsyncStorage and AWAIT it —
     // this guarantees the flag is persisted before the caller returns,
     // preventing the race where hasTutorialBeenSeen reads before the write lands.
     const RawStorage = require('@react-native-async-storage/async-storage').default;
     await RawStorage.setItem(PREFIX + tutorialId, 'true');
-  } catch {}
+  } catch (err) {
+    console.warn('[TutorialManager] AsyncStorage write failed for tutorial:', tutorialId, err?.message || String(err));
+  }
 }
 
 export async function resetAllTutorials() {
@@ -36,14 +40,18 @@ export async function resetAllTutorials() {
     const keys = AsyncStorage.getAllKeysSync();
     const tutorialKeys = keys.filter(k => k.startsWith(PREFIX));
     if (tutorialKeys.length) AsyncStorage.multiRemove(tutorialKeys);
-  } catch {}
+  } catch (err) {
+    console.warn('[TutorialManager] MMKV multiRemove failed:', err?.message || String(err));
+  }
   try {
     // Also clear from raw AsyncStorage (covers fallback-written flags)
     const RawStorage = require('@react-native-async-storage/async-storage').default;
     const allKeys = await RawStorage.getAllKeys();
     const tutorialKeys = allKeys.filter(k => k.startsWith(PREFIX));
     if (tutorialKeys.length) await RawStorage.multiRemove(tutorialKeys);
-  } catch {}
+  } catch (err) {
+    console.warn('[TutorialManager] AsyncStorage multiRemove failed:', err?.message || String(err));
+  }
 }
 
 // Tutorial IDs

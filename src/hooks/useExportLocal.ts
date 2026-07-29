@@ -42,7 +42,8 @@ async function copyToUserSelectedLocation(
     const destUri = result.assets[0].uri;
     await FileSystem.copyAsync({ from: sourceUri, to: destUri });
     return destUri;
-  } catch {
+  } catch (err) {
+    console.warn('[ExportLocal] saveToLocation failed:', (err as Error)?.message || String(err));
     return null;
   }
 }
@@ -96,7 +97,9 @@ export function useExportLocal(): UseExportLocalResult {
 
         try {
           await FileSystem.deleteAsync(fileUri, { idempotent: true });
-        } catch {}
+        } catch (err) {
+          console.warn('[ExportLocal] Failed to clean up temp file:', (err as Error)?.message || String(err));
+        }
 
         return { success: true, fileUri };
       } catch (err: any) {

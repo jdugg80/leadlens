@@ -34,16 +34,25 @@ async function dualRead(key) {
   try {
     const sync = AsyncStorage.getSync(key);
     if (sync) return sync;
-  } catch {}
+  } catch (err) {
+    console.warn('[TerritoryUtils] dualRead MMKV failed for key:', key, err?.message || String(err));
+  }
   try {
     return await getRaw.getItem(key);
-  } catch { return null; }
+  } catch (err) {
+    console.warn('[TerritoryUtils] dualRead AsyncStorage failed for key:', key, err?.message || String(err));
+    return null;
+  }
 }
 
 async function dualWrite(key, value) {
   // Write to both MMKV and raw AsyncStorage
-  try { AsyncStorage.setSync(key, value); } catch {}
-  try { await getRaw.setItem(key, value); } catch {}
+  try { AsyncStorage.setSync(key, value); } catch (err) {
+    console.warn('[TerritoryUtils] dualWrite MMKV failed for key:', key, err?.message || String(err));
+  }
+  try { await getRaw.setItem(key, value); } catch (err) {
+    console.warn('[TerritoryUtils] dualWrite AsyncStorage failed for key:', key, err?.message || String(err));
+  }
 }
 
 // ─── Local Storage Helpers ────────────────────────────────────────────────────

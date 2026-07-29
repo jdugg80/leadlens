@@ -146,12 +146,16 @@ async function saveBoundaryToCache(zip, marker) {
   try {
     if (typeof storageBridge?.setSync === 'function') storageBridge.setSync(`${CACHE_KEY_PREFIX}${zip}`, cacheData);
     else if (typeof storageBridge?.setItem === 'function') await storageBridge.setItem(`${CACHE_KEY_PREFIX}${zip}`, cacheData);
-  } catch {}
+  } catch (err) {
+    console.warn('[TerritoryZipLoader] MMKV write failed for zip:', zip, err?.message || String(err));
+  }
 
   try {
     const RawStorage = require('@react-native-async-storage/async-storage').default;
     await RawStorage.setItem(`${CACHE_KEY_PREFIX}${zip}`, cacheData);
-  } catch {}
+  } catch (err) {
+    console.warn('[TerritoryZipLoader] AsyncStorage write failed for zip:', zip, err?.message || String(err));
+  }
 }
 
 function getBundledBoundaryRaw(zip) {

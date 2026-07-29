@@ -258,7 +258,8 @@ export default function ReviewScreen({ navigation, route }) {
         if (!cancelled) {
           setTargetPreviewLead(preview);
         }
-      } catch {
+      } catch (err) {
+        console.warn('[Review] Auto-target preview failed, using raw input:', err?.message || String(err));
         if (!cancelled) {
           setTargetPreviewLead(previewInput);
         }

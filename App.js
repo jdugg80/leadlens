@@ -11,6 +11,17 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { AppRegistry } from 'react-native';
+import * as Sentry from '@sentry/react-native';
+
+if (!__DEV__) {
+  Sentry.init({
+    dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+    release: Constants.expoConfig?.version || 'unknown',
+    dist: String(Constants.expoConfig?.android?.versionCode || 'unknown'),
+    enableAutoSessionTracking: true,
+    sessionTrackingIntervalMillis: 30000,
+  });
+}
 
 import { ToastProvider } from './src/context/ToastContext';
 import { ProcessingProvider } from './src/context/ProcessingContext';
@@ -66,6 +77,13 @@ function reportGlobalCrash(source, error, fatal = false) {
   const message = error instanceof Error ? error.message : String(error || 'Unknown error');
   const stack = error instanceof Error && error.stack ? error.stack.slice(0, 1200) : '';
   console.error(`[CrashGuard][${source}]`, message, stack);
+  if (!__DEV__ && error instanceof Error) {
+    Sentry.withScope((scope) => {
+      scope.setTag('source', source);
+      scope.setTag('fatal', String(fatal));
+      Sentry.captureException(error);
+    });
+  }
   BetaTracker.trackError(message, {
     screen: source,
     feature: fatal ? 'fatal_crash' : 'runtime_error',
@@ -109,6 +127,16 @@ class AppErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     reportGlobalCrash('react_error_boundary', error, false);
+    if (!__DEV__ && error instanceof Error) {
+      Sentry.withScope((scope) => {
+        scope.setTag('source', 'react_error_boundary');
+        scope.setTag('fatal', 'false');
+        if (info?.componentStack) {
+          scope.setExtra('componentStack', info.componentStack.slice(0, 2000));
+        }
+        Sentry.captureException(error);
+      });
+    }
     BetaTracker.trackError(error?.message || 'React render error', {
       screen: 'AppErrorBoundary',
       feature: 'react_boundary',
@@ -375,7 +403,9 @@ export default function App() {
         console.warn('[CrashGuard] memoryWarning received');
         BetaTracker.track('memory_warning', { screen: navRef.current?.getCurrentRoute?.()?.name || 'unknown', feature: 'memory', severity: 'warning' }).catch(() => {});
       });
-    } catch (_) {}
+    } catch (_) {
+      console.warn('[CrashGuard] memoryWarning listener unavailable on this platform');
+    }
 
     return () => {
       sub.remove();

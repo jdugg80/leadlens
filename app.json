@@ -78,6 +78,14 @@
             "newArchEnabled": false
           }
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "",
+          "project": "",
+          "authToken": ""
+        }
       ]
     ],
     "extra": {

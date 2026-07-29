@@ -175,7 +175,9 @@ export default function LeadFiltersBottomSheet({
           [key]: !prev.signals[key],
         },
       };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };
@@ -183,7 +185,9 @@ export default function LeadFiltersBottomSheet({
   const toggleStatus = (status) => {
     setLocalFilters(prev => {
       const next = { ...prev, statuses: toggleMulti(prev.statuses || ['All'], status) };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };
@@ -191,7 +195,9 @@ export default function LeadFiltersBottomSheet({
   const toggleOccupancy = (type) => {
     setLocalFilters(prev => {
       const next = { ...prev, occupancyTypes: toggleMulti(prev.occupancyTypes || ['all'], type) };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };
@@ -199,7 +205,9 @@ export default function LeadFiltersBottomSheet({
   const toggleResidentialType = (type) => {
     setLocalFilters(prev => {
       const next = { ...prev, residentialPropertyTypes: toggleMulti(prev.residentialPropertyTypes || ['all'], type) };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };
@@ -207,7 +215,9 @@ export default function LeadFiltersBottomSheet({
   const toggleProspectStatus = (key) => {
     setLocalFilters(prev => {
       const next = { ...prev, prospectStatus: toggleMulti(prev.prospectStatus || [], key) };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };
@@ -215,7 +225,9 @@ export default function LeadFiltersBottomSheet({
   const toggleLeadSource = (key) => {
     setLocalFilters(prev => {
       const next = { ...prev, leadSource: toggleMulti(prev.leadSource || [], key) };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };
@@ -223,7 +235,9 @@ export default function LeadFiltersBottomSheet({
   const toggleServiceType = (key) => {
     setLocalFilters(prev => {
       const next = { ...prev, serviceType: toggleMulti(prev.serviceType || [], key) };
-      try { onApply && onApply(next); } catch {}
+      try { onApply && onApply(next); } catch (err) {
+        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
+      }
       return next;
     });
   };

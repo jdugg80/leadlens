@@ -3,6 +3,20 @@
 
 # Changelog
 
+## BETA-61 | 2026-07-29
+
+### 🔧 Crash Reporting Infrastructure
+- **Sentry Integration** — Added `@sentry/react-native` with Expo config plugin for capturing native force-closes (NDK/Java crashes below the JS bridge), JS exceptions, and unhandled promise rejections. Initialized in `App.js` gated behind `!__DEV__` so dev-client builds never report to Sentry. Release and dist tagging uses existing version/versionCode stamping from `release.js`.
+- **Parallel Pipeline** — Sentry runs alongside the existing `reportGlobalCrash` → `BetaTracker.trackError` → Supabase pipeline. Both `reportGlobalCrash()` and `AppErrorBoundary.componentDidCatch` now call `Sentry.captureException` in addition to BetaTracker. No existing error-handling behavior was removed or reordered.
+- **DSN Configuration** — `EXPO_PUBLIC_SENTRY_DSN` added to `.env` following the existing `EXPO_PUBLIC_*` convention.
+
+### 🐛 Error Handling
+- **Silent Catch Remediation** — ~65 empty/silent `catch {}` blocks across 17 files now surface errors via `console.warn` or `console.error` instead of swallowing them silently. High-risk user-facing failures (logout, export preference save, audio permission request, location retrieval) now log with full context. Storage/cache-layer catches (`territoryUtils`, `zipBoundaryCache`, `territoryZipLoader`, `tutorialManager`) log read/write failures without altering the underlying dual-storage logic. Filter callback errors, settings parse failures, and background operation errors now visible in logs for debugging.
+- **Files Changed** — `SettingsScreen.js`, `TerritoryMapScreen.js`, `userLearning.js`, `LeadFiltersBottomSheet.js`, `AdminScreen.js`, `auth.js`, `territoryUtils.js`, `zipBoundaryCache.js`, `territoryZipLoader.js`, `tutorialManager.js`, `ManualEntryScreen.js`, `ExportModal.tsx`, `LeadLockCameraScreen.js`, `useExportToOneDrive.ts`, `useExportToGoogleDrive.ts`, `useExportLocal.ts`, `ProspectQueueScreen.js`, `LeadLockReviewScreen.js`, `CardGalleryScreen.js`, `TerritoryManagerScreen.js`, `ReviewScreen.js`, `App.js`.
+
+### 🧹 Cleanup
+- **Removed Dead Code** — Deleted unused `src/components/ErrorBoundary.js` (generic component-level ErrorBoundary that was never imported anywhere; only console logging, no external reporting).
+
 ## BETA-60 | 2026-07-17
 
 ### 🎯 LeadLock

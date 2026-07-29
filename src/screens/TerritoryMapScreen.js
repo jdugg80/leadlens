@@ -272,7 +272,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
         setSelectedLead(null);
         setSelectedLensSignalRecord(null);
       });
-    } catch (_) {}
+    } catch (_) {
+      console.warn('[TerritoryMap] memoryWarning listener unavailable on this platform');
+    }
     return () => {
       sub.remove();
       memSub?.remove?.();
@@ -436,7 +438,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
     regionRef.current = safe;
     setRegion(safe);
     if (mapRef.current && isMapReadyRef.current) {
-      try { mapRef.current.animateToRegion(safe, duration); } catch (e) {}
+      try { mapRef.current.animateToRegion(safe, duration); } catch (e) {
+        console.warn('[TerritoryMap] animateToRegion failed:', e?.message || String(e));
+      }
     }
   }, []);
 
@@ -599,7 +603,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status === 'granted') setLocationPermissionGranted(true);
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[TerritoryMap] Failed to check location permission:', e?.message || String(e));
+      }
     })();
   }, []);
 
@@ -903,7 +909,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
           // Debug: print a larger sample of returned signals (coords + id)
           try {
             console.log('[TerritoryMap] LensSignal sample:', records.slice(0, 6).map(s => ({ id: s.id, name: s.establishment_name || s.business_name, lat: s.latitude, lng: s.longitude })));
-          } catch (e) {}
+          } catch (e) {
+            console.warn('[TerritoryMap] LensSignal debug logging failed:', e?.message || String(e));
+          }
       } else {
         console.warn('[TerritoryMap] RPC returned non-array:', typeof data, data);
       }
@@ -1121,12 +1129,14 @@ export default function TerritoryMapScreen({ navigation, route }) {
   }, [nearbyPlaces, lensSignalRecords, filters, activeProfile, region]);
 
   useEffect(() => {
-    try {
+      try {
       const raw = Array.isArray(nearbyPlaces) ? nearbyPlaces.length : 'not array';
       const safe = Array.isArray(safeNearbyPlaces) ? safeNearbyPlaces.length : 'not array';
       console.log('[TerritoryMap] nearbyPlaces update:', { rawNearby: raw, safeNearby: safe });
       if (raw !== 0 && safe === 0) console.log('[TerritoryMap] WARNING: nearbyPlaces present but safeNearbyPlaces filtered to 0');
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[TerritoryMap] nearbyPlaces debug logging failed:', e?.message || String(e));
+    }
   }, [nearbyPlaces, safeNearbyPlaces]);
 
   useEffect(() => {
@@ -1387,7 +1397,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
             current = { latitude: loc.latitude, longitude: loc.longitude };
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[TerritoryMap] Failed to read stored location:', err?.message || String(err));
+      }
 
       // Fall back to live GPS if stored location not available
       if (!current) {
@@ -1626,7 +1638,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             const [lng, lat] = c.geometry.coordinates;
             if (!isFinite(lat) || !isFinite(lng)) return null;
             const props = c.properties || {};
-            if (props.cluster) return <MapClusterMarker key={`cluster-${c.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} count={props.point_count} onPress={() => { try { const z = Math.min(superclusterRef.current.getClusterExpansionZoom(c.id), 20); mapRef.current?.animateCamera({ center: { latitude: lat, longitude: lng }, zoom: z }); } catch(e) {} }} color={activeProfile?.themeColor || COLORS.accent} />;
+            if (props.cluster) return <MapClusterMarker key={`cluster-${c.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} count={props.point_count} onPress={() => { try { const z = Math.min(superclusterRef.current.getClusterExpansionZoom(c.id), 20); mapRef.current?.animateCamera({ center: { latitude: lat, longitude: lng }, zoom: z }); } catch(e) { console.warn('[TerritoryMap] Cluster zoom failed:', e?.message || String(e)); } }} color={activeProfile?.themeColor || COLORS.accent} />;
             if (props.isLead) return <Marker key={`lead-${props.lead?.id || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => selectLeadSafe(props.lead)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}><View style={[s.poiPin, props.lead?.has_signals && s.poiPinSignal, activeProfile && { backgroundColor: activeProfile.themeColor }]}><Text style={s.poiPinText}>{props.lead?.has_signals ? ICON_SIGNAL : "\u2022"}</Text></View></Marker>;
             if (!lowMemoryMode && props.isNearby && showNearby) return <Marker key={`near-${props.place?.placeId || ''}-${lat}-${lng}-${i}`} coordinate={{ latitude: lat, longitude: lng }} onPress={() => handlePlaceTap(props.place)} tracksViewChanges={false}><View style={s.placePin}><Text style={{ fontSize: 12 }}>{ICON_BUILDING}</Text>{props.place?.signals?.contactSignal ? <View style={s.smallBadge}><LensSignalBadge type="contact" /></View> : null}</View></Marker>;
             if (!lowMemoryMode && props.isLensSignal && filters?.signals?.lensSignal) return <LensSignalMapMarker key={`sig-${props.signal?.id || ''}-${lat}-${lng}-${i}`} signal={props.signal} onPress={async (s) => {

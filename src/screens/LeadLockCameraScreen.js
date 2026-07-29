@@ -327,7 +327,9 @@ export default function LeadLockCameraScreen({ navigation }) {
         });
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[LeadLockCamera] Failed to read stored location:', err?.message || String(err));
+    }
     setLocation(FALLBACK_LOC);
   };
 

@@ -112,7 +112,8 @@ async function getSupabaseSettings() {
   try {
     const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch {
+  } catch (err) {
+    console.warn('[UserLearning] Failed to read Supabase settings:', err?.message || String(err));
     return null;
   }
 }
@@ -123,7 +124,8 @@ async function getSessionUserId(supabase) {
     const { data, error } = await supabase.auth.getSession();
     if (error || !data?.session?.user?.id) return null;
     return data.session.user.id;
-  } catch {
+  } catch (err) {
+    console.warn('[UserLearning] Failed to get session user ID:', err?.message || String(err));
     return null;
   }
 }
@@ -153,14 +155,15 @@ export async function loadUserLearningProfile() {
         };
       }
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[UserLearning] Failed to load learning profile from Supabase:', err?.message || String(err));
   }
 
   try {
     const raw = await AsyncStorage.getItem(LEARNING_PROFILE_LOCAL_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch {
+  } catch (err) {
+    console.warn('[UserLearning] Failed to load learning profile from local storage:', err?.message || String(err));
     return null;
   }
 }
@@ -213,14 +216,14 @@ export async function upsertUserLearningProfile(profile = {}) {
           { onConflict: 'user_id' }
         );
     }
-  } catch {
-    // ignore write failures
+  } catch (err) {
+    console.warn('[UserLearning] Failed to upsert learning profile to Supabase:', err?.message || String(err));
   }
 
   try {
     await AsyncStorage.setItem(LEARNING_PROFILE_LOCAL_KEY, JSON.stringify(normalized));
-  } catch {
-    // ignore storage failures
+  } catch (err) {
+    console.warn('[UserLearning] Failed to save learning profile locally:', err?.message || String(err));
   }
 
   return normalized;
@@ -241,14 +244,14 @@ export async function resetUserLearningData() {
         .delete()
         .eq('user_id', userId);
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[UserLearning] Failed to reset learning data in Supabase:', err?.message || String(err));
   }
 
   try {
     await AsyncStorage.removeItem(LEARNING_PROFILE_LOCAL_KEY);
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[UserLearning] Failed to remove local learning profile:', err?.message || String(err));
   }
 }
 
@@ -275,15 +278,15 @@ export async function recordUserActivityEvent(eventType, payload = {}) {
         },
       ]);
     }
-  } catch {
-    // ignore logging failures
+  } catch (err) {
+    console.warn('[UserLearning] Failed to record activity event to Supabase:', err?.message || String(err));
   }
 
   try {
     const existing = (await loadUserLearningProfile()) || {};
     const updated = updateLearningProfileForEvent(existing, eventType, payload);
     await upsertUserLearningProfile(updated);
-  } catch {
-    // ignore profile update failures
+  } catch (err) {
+    console.warn('[UserLearning] Failed to update learning profile after event:', err?.message || String(err));
   }
 }

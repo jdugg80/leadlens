@@ -42,7 +42,9 @@ async function persistBounds(key, zip, bounds) {
   try {
     const RawStorage = require('@react-native-async-storage/async-storage').default;
     await RawStorage.setItem(key, cacheData);
-  } catch {}
+  } catch (err) {
+    console.warn('[ZipBoundaryCache] AsyncStorage write failed for key:', key, err?.message || String(err));
+  }
 }
 
 /**
@@ -68,7 +70,9 @@ export async function getZipBounds(zip) {
         if (extracted) weakCachedBounds = extracted;
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[ZipBoundaryCache] MMKV read failed for key:', key, err?.message || String(err));
+  }
 
   // 2. Check raw AsyncStorage
   try {
@@ -82,7 +86,9 @@ export async function getZipBounds(zip) {
         if (extracted && !weakCachedBounds) weakCachedBounds = extracted;
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[ZipBoundaryCache] AsyncStorage read failed for key:', key, err?.message || String(err));
+  }
 
   // 3. Prefer precomputed per-ZIP boundaries from Supabase/bundled asset.
   try {

@@ -108,7 +108,9 @@ export default function ProspectQueueScreen({ navigation, route }) {
           const prefs = JSON.parse(raw);
           prefEnabled = prefs?.notify_priority_review ?? true;
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[ProspectQueue] Failed to read notification preferences:', err?.message || String(err));
+      }
 
       if (!prefEnabled) return;
 

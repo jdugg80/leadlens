@@ -84,7 +84,9 @@ export default function LeadLockReviewScreen({ navigation, route }) {
         try {
           const saved = JSON.parse(profileVal);
           activeProfile = getTargetLensProfileById(saved.id);
-        } catch {}
+        } catch (err) {
+          console.warn('[LeadLockReview] Failed to parse saved profile:', err?.message || String(err));
+        }
       }
 
       // 1. Run Local OCR Pipeline + Upload to Supabase (Phase 1)

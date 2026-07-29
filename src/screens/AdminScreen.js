@@ -71,11 +71,13 @@ export default function AdminScreen({ navigation, route }) {
           try {
             const parsed = JSON.parse(rawDisabled);
             setDisabledUsers(parsed && typeof parsed === 'object' ? parsed : {});
-          } catch {
+          } catch (err) {
+            console.warn('[Admin] Failed to parse disabled users:', err?.message || String(err));
             setDisabledUsers({});
           }
         }
-      } catch {
+      } catch (err) {
+        console.warn('[Admin] Failed to load admin settings:', err?.message || String(err));
         if (mounted) setDisabledUsers({});
       }
     })();
@@ -101,7 +103,8 @@ export default function AdminScreen({ navigation, route }) {
         }
 
         setLeads(Array.isArray(filtered) ? filtered : []);
-      } catch {
+      } catch (err) {
+        console.warn('[Admin] Failed to load leads:', err?.message || String(err));
         setLeads([]);
       }
     })();

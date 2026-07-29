@@ -53,7 +53,9 @@ export default function ManualEntryScreen({ navigation, route }) {
           buttonPositive: 'Allow',
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error('[ManualEntry] Microphone permission request failed:', err?.message || String(err));
+    }
     setVoiceField({ key: fieldKey, label: fieldLabel });
     setVoiceMode(true);
     pulseLoop.current = Animated.loop(Animated.sequence([

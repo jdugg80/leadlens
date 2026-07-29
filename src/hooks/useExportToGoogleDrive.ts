@@ -189,7 +189,8 @@ export function useExportToGoogleDrive(): UseExportToGoogleDriveResult {
       if (!raw) return false;
       const tokens: GoogleDriveTokens = JSON.parse(raw);
       return Date.now() < tokens.expiresAt;
-    } catch {
+    } catch (err) {
+      console.warn('[GoogleDrive] Failed to parse stored tokens:', (err as Error)?.message || String(err));
       return false;
     }
   });
@@ -314,7 +315,9 @@ export function useExportToGoogleDrive(): UseExportToGoogleDriveResult {
 
         try {
           await FileSystem.deleteAsync(fileUri, { idempotent: true });
-        } catch {}
+        } catch (err) {
+          console.warn('[GoogleDrive] Failed to clean up temp file:', (err as Error)?.message || String(err));
+        }
 
         return { success: true, fileUri, webUrl };
       } catch (err: any) {

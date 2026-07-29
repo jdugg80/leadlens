@@ -118,7 +118,9 @@ export async function signInWithOAuthProvider(settings, provider) {
       await RawStorage.multiRemove(pkceKeys);
       console.log('[Auth] Cleared stale PKCE keys:', pkceKeys);
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn('[Auth] Failed to clear stale PKCE keys:', err?.message || String(err));
+  }
 
   const redirectTo = AUTH_REDIRECT_URL;
 
@@ -142,7 +144,9 @@ export async function signInWithOAuthProvider(settings, provider) {
 
   try {
     await WebBrowser.warmUpAsync();
-  } catch {}
+  } catch (err) {
+    console.warn('[Auth] WebBrowser.warmUpAsync failed:', err?.message || String(err));
+  }
 
   try {
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
@@ -161,7 +165,9 @@ export async function signInWithOAuthProvider(settings, provider) {
             console.log('OAUTH_SESSION_RECOVERED', 'via fallback getSession after dismiss');
             return { ok: true, session, user: session.user };
           }
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[Auth] OAuth session recovery attempt failed:', err?.message || String(err));
+        }
       }
       return {
         ok: false,
@@ -245,6 +251,8 @@ export async function signInWithOAuthProvider(settings, provider) {
   } finally {
     try {
       await WebBrowser.coolDownAsync();
-    } catch {}
+    } catch (err) {
+      console.warn('[Auth] WebBrowser.coolDownAsync failed:', err?.message || String(err));
+    }
   }
 }

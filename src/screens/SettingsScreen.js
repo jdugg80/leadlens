@@ -418,7 +418,9 @@ export default function SettingsScreen({ navigation, route }) {
             ...DEFAULT_SUPABASE,
             ...JSON.parse(rawSupabase),
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[Settings] Failed to parse Supabase settings:', err?.message || String(err));
+        }
       }
 
       if (rawAutomation) {
@@ -442,7 +444,9 @@ export default function SettingsScreen({ navigation, route }) {
             ...DEFAULT_BACKEND_EMAIL,
             ...JSON.parse(rawBackendEmail),
           });
-        } catch {}
+        } catch (err) {
+          console.warn('[Settings] Failed to parse backend email settings:', err?.message || String(err));
+        }
       }
 
       // If MMKV returned nothing, check raw AsyncStorage backup
@@ -451,7 +455,9 @@ export default function SettingsScreen({ navigation, route }) {
         try {
           const RawStorage = require('@react-native-async-storage/async-storage').default;
           finalRawQueue = await RawStorage.getItem(LEADS_STORAGE_KEY).catch(() => null);
-        } catch {}
+        } catch (err) {
+          console.warn('[Settings] Failed to load queue from AsyncStorage:', err?.message || String(err));
+        }
       }
       const parsedQueue = finalRawQueue ? JSON.parse(finalRawQueue) : [];
       setQueueCount(Array.isArray(parsedQueue) ? parsedQueue.length : 0);
@@ -599,7 +605,9 @@ export default function SettingsScreen({ navigation, route }) {
               if (authUser?.id) await unregisterPushToken(authUser.id);
               await sb.auth.signOut();
             }
-          } catch {}
+          } catch (err) {
+            console.error('[Settings] Supabase signOut failed:', err?.message || String(err));
+          }
 
           // 2. Clear BetaTracker session
           BetaTracker.setEmail('');
@@ -608,7 +616,9 @@ export default function SettingsScreen({ navigation, route }) {
           // 3. Clear ALL user data from MMKV + AsyncStorage
           try {
             await AsyncStorage.clearUserSession();
-          } catch {}
+          } catch (err) {
+            console.error('[Settings] clearUserSession failed:', err?.message || String(err));
+          }
 
           // 4. Reset navigation — clears entire stack so back button won't return
           navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
