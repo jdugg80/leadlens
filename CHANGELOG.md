@@ -3,7 +3,7 @@
 
 # Changelog
 
-## BETA-62 | 2026-07-29
+## BETA-62 | 2026-07-30
 
 ### 🔧 Crash Reporting Infrastructure
 - **Native Sentry Android SDK** — Manually integrated `sentry-android:7.10.0` and `sentry-android-gradle-plugin:4.14.0` directly into the committed `android/` project. The `@sentry/react-native` JS SDK (v5.24.3) could only capture JS-layer errors; native force-closes (Java exceptions, NDK crashes, OOM kills) occurring below the JS bridge were invisible. The native SDK now captures these at the Android runtime level. `io.sentry.dsn` and `io.sentry.auto-init` meta-data tags added to `AndroidManifest.xml`, DSN sourced from the same `EXPO_PUBLIC_SENTRY_DSN` env var used by the JS SDK — single source of truth, no duplicate config.

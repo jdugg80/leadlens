@@ -32,8 +32,8 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/a479ffad-128e-455c-8148-7504f53b83e4"/>
-    <meta-data android:name="io.sentry.dsn" android:value="${sentryDsn}"/>
-    <meta-data android:name="io.sentry.auto-init" android:value="true"/>
+    <meta-data android:name="io.sentry.dsn" android:value="${sentryDsn}" tools:replace="android:value"/>
+    <meta-data android:name="io.sentry.auto-init" android:value="true" tools:replace="android:value"/>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
