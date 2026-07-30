@@ -3,6 +3,13 @@
 
 # Changelog
 
+## BETA-62 | 2026-07-29
+
+### 🔧 Crash Reporting Infrastructure
+- **Native Sentry Android SDK** — Manually integrated `sentry-android:7.10.0` and `sentry-android-gradle-plugin:4.14.0` directly into the committed `android/` project. The `@sentry/react-native` JS SDK (v5.24.3) could only capture JS-layer errors; native force-closes (Java exceptions, NDK crashes, OOM kills) occurring below the JS bridge were invisible. The native SDK now captures these at the Android runtime level. `io.sentry.dsn` and `io.sentry.auto-init` meta-data tags added to `AndroidManifest.xml`, DSN sourced from the same `EXPO_PUBLIC_SENTRY_DSN` env var used by the JS SDK — single source of truth, no duplicate config.
+- **Root Cause** — EAS was skipping `expo prebuild` on every build because the `android/` directory is committed (bare workflow). The `@sentry/react-native/expo` config plugin only runs during prebuild, so the native SDK was never injected. Fixed by adding the Gradle plugin, dependency, and manifest entries by hand instead of regenerating `android/`.
+- **Symbol Upload Config** — Gradle `sentry {}` block configured with `uploadNativeSymbols = true` and `includeNativeSources = true` for readable native stack traces. `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` set on EAS via `eas env:create`. Symbol upload should be functional on the next build; unverified until first post-build check in Sentry's Release Settings.
+
 ## BETA-61 | 2026-07-29
 
 ### 🔧 Crash Reporting Infrastructure

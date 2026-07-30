@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "io.sentry.android.gradle"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
@@ -116,6 +117,10 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 53
         versionName "2.0.53"
+
+        // Sentry DSN injected from EXPO_PUBLIC_SENTRY_DSN env var
+        def sentryDsn = System.getenv("EXPO_PUBLIC_SENTRY_DSN") ?: ""
+        manifestPlaceholders = [sentryDsn: sentryDsn]
     }
     signingConfigs {
         debug {
@@ -169,6 +174,7 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation "io.sentry:sentry-android:7.10.0"
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
@@ -193,6 +199,16 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+}
+
+sentry {
+    // Must be false for React Native — the SDK manages its own sentry-android dependency
+    autoInstallation {
+        enabled = false
+    }
+    // Enable native debug symbol upload for readable stack traces
+    uploadNativeSymbols = true
+    includeNativeSources = true
 }
 
 if (rnVersion < versionToNumber(0, 75, 0)) {
