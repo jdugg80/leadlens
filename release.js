@@ -8,7 +8,8 @@
  * Usage:
  *   node release.js                     — full automated release
  *   node release.js --dry-run           — preview every step, nothing is changed
- *   node release.js --download-only     — skip build trigger, paste EAS artifact URL manually
+ *   node release.js --download-only <url>  — skip build trigger, use provided EAS artifact URL
+ *   node release.js --download-only        — skip build trigger, prompt for EAS artifact URL
  *   node release.js --apk "path/to.apk" — skip build + download, upload existing APK directly
  *
  * .env keys used:
@@ -86,6 +87,10 @@ const TESTER_EMAILS = [
 
 const DRY_RUN       = process.argv.includes('--dry-run');
 const DOWNLOAD_ONLY = process.argv.includes('--download-only');
+const DL_URL_IDX    = DOWNLOAD_ONLY ? process.argv.indexOf('--download-only') : -1;
+const DL_URL_ARG    = DL_URL_IDX !== -1 && process.argv[DL_URL_IDX + 1] && !process.argv[DL_URL_IDX + 1].startsWith('--')
+  ? process.argv[DL_URL_IDX + 1]
+  : null;
 const APK_ARG_IDX   = process.argv.indexOf('--apk');
 const MANUAL_APK    = APK_ARG_IDX !== -1 ? process.argv[APK_ARG_IDX + 1] : null;
 
@@ -374,7 +379,7 @@ async function waitForBuild(buildId) {
   `;
 
   const pollInterval = 30_000;
-  const maxWait      = 45 * 60_000;
+  const maxWait      = 60 * 60_000;  // 60 minutes — builds with native modules + symbol upload can take 20+ min
   let elapsed        = 0;
 
   while (elapsed < maxWait) {
@@ -421,7 +426,7 @@ async function waitForBuild(buildId) {
     }
   }
 
-  throw new Error('EAS build timed out after 45 minutes. Check expo.dev for status.');
+  throw new Error('EAS build timed out after 60 minutes. Run "node poll-build.js <build-id>" to check status, then "node release.js --download-only <artifact-url>" to finish the release.');
 }
 
 // ─── 7. Download APK ───────────────────────────────────────────────────────
@@ -925,17 +930,23 @@ async function main() {
       apkPath = MANUAL_APK;
       ok(`Using provided APK: ${path.basename(apkPath)}`);
 
-    // ── Mode: --download-only (paste URL) ──────────────────────────────────
+    // ── Mode: --download-only (paste URL or use argument) ────────────────────
     } else if (DOWNLOAD_ONLY) {
-      step(5, TOTAL, 'DOWNLOAD ONLY — paste EAS artifact URL');
-      const readline = require('readline');
-      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      const apkUrl = await new Promise(resolve => {
-        rl.question('   Paste EAS artifact URL from expo.dev: ', ans => {
-          rl.close();
-          resolve(ans.trim());
+      step(5, TOTAL, 'DOWNLOAD ONLY — obtain EAS artifact URL');
+      let apkUrl;
+      if (DL_URL_ARG) {
+        apkUrl = DL_URL_ARG;
+        ok(`Using URL from argument: ${apkUrl}`);
+      } else {
+        const readline = require('readline');
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        apkUrl = await new Promise(resolve => {
+          rl.question('   Paste EAS artifact URL from expo.dev: ', ans => {
+            rl.close();
+            resolve(ans.trim());
+          });
         });
-      });
+      }
       step(7, TOTAL, 'Downloading APK');
       apkPath = await downloadAPK(apkUrl, buildInfo.buildNumber, newVersion);
 

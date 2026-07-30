@@ -115,7 +115,7 @@ export default function BetaFeedbackScreen({ navigation, route }) {
           <Text style={styles.successIcon}>🪙🪙</Text>
           <Text style={styles.successTitle}>Two Cents Deposited, {firstName}.</Text>
           <Text style={styles.successMsg}>
-            The O-Kay-est Media team got your feedback loud and clear, {firstName}. Somewhere in Angleton, Texas, a developer just smiled. We'll take it from here — now get back to testing.
+            The O-Kay-est Media LLC team got your feedback loud and clear, {firstName}. Somewhere in Angleton, Texas, a developer just smiled. We'll take it from here — now get back to testing.
           </Text>
           <TouchableOpacity style={styles.doneBtn} onPress={() => navigation.goBack()}>
             <Text style={styles.doneBtnText}>BACK TO WORK →</Text>
