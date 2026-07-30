@@ -64,6 +64,7 @@ const BUILD_DIR         = path.join(PROJECT_ROOT, 'builds');
 const CHANGELOG_PATH    = path.join(PROJECT_ROOT, 'CHANGELOG.md');
 const APP_JSON_PATH     = path.join(PROJECT_ROOT, 'app.json');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
+const BUILD_GRADLE_PATH = path.join(PROJECT_ROOT, 'android', 'app', 'build.gradle');
 
 // Scarlett Supabase — hardcoded, never crosses with LeadLens project
 const SCARLETT_URL    = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
@@ -248,6 +249,23 @@ function bumpVersions(buildNumber) {
   const pkgJson = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8'));
   pkgJson.version = newVersion;
   fs.writeFileSync(PACKAGE_JSON_PATH, JSON.stringify(pkgJson, null, 2) + '\n');
+
+  // Sync android/app/build.gradle versionCode/versionName
+  const gradlePath = BUILD_GRADLE_PATH;
+  let gradle = fs.readFileSync(gradlePath, 'utf-8');
+  gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${targetCode}`);
+  gradle = gradle.replace(/versionName\s+"[^"]+"/, `versionName "${newVersion}"`);
+  fs.writeFileSync(gradlePath, gradle);
+
+  // Validate: confirm app.json and build.gradle versions match
+  const verifyApp = JSON.parse(fs.readFileSync(APP_JSON_PATH, 'utf-8'));
+  const verifyGradle = fs.readFileSync(gradlePath, 'utf-8');
+  const gradleCode = verifyGradle.match(/versionCode\s+(\d+)/)?.[1];
+  const gradleName = verifyGradle.match(/versionName\s+"([^"]+)"/)?.[1];
+  if (verifyApp.expo.android.versionCode !== parseInt(gradleCode, 10) ||
+      verifyApp.expo.version !== gradleName) {
+    throw new Error(`Version mismatch after bump: app.json=${verifyApp.expo.version}/${verifyApp.expo.android.versionCode}, build.gradle=${gradleName}/${gradleCode}`);
+  }
 
   ok(`Version bumped → v${newVersion} (versionCode ${currentCode} → ${targetCode})`);
   return newVersion;
@@ -837,7 +855,7 @@ function commitAndPush(buildInfo) {
   console.log('\n📝 Committing release to git...');
 
   if (DRY_RUN) {
-    dryLog('Would: git add app.json package.json CHANGELOG.md');
+    dryLog('Would: git add app.json package.json CHANGELOG.md android/app/build.gradle');
     dryLog(`Would: git commit -m "chore(release): ${buildInfo.version} — ${buildInfo.buildDate}"`);
     dryLog(`Would: git tag -a ${buildInfo.tag} -m "${buildInfo.version}"`);
     dryLog('Would: git push origin main --tags');
@@ -845,7 +863,7 @@ function commitAndPush(buildInfo) {
   }
 
   try {
-    execSync('git add app.json package.json CHANGELOG.md', { cwd: PROJECT_ROOT });
+    execSync('git add app.json package.json CHANGELOG.md android/app/build.gradle', { cwd: PROJECT_ROOT });
     execSync(
       `git commit -m "chore(release): ${buildInfo.version} — ${buildInfo.buildDate}"`,
       { cwd: PROJECT_ROOT }
