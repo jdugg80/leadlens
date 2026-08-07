@@ -178,15 +178,8 @@ function getBundledBoundaryRaw(zip) {
  */
 async function getSupabaseClient() {
   try {
-    console.log('[DEBUG] Attempting to create Supabase client...');
-    console.log('[DEBUG] EXPO_PUBLIC_SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL);
-    console.log('[DEBUG] EXPO_PUBLIC_SUPABASE_ANON_KEY:', process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 20) + '...');
-    
-    const client = createSupabaseClient();
-    console.log('[DEBUG] Client created:', !!client);
-    return client;
-  } catch (error) {
-    console.log('[DEBUG] Error creating client:', error?.message);
+    return createSupabaseClient();
+  } catch {
     return null;
   }
 }

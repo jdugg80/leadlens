@@ -13,8 +13,8 @@ import {
 import { COLORS } from '../constants';
 
 // Scarlett Supabase — separate from LeadLens DB
-const SCARLETT_URL = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
-const SCARLETT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsbnRneWhmeHhiY3d3Y3hhb3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyODE5NjQsImV4cCI6MjA5Mzg1Nzk2NH0.sN8lupQFAGGsPr_UuEQGqm9JYMASP8D0wyPfCxIMaAw';
+const SCARLETT_URL = process.env.EXPO_PUBLIC_SCARLETT_SUPABASE_URL;
+const SCARLETT_KEY = process.env.EXPO_PUBLIC_SCARLETT_ANON_KEY;
 
 const FEEDBACK_TYPES = [
   { key: 'bug',         label: '🐛  Bug',              color: COLORS.danger },
@@ -57,6 +57,10 @@ export default function BetaFeedbackScreen({ navigation, route }) {
   async function submitFeedback() {
     if (!feedbackType) { setError('Please select a feedback type.'); return; }
     if (!description.trim()) { setError('Please describe the issue or feedback.'); return; }
+    if (!SCARLETT_URL || !SCARLETT_KEY) {
+      setError('Feedback submission is not configured. Please contact support directly.');
+      return;
+    }
 
     setError('');
     setSubmitting(true);
