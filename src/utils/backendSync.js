@@ -1,4 +1,4 @@
-import { storage as AsyncStorage } from './storage';
+import { storage as AsyncStorage, mergeWithFreshUserProfile } from './storage';
 import {
   AUTOMATION_SETTINGS_KEY,
   LEADS_STORAGE_KEY,
@@ -21,6 +21,7 @@ function categorizeError(err) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildRow(lead = {}, user = {}, authUserId = null) {
+  const freshUser = mergeWithFreshUserProfile(user);
   return {
     id:                lead.id || `lead_${Date.now()}_${Math.random().toString(36).slice(2)}`,
     user_id:           authUserId,
@@ -42,9 +43,9 @@ function buildRow(lead = {}, user = {}, authUserId = null) {
     status:            normalizeFixedFieldValue(lead.status || 'New'),
     property_type:     normalizeFixedFieldValue(lead.propertyType || 'Commercial'),
     capture_method:    lead.captureMethod || '',
-    rep_name:          user?.repName || lead.repName || '',
-    employee_num:      user?.employeeNum || lead.employeeNum || '',
-    branch_num:        user?.branchNum || lead.branchNum || '',
+    rep_name:          freshUser?.repName || lead.repName || '',
+    employee_num:      freshUser?.employeeNum || lead.employeeNum || '',
+    branch_num:        freshUser?.branchNum || lead.branchNum || '',
     saved_at:          lead.savedAt || new Date().toISOString(),
     created_at_client: lead.createdAt || lead.capturedAt || new Date().toISOString(),
     duplicate_warning: lead.duplicateWarning || '',

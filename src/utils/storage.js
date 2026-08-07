@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { USER_STORAGE_KEY } from '../constants';
 
 /**
  * Enhanced MMKV Storage Bridge
@@ -521,6 +522,40 @@ export const storage = {
    */
   getInstance: () => getStorage(),
 };
+
+// ─── Fresh user profile helpers ───────────────────────────────────────────────
+// Export functions must read the latest employee number from MMKV at export
+// time instead of relying on a user object cached in component state or route
+// params. These helpers provide a single, consistent way to do that.
+
+export function getFreshUserProfile(fallback = null) {
+  try {
+    const raw = storage.getSync(USER_STORAGE_KEY);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn('[Storage] Failed to read fresh user profile:', err?.message || String(err));
+    return fallback;
+  }
+}
+
+export function getFreshEmployeeNumber(fallback = '') {
+  const user = getFreshUserProfile();
+  return user?.employeeNum || user?.employeeNumber || fallback;
+}
+
+export function mergeWithFreshUserProfile(user = {}) {
+  const fresh = getFreshUserProfile();
+  if (!fresh || typeof fresh !== 'object') return user;
+  return {
+    ...user,
+    ...fresh,
+    employeeNum: fresh.employeeNum ?? user.employeeNum ?? '',
+    employeeNumber: fresh.employeeNumber ?? user.employeeNumber ?? '',
+    branchNum: fresh.branchNum ?? user.branchNum ?? '',
+    repName: fresh.repName ?? user.repName ?? '',
+  };
+}
 
 // Export both named and default for backward compatibility
 export const storageBridge = storage;

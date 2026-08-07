@@ -13,7 +13,7 @@ import {
   Switch,
 } from 'react-native';
 import { syncAllProspectsToSupabase, enqueueSyncAll } from '../utils/backendSync';
-import { storageBridge as AsyncStorage } from '../utils/storage';
+import { storageBridge as AsyncStorage, mergeWithFreshUserProfile } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
 import { COLORS, EXPORT_MODES, LEADS_STORAGE_KEY, USER_STORAGE_KEY } from '../constants';
@@ -183,13 +183,15 @@ export default function ExportScreen({ navigation, route }) {
   setStatusText('Building export file...');
   BetaTracker.track('feature_use', { feature: 'Export', action: 'export_started', screen: 'ExportScreen' });
 
+  const exportUser = mergeWithFreshUserProfile(user);
+
   try {
     if (selectedMode === 'standard') {
-      await exportStandardSpreadsheet(normalizedPreview, user);
+      await exportStandardSpreadsheet(normalizedPreview, exportUser);
     } else if (selectedMode === 'sales_template') {
-      await exportSalesTemplate(normalizedPreview, user);
+      await exportSalesTemplate(normalizedPreview, exportUser);
     } else if (selectedMode === 'saved' && selectedProfile) {
-      await exportUsingProfile(normalizedPreview, selectedProfile, user);
+      await exportUsingProfile(normalizedPreview, selectedProfile, exportUser);
     } else if (selectedMode === 'custom' && customDraft) {
       const profile = {
         ...customDraft,
@@ -203,7 +205,7 @@ export default function ExportScreen({ navigation, route }) {
           'Custom Export',
       };
 
-      await exportUsingProfile(normalizedPreview, profile, user);
+      await exportUsingProfile(normalizedPreview, profile, exportUser);
     }
 
     await playSoundEffect('export-created');
@@ -232,7 +234,7 @@ export default function ExportScreen({ navigation, route }) {
       );
 
       // Still attempt immediate sync for better UX if app is in focus
-      const syncResult = await syncAllProspectsToSupabase(user);
+      const syncResult = await syncAllProspectsToSupabase(exportUser);
       if (syncResult.ok) {
         setStatusText(msg || `Export complete. ${syncResult.count} prospects synced to Supabase.`);
         BetaTracker.track('feature_use', { feature: 'Export', action: 'export_completed', screen: 'ExportScreen' });

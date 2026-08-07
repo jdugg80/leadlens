@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storageBridge as AsyncStorage, mergeWithFreshUserProfile } from './storage';
 
 export { GOALS_STORAGE_KEY } from '../constants';
 
@@ -479,6 +479,7 @@ export function getRecommendedZipAreas(_leads = [], myZips = [], _currentLocatio
 
 export async function syncTerritoryToSupabase(supabase, user, myZips) {
   try {
+    const freshUser = mergeWithFreshUserProfile(user);
     if (!supabase) return { ok: false, reason: 'no-client' };
 
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
@@ -500,9 +501,9 @@ export async function syncTerritoryToSupabase(supabase, user, myZips) {
         user_id:      authUser.id,
         zip_code:     entry.zip,
         notes:        entry.notes || '',
-        rep_name:     user?.repName || '',
-        employee_num: user?.employeeNum || '',
-        branch_num:   user?.branchNum || '',
+        rep_name:     freshUser?.repName || '',
+        employee_num: freshUser?.employeeNum || '',
+        branch_num:   freshUser?.branchNum || '',
         added_at:     entry.addedAt || new Date().toISOString(),
       }));
 

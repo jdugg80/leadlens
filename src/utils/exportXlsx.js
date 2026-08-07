@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { utils, write, read } from 'xlsx';
 import { applyRequiredPlaceholders, normalizeLead } from './leadHelpers';
+import { mergeWithFreshUserProfile } from './storage';
 
 const TEMPLATE_HEADERS = [
   'Employee #','Branch','Route','Status','PropertyDescription',
@@ -37,6 +38,7 @@ function buildStandardRow(lead) {
 }
 
 async function buildWorkbook(leads, user, options = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const mode = options.mode || 'template';
   const wb = utils.book_new();
   if (mode === 'standard') {
@@ -71,7 +73,7 @@ async function buildWorkbook(leads, user, options = {}) {
     return templateWb;
   }
 
-  const ws = utils.aoa_to_sheet([TEMPLATE_HEADERS, ...leads.map((lead) => buildTemplateRow(lead, user))]);
+  const ws = utils.aoa_to_sheet([TEMPLATE_HEADERS, ...leads.map((lead) => buildTemplateRow(lead, freshUser))]);
   ws['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(h.length + 2, 12) }));
   utils.book_append_sheet(wb, ws, 'Sales Module Import Template');
   return wb;

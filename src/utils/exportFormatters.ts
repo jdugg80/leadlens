@@ -1,6 +1,7 @@
 import { write, utils } from 'xlsx';
 import * as FileSystem from 'expo-file-system';
 import { normalizeLead } from './leadHelpers';
+import { getFreshUserProfile } from './storage';
 
 export type ExportFormat = 'csv' | 'xlsx';
 
@@ -44,6 +45,7 @@ const CSV_HEADERS = [
   'Status',
   'Capture Method',
   'Notes',
+  'Employee #',
   'Created At',
   'Updated At',
 ];
@@ -62,6 +64,7 @@ const XLSX_HEADERS = [
   'Status',
   'Capture Method',
   'Notes',
+  'Employee #',
   'Created At',
   'Updated At',
 ];
@@ -77,6 +80,7 @@ function escapeCsvField(value: string | number | boolean | null | undefined): st
 
 function prospectToCsvRow(prospect: ProspectRecord): string {
   const normalized = normalizeLead(prospect);
+  const user = getFreshUserProfile();
   const fields = [
     normalized.businessName,
     normalized.contactPerson || '',
@@ -91,6 +95,7 @@ function prospectToCsvRow(prospect: ProspectRecord): string {
     normalized.status,
     normalized.captureMethod,
     normalized.notes,
+    user?.employeeNum || user?.employeeNumber || '',
     normalized.createdAt,
     normalized.updatedAt,
   ];
@@ -99,6 +104,7 @@ function prospectToCsvRow(prospect: ProspectRecord): string {
 
 function prospectToXlsxRow(prospect: ProspectRecord): (string | number)[] {
   const normalized = normalizeLead(prospect);
+  const user = getFreshUserProfile();
   return [
     normalized.businessName || '',
     normalized.contactPerson || '',
@@ -113,6 +119,7 @@ function prospectToXlsxRow(prospect: ProspectRecord): (string | number)[] {
     normalized.status || '',
     normalized.captureMethod || '',
     normalized.notes || '',
+    user?.employeeNum || user?.employeeNumber || '',
     normalized.createdAt || '',
     normalized.updatedAt || '',
   ];

@@ -1,4 +1,4 @@
-import { storage as AsyncStorage } from './storage';
+import { storage as AsyncStorage, mergeWithFreshUserProfile } from './storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -303,8 +303,9 @@ export function buildSuggestedMapping(headers = []) {
 }
 
 export function buildStandardRows(leads = [], user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   return leads.map((lead) => {
-    const l = normalizeLeadForExport(lead || {}, user);
+    const l = normalizeLeadForExport(lead || {}, freshUser);
 
     return [
       l.businessName || '',
@@ -368,25 +369,28 @@ function evaluateField(fieldKey, lead = {}, user = {}) {
 }
 
 function normalizeLeadForExport(lead = {}, user = {}) {
+  // Callers are expected to pass the already-fresh user profile (see
+  // mergeWithFreshUserProfile). We keep the parameter name as "user" for
+  // internal simplicity.
   const merged = {
     ...lead,
 
     employeeNum:
-      lead.employeeNum ||
       user.employeeNum ||
       user.employeeNumber ||
+      lead.employeeNum ||
       '',
 
     branchNum:
-      lead.branchNum ||
       user.branchNum ||
       user.branchNumber ||
+      lead.branchNum ||
       '',
 
     repName:
-      lead.repName ||
       user.repName ||
       user.name ||
+      lead.repName ||
       '',
 
     phoneType:
@@ -403,9 +407,10 @@ function normalizeLeadForExport(lead = {}, user = {}) {
 }
 
 export async function buildStandardSpreadsheetFile(leads = [], user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const ws = utils.aoa_to_sheet([
     STANDARD_COLUMNS,
-    ...buildStandardRows(leads, user),
+    ...buildStandardRows(leads, freshUser),
   ]);
 
   ws['!cols'] = STANDARD_COLUMNS.map((h) => ({
@@ -419,11 +424,12 @@ export async function buildStandardSpreadsheetFile(leads = [], user = {}) {
 }
 
 export async function buildSalesTemplateFile(leads = [], user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const rows = leads.map((lead) => {
-    const normalized = normalizeLeadForExport(lead, user);
+    const normalized = normalizeLeadForExport(lead, freshUser);
 
     return SALES_TEMPLATE_COLUMNS.map((column) =>
-      evaluateField(SALES_TEMPLATE_MAPPING[column], normalized, user)
+      evaluateField(SALES_TEMPLATE_MAPPING[column], normalized, freshUser)
     );
   });
 
@@ -443,6 +449,7 @@ export async function buildSalesTemplateFile(leads = [], user = {}) {
 }
 
 export async function buildProfileExportFile(leads = [], profile = {}, user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   let workbook;
   if (profile.templateUri) {
     const info = await FileSystem.getInfoAsync(profile.templateUri);
@@ -465,10 +472,10 @@ export async function buildProfileExportFile(leads = [], profile = {}, user = {}
   const headers = profile.headers || [];
 
   const rows = leads.map((lead) => {
-    const normalized = normalizeLeadForExport(lead, user);
+    const normalized = normalizeLeadForExport(lead, freshUser);
 
     return headers.map((header) =>
-      evaluateField(profile.mapping?.[header], normalized, user)
+      evaluateField(profile.mapping?.[header], normalized, freshUser)
     );
   });
 
@@ -495,9 +502,10 @@ export async function buildProfileExportFile(leads = [], profile = {}, user = {}
 }
 
 export async function exportStandardSpreadsheet(leads = [], user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const ws = utils.aoa_to_sheet([
     STANDARD_COLUMNS,
-    ...buildStandardRows(leads, user),
+    ...buildStandardRows(leads, freshUser),
   ]);
 
   ws['!cols'] = STANDARD_COLUMNS.map((h) => ({
@@ -511,11 +519,12 @@ export async function exportStandardSpreadsheet(leads = [], user = {}) {
 }
 
 export async function exportSalesTemplate(leads = [], user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const rows = leads.map((lead) => {
-    const normalized = normalizeLeadForExport(lead, user);
+    const normalized = normalizeLeadForExport(lead, freshUser);
 
     return SALES_TEMPLATE_COLUMNS.map((column) =>
-      evaluateField(SALES_TEMPLATE_MAPPING[column], normalized, user)
+      evaluateField(SALES_TEMPLATE_MAPPING[column], normalized, freshUser)
     );
   });
 
@@ -583,6 +592,7 @@ export async function pickCustomTemplate() {
 }
 
 export async function exportUsingProfile(leads = [], profile = {}, user = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   let workbook;
   if (profile.templateUri) {
     const info = await FileSystem.getInfoAsync(profile.templateUri);
@@ -605,10 +615,10 @@ export async function exportUsingProfile(leads = [], profile = {}, user = {}) {
   const headers = profile.headers || [];
 
   const rows = leads.map((lead) => {
-    const normalized = normalizeLeadForExport(lead, user);
+    const normalized = normalizeLeadForExport(lead, freshUser);
 
     return headers.map((header) =>
-      evaluateField(profile.mapping?.[header], normalized, user)
+      evaluateField(profile.mapping?.[header], normalized, freshUser)
     );
   });
 

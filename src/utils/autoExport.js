@@ -1,4 +1,4 @@
-import { storageBridge as AsyncStorage } from './storage';
+import { storageBridge as AsyncStorage, mergeWithFreshUserProfile } from './storage';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
 import * as BackgroundFetch from 'expo-background-fetch';
@@ -59,6 +59,7 @@ export async function loadAutoExportSettings() {
 }
 
 export async function maybeRunAutoExport(user, options = {}) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const { force = false, settingsOverride = null, isBackground = false } = options;
 
   const loadedSettings = await loadAutoExportSettings();
@@ -115,14 +116,14 @@ export async function maybeRunAutoExport(user, options = {}) {
       throw new Error(err);
     }
 
-    attachment = await buildProfileExportFile(sendable, template, user);
+    attachment = await buildProfileExportFile(sendable, template, freshUser);
   } else if (settings.exportFormat === "universal_excel" || settings.exportMode === "standard") {
-    attachment = await buildStandardSpreadsheetFile(sendable, user);
+    attachment = await buildStandardSpreadsheetFile(sendable, freshUser);
   } else if (settings.exportFormat === "sales_module" || settings.exportMode === "template" || !settings.exportFormat) {
-    attachment = await buildSalesTemplateFile(sendable, user);
+    attachment = await buildSalesTemplateFile(sendable, freshUser);
   } else {
     // CSV not fully fleshed out in exportProfiles yet, fallback to universal
-    attachment = await buildStandardSpreadsheetFile(sendable, user);
+    attachment = await buildStandardSpreadsheetFile(sendable, freshUser);
   }
 
   const subject = (settings.subject || 'LeadLens Scheduled Export').replace('{count}', String(sendable.length));

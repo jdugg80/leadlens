@@ -1,4 +1,4 @@
-import { storage as AsyncStorage } from './storage';
+import { storage as AsyncStorage, mergeWithFreshUserProfile } from './storage';
 import {
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_INTRO_TEMPLATES,
@@ -136,6 +136,7 @@ export async function resetReviewTemplates() {
 }
 
 export function buildTemplateContext(lead, user) {
+  const freshUser = mergeWithFreshUserProfile(user);
   const safeFirst = lead?.pocFirst && lead.pocFirst !== '.' ? lead.pocFirst : 'there';
   const safeLast = lead?.pocLast && lead.pocLast !== '.' ? lead.pocLast : '';
   const contactName = [safeFirst, safeLast].filter(Boolean).join(' ') || 'there';
@@ -150,10 +151,10 @@ export function buildTemplateContext(lead, user) {
     city: lead?.city || '',
     state: lead?.state || '',
     zip: lead?.zip || '',
-    repName: user?.repName || '',
-    repEmail: user?.repEmail || '',
-    employeeNum: user?.employeeNum || '',
-    branchNum: user?.branchNum || '',
-    territory: user?.territory || '',
+    repName: freshUser?.repName || '',
+    repEmail: freshUser?.repEmail || '',
+    employeeNum: freshUser?.employeeNum || '',
+    branchNum: freshUser?.branchNum || '',
+    territory: freshUser?.territory || '',
   };
 }
