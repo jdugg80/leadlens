@@ -43,7 +43,8 @@ const INITIAL_FORM = {
   message: '',
 };
 
-export default function SupportScreen() {
+export default function SupportScreen({ navigation, route }) {
+  const user = route?.params?.user || null;
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -119,10 +120,52 @@ export default function SupportScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Header */}
-          <Text style={styles.heading}>Contact Support</Text>
+          <Text style={styles.heading}>Support</Text>
           <Text style={styles.subheading}>
-            Describe your issue and our team will respond within 24 hours.
+            Report bugs, suggest features, or contact our team directly.
           </Text>
+
+          {/* Quick Actions */}
+          <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
+          <View style={styles.navRow}>
+            <TouchableOpacity
+              style={styles.navBtn}
+              onPress={() => navigation.navigate('BugReportScreen', {
+                repEmail: user?.email || user?.user_metadata?.email || '',
+                repName: user?.user_metadata?.repName || user?.user_metadata?.full_name || '',
+              })}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.navBtnIcon}>🐛</Text>
+              <View style={styles.navBtnText}>
+                <Text style={styles.navBtnLabel}>Report a Bug</Text>
+                <Text style={styles.navBtnHint}>Crashes, broken features, unexpected behavior</Text>
+              </View>
+              <Text style={styles.navBtnChevron}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.navBtn, styles.navBtnPurple]}
+              onPress={() => navigation.navigate('FeatureRequestScreen', {
+                repEmail: user?.email || user?.user_metadata?.email || '',
+                repName: user?.user_metadata?.repName || user?.user_metadata?.full_name || '',
+              })}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.navBtnIcon}>💡</Text>
+              <View style={styles.navBtnText}>
+                <Text style={styles.navBtnLabel}>Suggest a Feature</Text>
+                <Text style={styles.navBtnHint}>Ideas to make LeadLens work better for you</Text>
+              </View>
+              <Text style={styles.navBtnChevron}>›</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.divider} />
+
+          {/* Contact Form */}
+          <Text style={styles.sectionLabel}>OR CONTACT US DIRECTLY</Text>
 
           {/* Name */}
           <View style={styles.fieldGroup}>
@@ -252,8 +295,60 @@ const styles = StyleSheet.create({
   subheading: {
     fontSize: 14,
     color: PALETTE.text,
-    marginBottom: 28,
+    marginBottom: 24,
     lineHeight: 20,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: PALETTE.textDim,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  navRow: {
+    gap: 10,
+    marginBottom: 20,
+  },
+  navBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: PALETTE.surface,
+    borderWidth: 1,
+    borderColor: PALETTE.cyan,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  navBtnPurple: {
+    borderColor: PALETTE.purple,
+  },
+  navBtnIcon: {
+    fontSize: 22,
+  },
+  navBtnText: {
+    flex: 1,
+  },
+  navBtnLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: PALETTE.white,
+    marginBottom: 2,
+  },
+  navBtnHint: {
+    fontSize: 12,
+    color: PALETTE.textDim,
+    lineHeight: 16,
+  },
+  navBtnChevron: {
+    fontSize: 22,
+    color: PALETTE.textDim,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: PALETTE.border,
+    marginBottom: 20,
   },
   fieldGroup: {
     marginBottom: 20,
