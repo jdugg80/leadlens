@@ -765,9 +765,9 @@ export default function ProspectQueueScreen({ navigation, route }) {
                 </Text>
                 {lead.phone && <Text style={styles.cardText}>Phone: {lead.phone}</Text>}
                 {lead.email && <Text style={styles.cardText}>Email: {lead.email}</Text>}
-                {(lead.address || lead.streetName || lead.city) && (
+                {(lead.streetName || lead.streetNumber || lead.city || lead.state || lead.address) && (
                   <Text style={styles.cardText}>
-                    {lead.address || [lead.streetNumber, lead.streetName, lead.city, lead.state].filter(Boolean).join(', ')}
+                    {[lead.streetNumber, lead.streetName, lead.city, lead.state].filter(Boolean).join(', ') || lead.address || lead.streetAddress || ''}
                   </Text>
                 )}
                 {lead.updatedAt && (

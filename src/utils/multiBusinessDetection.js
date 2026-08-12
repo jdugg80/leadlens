@@ -5,7 +5,7 @@
  */
 
 import { enrichProspectProfile } from './dataEnrichmentOrchestrator';
-import { extractLocationFromBusinessCard } from './addressGeocoder';
+import { extractLocationFromBusinessCard, parseAddressWithGoogleGeocoding } from './addressGeocoder';
 import { enrichBusinessWithPublicSources } from './enrichmentNormalizer';
 import { extractPhoneCandidatesFromText, mergePhoneCandidates, selectBestPhone } from './phoneExtraction';
 
@@ -479,9 +479,10 @@ function generateBusinessBadges(business) {
 /**
  * Convert selected businesses to queue prospects
  * @param {array} selectedBusinesses - From formatMultiBusinessesForDisplay with selected: true
- * @returns {array} Prospect objects ready for queue
+ * @param {object} resolvedLocation - Location resolved from photo/GPS
+ * @returns {Promise<array>} Prospect objects ready for queue
  */
-export function convertSelectedBusinessesToProspects(selectedBusinesses, resolvedLocation = null) {
+export async function convertSelectedBusinessesToProspects(selectedBusinesses, resolvedLocation = null) {
   if (!Array.isArray(selectedBusinesses)) {
     console.log('[LeadLock Prospects] convertSelectedBusinessesToProspects: input not an array, returning []');
     return [];
@@ -494,49 +495,79 @@ export function convertSelectedBusinessesToProspects(selectedBusinesses, resolve
     console.warn('[LeadLock Prospects] No businesses selected for conversion');
   }
 
-  const prospects = selected.map(business => {
+  const prospects = await Promise.all(
+    selected.map(async (business) => {
       const publicSources = business.fullData?.publicSources || {};
-      
+      const fullAddress = publicSources.formatted_address || business.address || '';
+
+      // Start with whatever components enrichment already gave us.
+      let streetNumber = publicSources.streetNumber || '';
+      let streetName = publicSources.streetName || '';
+      let city = publicSources.city || (resolvedLocation && resolvedLocation.city) || '';
+      let state = publicSources.state || 'TX';
+      let zip = publicSources.zip || (resolvedLocation && resolvedLocation.zip) || '';
+
+      // If enrichment left us with a full address string but missing component
+      // fields, parse it into street/city/state/zip so we don't store the raw
+      // string as the only address representation.
+      const needsParse =
+        fullAddress &&
+        (!streetNumber || !streetName || !city || !state || !zip);
+
+      if (needsParse) {
+        const parsed = await parseAddressWithGoogleGeocoding(fullAddress);
+        if (parsed) {
+          streetNumber = streetNumber || parsed.streetNumber || '';
+          streetName = streetName || parsed.streetName || '';
+          city = city || parsed.city || '';
+          state = state || parsed.state || '';
+          zip = zip || parsed.zip || '';
+        }
+      }
+
       return {
         id: `leadlock_${business.id}_${Date.now()}`,
         type: 'LEADLOCK_PHOTO_CAPTURE',
-        
+
         // Core data
         businessName: business.name,
-        address: publicSources.formatted_address || business.address,
-        streetAddress: publicSources.formatted_address || business.address,
+        address: fullAddress,
+        streetAddress: fullAddress,
         businessType: business.businessType,
         latitude: (resolvedLocation && resolvedLocation.latitude) || business.fullData.location.latitude,
         longitude: (resolvedLocation && resolvedLocation.longitude) || business.fullData.location.longitude,
-        
+
         // Contact data from Google Places enrichment
-        phone: publicSources.formatted_phone_number || 
-               publicSources.internationalPhoneNumber || 
-               publicSources.nationalPhoneNumber || 
+        phone: publicSources.formatted_phone_number ||
+               publicSources.internationalPhoneNumber ||
+               publicSources.nationalPhoneNumber ||
                publicSources.phone || '',
-        website: publicSources.website || 
-                 publicSources.websiteUri || 
+        website: publicSources.website ||
+                 publicSources.websiteUri ||
                  publicSources.url || '',
         email: publicSources.email || '',
-        
-        // Address components from enrichment
-        streetNumber: publicSources.streetNumber || '',
-        streetName: publicSources.streetName || '',
-        city: publicSources.city || (resolvedLocation && resolvedLocation.city) || '',
-        state: publicSources.state || 'TX',
-        zip: publicSources.zip || (resolvedLocation && resolvedLocation.zip) || '',
-        
+
+        // Address components (parsed or from enrichment)
+        streetNumber,
+        streetName,
+        city,
+        state,
+        zip,
+        // Convenience fields matching the requested prospect schema
+        street: [streetNumber, streetName].filter(Boolean).join(' '),
+        zipCode: zip,
+
         // POC candidates (from Comptroller, website, etc)
         pocCandidates: publicSources.pocCandidates || publicSources.contacts || [],
-        
+
         // Risk data
         riskScore: business.riskScore,
         pestIndicators: business.pestIndicators,
-        
+
         // Intelligence
         healthViolations: business.fullData.intelligence?.healthViolations || 0,
         recentPermits: business.fullData.intelligence?.recentPermits || 0,
-        
+
         // Metadata
         captureMethod: 'LEADLOCK_PHOTO',
         detectionConfidence: business.confidence,
@@ -548,18 +579,23 @@ export function convertSelectedBusinessesToProspects(selectedBusinesses, resolve
         location_confidence: (resolvedLocation && resolvedLocation.confidence) || null,
         location_warning: (resolvedLocation && resolvedLocation.warning) || null,
         gps_accuracy_meters: (resolvedLocation && resolvedLocation.gpsAccuracyMeters) || business.fullData.location?.accuracy || null,
-        
+
         // Raw detection data
         rawDetection: business.fullData.detection,
-        
+
         // Enrichment metadata
         enrichmentSource: 'photo_detection_multi_business',
         enrichedAt: new Date().toISOString(),
       };
-    });
+    })
+  );
 
   console.log(`[LeadLock Prospects] Converted ${prospects.length} prospects. Sample:`, prospects.slice(0, 2).map(p => ({
     businessName: p.businessName,
+    streetNumber: p.streetNumber,
+    streetName: p.streetName,
+    city: p.city,
+    state: p.state,
     zip: p.zip,
     phone: p.phone,
     website: p.website,

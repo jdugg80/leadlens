@@ -245,23 +245,6 @@ export async function extractLocationFromBusinessCard(enrichedData) {
 }
 
 /**
- * Clear geocode cache
- */
-export function clearGeocodeCache() {
-  geocodeCache.clear();
-}
-
-/**
- * Get cache stats
- */
-export function getGeocachStats() {
-  return {
-    cacheSize: geocodeCache.size,
-    cacheEntries: Array.from(geocodeCache.keys()),
-  };
-}
-
-/**
  * Batch geocode with progress callback
  * @param {array} addresses - Addresses to geocode
  * @param {function} onProgress - Callback with { current, total }
@@ -282,4 +265,123 @@ export async function batchGeocodeWithProgress(addresses, onProgress) {
   }
 
   return results;
+}
+
+// ─── LeadLock address parsing helpers ───────────────────────────────────────
+
+const GOOGLE_GEOCODE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+
+/**
+ * Best-effort heuristic parser for US-style addresses.
+ * Used as a fallback when Google Geocoding is unavailable.
+ * @param {string} fullAddress
+ * @returns {{streetNumber:string, streetName:string, city:string, state:string, zip:string, street:string, zipCode:string}|null}
+ */
+export function parseAddressHeuristic(fullAddress) {
+  if (!fullAddress || typeof fullAddress !== 'string') return null;
+
+  // Use the last 5-digit sequence as the ZIP (avoids picking up a street number
+  // like "12345" at the start of the string).
+  const zipMatches = fullAddress.match(/\b(\d{5})(?:-\d{4})?\b/g);
+  const zip = zipMatches ? zipMatches[zipMatches.length - 1] : '';
+
+  let working = fullAddress;
+  if (zip) {
+    working = working.replace(zip, '').trim();
+  }
+
+  let street = '';
+  let city = '';
+  let state = '';
+
+  const commaParts = working.split(/,|;/).map(s => s.trim()).filter(Boolean);
+  if (commaParts.length >= 3) {
+    street = commaParts[0];
+    city = commaParts[1];
+    state = commaParts[2];
+  } else if (commaParts.length === 2) {
+    street = commaParts[0];
+    const cityStateTokens = commaParts[1].split(/\s+/);
+    state = cityStateTokens.pop() || '';
+    city = cityStateTokens.join(' ');
+  } else {
+    // No commas — work from the end: last token is state, previous is city,
+    // everything else is the street line.
+    const tokens = working.split(/\s+/).filter(Boolean);
+    if (tokens.length >= 3) {
+      state = tokens.pop() || '';
+      city = tokens.pop() || '';
+      street = tokens.join(' ');
+    } else {
+      street = working;
+    }
+  }
+
+  const streetMatch = street.match(/^(\d+(?:[-]\w+)?)\s+(.*)$/i);
+  const streetNumber = streetMatch ? streetMatch[1] : '';
+  const streetName = streetMatch ? streetMatch[2] : street;
+
+  return {
+    streetNumber,
+    streetName,
+    city,
+    state,
+    zip,
+    street: [streetNumber, streetName].filter(Boolean).join(' ') || street,
+    zipCode: zip,
+  };
+}
+
+/**
+ * Parse a full address string into components using Google Geocoding API.
+ * Falls back to parseAddressHeuristic if the API is unavailable or fails.
+ * @param {string} fullAddress
+ * @returns {Promise<{streetNumber:string, streetName:string, city:string, state:string, zip:string, street:string, zipCode:string, formattedAddress:string}|null>}
+ */
+export async function parseAddressWithGoogleGeocoding(fullAddress) {
+  if (!fullAddress || typeof fullAddress !== 'string') {
+    return null;
+  }
+
+  const fallback = parseAddressHeuristic(fullAddress);
+
+  if (!GOOGLE_GEOCODE_API_KEY) {
+    return fallback;
+  }
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullAddress.trim())}&key=${GOOGLE_GEOCODE_API_KEY}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== 'OK' || !Array.isArray(data.results) || data.results.length === 0) {
+      console.warn('[AddressGeocoder] Google geocoding returned status:', data.status, '— using heuristic fallback');
+      return fallback;
+    }
+
+    const result = data.results[0];
+    const components = result.address_components || [];
+    const get = (type) => components.find(c => c.types.includes(type))?.long_name || '';
+    const getShort = (type) => components.find(c => c.types.includes(type))?.short_name || '';
+
+    const streetNumber = get('street_number');
+    const route = get('route');
+    const city = get('locality') || get('postal_town') || get('administrative_area_level_2') || fallback?.city || '';
+    const state = getShort('administrative_area_level_1') || fallback?.state || '';
+    const zip = get('postal_code') || fallback?.zip || '';
+
+    return {
+      streetNumber,
+      streetName: route,
+      city,
+      state,
+      zip,
+      street: [streetNumber, route].filter(Boolean).join(' ') || fallback?.street || '',
+      zipCode: zip,
+      formattedAddress: result.formatted_address || fullAddress,
+    };
+  } catch (err) {
+    console.warn('[AddressGeocoder] Google geocoding failed:', err?.message || String(err));
+    return fallback;
+  }
 }

@@ -220,7 +220,9 @@ export default function LeadLockCameraScreen({ navigation }) {
         } else {
           locationResolveKeyRef.current = null;
         }
-        await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+        await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch((err) =>
+          console.warn('[LeadLockCamera] Failed to cache current location:', err)
+        );
       } catch (err) {
         console.warn('[LeadLockCamera] leadLockGps ZIP resolve failed:', err);
       }
@@ -278,7 +280,9 @@ export default function LeadLockCameraScreen({ navigation }) {
           county: loc.county,
         });
         if (loc.zip) resolvedZipRef.current = loc.zip;
-        await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+        await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch((err) =>
+          console.warn('[LeadLockCamera] Failed to cache current location:', err)
+        );
         return;
       }
     }
@@ -304,7 +308,9 @@ export default function LeadLockCameraScreen({ navigation }) {
           };
           setLocation(loc);
           if (loc.zip) resolvedZipRef.current = loc.zip;
-          await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+          await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch((err) =>
+            console.warn('[LeadLockCamera] Failed to cache current location:', err)
+          );
           return;
         }
       }
@@ -402,7 +408,9 @@ export default function LeadLockCameraScreen({ navigation }) {
           };
           setLocation(loc);
           if (newZip) resolvedZipRef.current = newZip;
-          await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch(() => {});
+          await storageBridge.setItem('currentLocation', JSON.stringify(loc)).catch((err) =>
+            console.warn('[LeadLockCamera] Failed to cache current location:', err)
+          );
         }
       }
     } catch (err) {
@@ -662,7 +670,7 @@ export default function LeadLockCameraScreen({ navigation }) {
 
       console.log('[LeadLockCamera] Resolved photo location for queue:', resolved);
 
-      const prospects = convertSelectedBusinessesToProspects(selected, resolved);
+      const prospects = await convertSelectedBusinessesToProspects(selected, resolved);
       console.log('[LeadLockCamera] Prospects to add:', prospects.length);
       console.log('[LeadLockCamera] First prospect address field:', prospects[0]?.address ?? 'NO_ADDRESS');
       console.log('[LeadLockCamera] First prospect full payload keys:', prospects[0] ? Object.keys(prospects[0]) : 'N/A');
@@ -686,21 +694,12 @@ export default function LeadLockCameraScreen({ navigation }) {
 
       console.log('[LeadLockCamera] Writing to MMKV. Queue size:', updatedQueue.length, 'Last prospect address:', updatedQueue[updatedQueue.length - 1]?.address ?? 'NO_ADDRESS');
 
-      // Write to MMKV with error guard
+      // Write through storageBridge (MMKV + awaited AsyncStorage mirror)
       try {
-        storageBridge.setSync(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
-        console.log('[LeadLock] MMKV write succeeded. Queue size:', updatedQueue.length);
-      } catch (mmkvErr) {
-        console.error('[LeadLock] MMKV write failed:', mmkvErr);
-      }
-
-      // AsyncStorage backup (awaited)
-      try {
-        const RawStorage = require('@react-native-async-storage/async-storage').default;
-        await RawStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
-        console.log('[LeadLock] AsyncStorage backup write succeeded. Queue size:', updatedQueue.length);
-      } catch (e) {
-        console.warn('[LeadLock] AsyncStorage backup write failed:', e);
+        await storageBridge.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+        console.log('[LeadLock] Queue write succeeded. Queue size:', updatedQueue.length);
+      } catch (writeErr) {
+        console.error('[LeadLock] Queue write failed:', writeErr);
       }
 
       // Verify cache read-back
