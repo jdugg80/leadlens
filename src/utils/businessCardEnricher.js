@@ -214,21 +214,3 @@ export async function enrichBusinessCardsInBatch(extractedDataArray) {
 
   return results;
 }
-
-/**
- * Score enrichment quality
- * @param {object} enrichedData - Data from enrichBusinessCardWithClaude
- * @returns {number} Quality score 0-100
- */
-export function scoreEnrichmentQuality(enrichedData) {
-  if (!enrichedData) return 0;
-
-  let score = enrichedData.quality?.dataCompleteness || 0;
-  
-  if (enrichedData.primaryContact?.name) score += 10;
-  if (enrichedData.primaryContact?.email) score += 10;
-  if (enrichedData.primaryContact?.phone) score += 10;
-  if (enrichedData.businessInfo?.pestRiskScore) score += 10;
-
-  return Math.min(score, 100);
-}

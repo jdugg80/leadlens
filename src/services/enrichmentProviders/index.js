@@ -53,13 +53,4 @@ export async function searchContacts(query) {
   return provider.search(query);
 }
 
-/**
- * List all registered providers and their availability status.
- */
-export function getProviderStatus() {
-  return providers.map(p => ({
-    name: p.getProviderName(),
-    available: p.isAvailable(),
-    active: p === getActiveProvider(),
-  }));
-}
+

@@ -88,6 +88,3 @@ export async function findNewBusinessOpenings(city = 'Houston', days = 30) {
 export async function getAreaPermitStats(zip, days = 90) {
   return { success: true, area: zip, days, totalPermits: 0, byType: [], prospectCount: 0 };
 }
-
-export function clearPermitsCache() { permitsCache.clear(); }
-export function getPermitsCacheStats() { return { cacheSize: permitsCache.size }; }

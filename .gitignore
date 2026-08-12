@@ -55,6 +55,7 @@ desktop.ini
 BackupSystem/
 ProjectSnapshots/
 .tmp.driveupload/
+*.bak*
 
 # Changelog idempotency marker
 .last-changelogged-commit

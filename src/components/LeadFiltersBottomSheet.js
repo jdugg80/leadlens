@@ -292,7 +292,6 @@ export default function LeadFiltersBottomSheet({
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
               >
-                {console.log('[LeadFiltersBottomSheet] rendering filter sections')}
                 {/* ── Residential / Commercial Toggle ───────────────── */}
                 <Text style={s.sectionTitle}>Prospect Type</Text>
                 <View style={s.toggleRow}>
