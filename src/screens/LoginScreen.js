@@ -386,15 +386,20 @@ export default function LoginScreen({ navigation }) {
     // Pull from Supabase only when local queue is empty (e.g. fresh install / rebuild).
     // This prevents overwriting locally-captured prospects on every login.
     try {
-      const RawStorage = require('@react-native-async-storage/async-storage').default;
-      const localRaw = await RawStorage.getItem(LEADS_STORAGE_KEY).catch(() => null);
+      const localRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY).catch((err) => {
+        console.warn('[Login] Failed to read local leads:', err?.message || String(err));
+        return null;
+      });
       let localLeads = localRaw ? JSON.parse(localRaw) : [];
 
       // Restore from logout backup if local queue is empty. clearUserSession()
       // copies @leadlens_leads → @leadlens_leads_backup before wiping so that
       // re-login can restore the user's previous queue without a full pull.
       if (!localLeads.length) {
-        const backupRaw = await RawStorage.getItem(LEADS_BACKUP_KEY).catch(() => null);
+        const backupRaw = await AsyncStorage.getItem(LEADS_BACKUP_KEY).catch((err) => {
+          console.warn('[Login] Failed to read logout backup:', err?.message || String(err));
+          return null;
+        });
         if (backupRaw) {
           const backupLeads = JSON.parse(backupRaw);
           if (backupLeads.length) {
@@ -403,7 +408,9 @@ export default function LoginScreen({ navigation }) {
             localLeads = backupLeads;
           }
           // Clean up the backup after restore
-          await RawStorage.removeItem(LEADS_BACKUP_KEY).catch(() => {});
+          await AsyncStorage.removeItem(LEADS_BACKUP_KEY).catch((err) =>
+            console.warn('[Login] Failed to clear logout backup:', err?.message || String(err))
+          );
         }
       }
 

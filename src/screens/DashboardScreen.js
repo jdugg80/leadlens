@@ -21,6 +21,7 @@ import TutorialOverlay from '../components/TutorialOverlay';
 import { TUTORIAL_STEPS } from '../utils/tutorialData';
 import { hasTutorialBeenSeen, markTutorialSeen, TUTORIALS } from '../utils/tutorialManager';
 import { ThemedAlertHost, showThemedAlert } from '../components/ThemedAlert';
+import useToast from '../hooks/useToast';
 import { getStyledMessage } from '../utils/aiPersonality';
 import { saveUserLocationStatus } from '../features/lenssignal/saveUserLocationStatus';
 
@@ -196,6 +197,7 @@ export default function DashboardScreen({ navigation, route }) {
   const [zipActivity, setZipActivity] = useState([]);
   const [enrichingId, setEnrichingId] = useState(null);
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
 
   // Tutorial state
   const [activeTutorial, setActiveTutorial] = useState(null);
@@ -279,20 +281,19 @@ export default function DashboardScreen({ navigation, route }) {
   }, [user?.id]);
 
   useEffect(() => {
-    loadAIRecommendationSettings().then(setRecommendationSettings).catch(() => {});
+    loadAIRecommendationSettings().then(setRecommendationSettings).catch((err) =>
+      console.warn('[Dashboard] Failed to load AI recommendation settings:', err)
+    );
   }, []);
 
   // Listen for territory zip changes and refresh zip activity immediately
   useEffect(() => {
-    console.log('[DashboardScreen] Subscribing to territory zip changes');
     const unsubscribe = onTerritoryZipChange(async (newZipCodes) => {
-      console.log('[DashboardScreen] Territory zips changed. Refreshing zip activity. New zips:', newZipCodes.join(', '));
       try {
         let rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, null);
         if (!rawLeads) {
           try {
-            const RawStorage = require('@react-native-async-storage/async-storage').default;
-            const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+            const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
             rawLeads = raw ? JSON.parse(raw) : [];
           } catch { rawLeads = []; }
         }
@@ -301,7 +302,6 @@ export default function DashboardScreen({ navigation, route }) {
         setLeads(sortedLeads);
         const activity = buildZipActivity(myZips, sortedLeads);
         setZipActivity(activity);
-        console.log('[DashboardScreen] Zip activity refreshed. Count:', activity.length);
       } catch (e) {
         console.warn('[DashboardScreen] Zip change refresh failed:', e);
       }
@@ -322,12 +322,11 @@ export default function DashboardScreen({ navigation, route }) {
 
     (async () => {
       try {
-        // Load leads — try MMKV first, fall back to raw AsyncStorage
+        // Load leads through storageBridge (MMKV + AsyncStorage reconciliation)
         let rawLeads = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, null);
         if (!rawLeads) {
           try {
-            const RawStorage = require('@react-native-async-storage/async-storage').default;
-            const raw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+            const raw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
             rawLeads = raw ? JSON.parse(raw) : [];
           } catch { rawLeads = []; }
         }
@@ -615,7 +614,10 @@ export default function DashboardScreen({ navigation, route }) {
           BetaTracker.setEmail('');
           await BetaTracker.endSession().catch(() => {});
 
-          await AsyncStorage.clearUserSession().catch(() => {});
+          await AsyncStorage.clearUserSession().catch((err) => {
+            console.warn('[Dashboard] clearUserSession failed during sign out:', err?.message || String(err));
+            showToast('Sign out cleanup incomplete. Some local data may remain.', 'error');
+          });
         } catch (err) {
           console.warn('[Dashboard] Sign out cleanup failed:', err?.message);
         }
@@ -707,7 +709,7 @@ export default function DashboardScreen({ navigation, route }) {
           await deleteProspects(selectedLeadIds, settings);
 
           if (__DEV__) {
-            console.log("BATCH DELETE BUTTON PRESSED FOR PROSPECTS:", selectedLeadIds);
+            // no-op
           }
         } catch (e) {
           console.error("DELETE PROSPECTS FAILED:", e);
@@ -731,8 +733,7 @@ export default function DashboardScreen({ navigation, route }) {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
         if (__DEV__) {
-          console.log("DELETE BUTTON PRESSED FOR PROSPECT:", lead);
-          console.log("DELETE TARGET ID:", id);
+
         }
         recordUserActivityEvent('prospect_deleted', {
           prospect_id: id,
@@ -746,7 +747,7 @@ export default function DashboardScreen({ navigation, route }) {
           await deleteProspect(id, settings);
 
           if (__DEV__) {
-            console.log("PROSPECT DELETED FROM QUEUE:", id);
+            // no-op
           }
         } catch (e) {
           console.error("DELETE PROSPECT FAILED:", e);
@@ -769,7 +770,7 @@ export default function DashboardScreen({ navigation, route }) {
     try {
       // Background-safe enrichment: enqueue it
       await enqueueEnrichLead(lead);
-      processQueue().catch(() => {});
+      processQueue().catch((err) => console.warn('[Dashboard] processQueue failed:', err));
 
       // Immediate attempt for UX
       const enriched = await enrichLead(lead);

@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from '../utils/storage';
 import Constants from 'expo-constants';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;

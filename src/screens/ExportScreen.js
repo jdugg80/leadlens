@@ -226,7 +226,7 @@ export default function ExportScreen({ navigation, route }) {
     try {
       // Background-safe sync: enqueue it
       await enqueueSyncAll();
-      processQueue().catch(() => {});
+      processQueue().catch((err) => console.warn('[Export] processQueue failed:', err));
 
       const msg = await getStyledMessage('exportCreated');
       setStatusText(
@@ -420,8 +420,9 @@ export default function ExportScreen({ navigation, route }) {
     // Also clear AsyncStorage backup — without this, leads reappear if MMKV
     // ever resets (e.g. Expo dev client rebuild). See SettingsScreen.handleClearQueue
     // for the same pattern.
-    const RawStorage = require('@react-native-async-storage/async-storage').default;
-    await RawStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
+    await AsyncStorage.removeItem(LEADS_STORAGE_KEY).catch((err) =>
+      console.warn('[Export] Failed to clear AsyncStorage backup after export:', err)
+    );
     setStatusText('Export complete. Queue cleared.');
   };
 

@@ -304,7 +304,7 @@ export default function SettingsScreen({ navigation, route }) {
       setUseLocationHistory(settings.useLocationHistory);
       setPersonalityStyleState(settings.personalityStyle);
       setVoiceProfileState(settings.voiceProfile);
-    }).catch(() => {});
+    }).catch((err) => console.warn('[Settings] Failed to load AI recommendation settings:', err));
     AsyncStorage.getItem(GOALS_STORAGE_KEY).then((raw) => {
       if (raw) setUserGoals(JSON.parse(raw));
     });
@@ -449,12 +449,14 @@ export default function SettingsScreen({ navigation, route }) {
         }
       }
 
-      // If MMKV returned nothing, check raw AsyncStorage backup
+      // If MMKV returned nothing, check AsyncStorage backup through storageBridge
       let finalRawQueue = rawQueue;
       if (!finalRawQueue) {
         try {
-          const RawStorage = require('@react-native-async-storage/async-storage').default;
-          finalRawQueue = await RawStorage.getItem(LEADS_STORAGE_KEY).catch(() => null);
+          finalRawQueue = await AsyncStorage.getItem(LEADS_STORAGE_KEY).catch((err) => {
+            console.warn('[Settings] Failed to load queue from AsyncStorage:', err?.message || String(err));
+            return null;
+          });
         } catch (err) {
           console.warn('[Settings] Failed to load queue from AsyncStorage:', err?.message || String(err));
         }
@@ -714,9 +716,15 @@ export default function SettingsScreen({ navigation, route }) {
           onPress: async () => {
             // Clear from MMKV (sync wrapper)
             AsyncStorage.removeSync(LEADS_STORAGE_KEY);
-            // Also clear raw AsyncStorage backup written by BatchReviewScreen
+            // Also clear raw AsyncStorage backup written by BatchReviewScreen.
+            // Kept as raw AsyncStorage because storageBridge.removeSync/removeItem
+            // does not await the AsyncStorage mirror, and we want the backup gone
+            // before telling the user the queue is cleared.
             const RawStorage = require('@react-native-async-storage/async-storage').default;
-            await RawStorage.removeItem(LEADS_STORAGE_KEY).catch(() => {});
+            await RawStorage.removeItem(LEADS_STORAGE_KEY).catch((err) => {
+              console.warn('[Settings] Failed to clear AsyncStorage queue backup:', err?.message || String(err));
+              showToast('Queue cleared, but the backup could not be removed.', 'error');
+            });
             setQueueCount(0);
             showThemedAlert('Queue cleared');
           },

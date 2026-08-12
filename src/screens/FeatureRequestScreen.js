@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storageBridge as AsyncStorage } from '../utils/storage';
 import Constants from 'expo-constants';
 import { getAppVersionShort } from '../constants';
 import useToast from '../hooks/useToast';

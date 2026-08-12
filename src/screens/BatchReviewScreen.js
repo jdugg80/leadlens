@@ -366,11 +366,9 @@ export default function BatchReviewScreen({ navigation, route }) {
     let existing = [];
     try {
       existing = await AsyncStorage.getJSON(LEADS_STORAGE_KEY, []);
-      console.log('[BatchReview][SAVE_DEBUG] reconciled read:', JSON.stringify(existing?.length), 'leads');
     } catch (e) {
       console.warn('[BatchReview] reconciled read failed:', e.message);
     }
-    console.log('[BatchReview][SAVE_DEBUG] LEADS_STORAGE_KEY:', LEADS_STORAGE_KEY);
     const nextQueue = [...existing];
     const duplicates = [];
     const saved = [];
@@ -427,9 +425,9 @@ export default function BatchReviewScreen({ navigation, route }) {
 
     // Enqueue each saved lead for background AI enrichment
     saved.forEach((lead) => {
-      enqueueEnrichLead(lead).catch(() => {});
+      enqueueEnrichLead(lead).catch((err) => console.warn('[BatchReview] enqueueEnrichLead failed:', err));
     });
-    processQueue().catch(() => {});
+    processQueue().catch((err) => console.warn('[BatchReview] processQueue failed:', err));
 
     saved.forEach((lead) => {
       recordUserActivityEvent('prospect_added', {

@@ -6,8 +6,6 @@ const TERRITORY_STORAGE_KEY  = 'leadlens_territory_zips';
 const SHARED_TERRITORY_KEY   = 'leadlens_shared_territories';
 const TERRITORY_REVISION_KEY = 'leadlens_territory_zips_revision';
 
-const getRaw = require('@react-native-async-storage/async-storage').default;
-
 // ─── Zip Change Event Bus ─────────────────────────────────────────────────────
 // Simple pub/sub so screens can react to territory zip changes without polling.
 const _zipListeners = new Set();
@@ -30,28 +28,21 @@ function _broadcastZipChange(zips) {
 }
 
 async function dualRead(key) {
-  // Try MMKV first (fast sync), fall back to raw AsyncStorage
+  // storageBridge.getItem reads MMKV first, then AsyncStorage, and reconciles.
   try {
-    const sync = AsyncStorage.getSync(key);
-    if (sync) return sync;
+    return await AsyncStorage.getItem(key);
   } catch (err) {
-    console.warn('[TerritoryUtils] dualRead MMKV failed for key:', key, err?.message || String(err));
-  }
-  try {
-    return await getRaw.getItem(key);
-  } catch (err) {
-    console.warn('[TerritoryUtils] dualRead AsyncStorage failed for key:', key, err?.message || String(err));
+    console.warn('[TerritoryUtils] dualRead failed for key:', key, err?.message || String(err));
     return null;
   }
 }
 
 async function dualWrite(key, value) {
-  // Write to both MMKV and raw AsyncStorage
-  try { AsyncStorage.setSync(key, value); } catch (err) {
-    console.warn('[TerritoryUtils] dualWrite MMKV failed for key:', key, err?.message || String(err));
-  }
-  try { await getRaw.setItem(key, value); } catch (err) {
-    console.warn('[TerritoryUtils] dualWrite AsyncStorage failed for key:', key, err?.message || String(err));
+  // storageBridge.setItem writes MMKV and awaits the AsyncStorage mirror.
+  try {
+    await AsyncStorage.setItem(key, value);
+  } catch (err) {
+    console.warn('[TerritoryUtils] dualWrite failed for key:', key, err?.message || String(err));
   }
 }
 

@@ -546,7 +546,9 @@ const persistLead = async (ignoreDuplicate = false) => {
               ? { ...l, ...merged }
               : l
           );
-          AsyncStorage.setJSON(LEADS_STORAGE_KEY, updatedLeads).catch(() => {});
+          AsyncStorage.setJSON(LEADS_STORAGE_KEY, updatedLeads).catch((err) =>
+            console.warn('[Review] Failed to persist background enrichment updates:', err)
+          );
         } catch (e) {
           console.warn('[Review] Background enrichment merge failed:', e.message);
         }

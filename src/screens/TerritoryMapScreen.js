@@ -209,27 +209,37 @@ export default function TerritoryMapScreen({ navigation, route }) {
   // Persistence Effects
   useEffect(() => {
     if (isInitializedRef.current && filters) {
-      AsyncStorage.setItem(MAP_FILTERS_KEY, JSON.stringify(filters)).catch(() => {});
+      AsyncStorage.setItem(MAP_FILTERS_KEY, JSON.stringify(filters)).catch((err) =>
+        console.warn('[TerritoryMap] Failed to persist map filters:', err)
+      );
       AsyncStorage.setItem(PROSPECT_FILTERS_KEY, JSON.stringify({
         prospectStatus: filters.prospectStatus || [],
         leadSource: filters.leadSource || [],
         serviceType: filters.serviceType || [],
-      })).catch(() => {});
+      })).catch((err) =>
+        console.warn('[TerritoryMap] Failed to persist prospect filters:', err)
+      );
       if (filters.targetLensMode) {
-        AsyncStorage.setItem(TARGET_LENS_MODE_KEY, filters.targetLensMode).catch(() => {});
+        AsyncStorage.setItem(TARGET_LENS_MODE_KEY, filters.targetLensMode).catch((err) =>
+          console.warn('[TerritoryMap] Failed to persist target lens mode:', err)
+        );
       }
     }
   }, [filters]);
 
   useEffect(() => {
     if (!loading && region && isMapReadyRef.current) {
-      AsyncStorage.setItem(MAP_REGION_KEY, JSON.stringify(region)).catch(() => {});
+      AsyncStorage.setItem(MAP_REGION_KEY, JSON.stringify(region)).catch((err) =>
+        console.warn('[TerritoryMap] Failed to persist map region:', err)
+      );
     }
   }, [region, loading]);
 
   useEffect(() => {
     if (!loading && nearbyPlaces && Array.isArray(nearbyPlaces)) {
-      AsyncStorage.setItem(MAP_NEARBY_PLACES_KEY, JSON.stringify(nearbyPlaces)).catch(() => {});
+      AsyncStorage.setItem(MAP_NEARBY_PLACES_KEY, JSON.stringify(nearbyPlaces)).catch((err) =>
+        console.warn('[TerritoryMap] Failed to persist nearby places:', err)
+      );
     }
   }, [nearbyPlaces, loading]);
 
@@ -530,8 +540,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const mmkvRaw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
       if (mmkvRaw) rawLeads = JSON.parse(mmkvRaw);
       else {
-        const RawStorage = require('@react-native-async-storage/async-storage').default;
-        const asyncRaw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+        const asyncRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
         if (asyncRaw) rawLeads = JSON.parse(asyncRaw);
       }
     } catch (e) { console.warn('[TerritoryMap] Leads reload error:', e); }
@@ -638,7 +647,13 @@ export default function TerritoryMapScreen({ navigation, route }) {
             resolvedMyZips = remoteTerritory.data
               .map((entry) => _toNormalizedZipEntry(entry))
               .filter(Boolean);
-            await saveMyZips(resolvedMyZips).catch(() => {});
+            await saveMyZips(resolvedMyZips).catch((err) => {
+              console.error('[TerritoryMap] Failed to persist territory ZIPs after remote fallback:', err);
+              showThemedAlert(
+                'Territory save failed',
+                "Couldn't save your territory ZIPs — check your connection and try again."
+              );
+            });
             console.log('[TerritoryMap] Loaded territory ZIPs from Supabase fallback:', resolvedMyZips.length);
           }
         } catch (remoteZipErr) {
@@ -652,8 +667,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         const mmkvRaw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
         if (mmkvRaw) rawLeads = JSON.parse(mmkvRaw);
         else {
-          const RawStorage = require('@react-native-async-storage/async-storage').default;
-          const asyncRaw = await RawStorage.getItem(LEADS_STORAGE_KEY);
+          const asyncRaw = await AsyncStorage.getItem(LEADS_STORAGE_KEY);
           if (asyncRaw) rawLeads = JSON.parse(asyncRaw);
         }
       } catch (e) { console.warn('[TerritoryMap] Leads load error:', e); }
@@ -924,7 +938,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
   useEffect(() => {
     AsyncStorage.getItem('leadlens_last_scan_time').then(v => {
       if (v) lastScanTimeRef.current = new Date(v).getTime();
-    }).catch(() => {});
+    }).catch((err) => console.warn('[TerritoryMap] Failed to load last scan time:', err));
   }, []);
 
   const distanceInMiles = (lat1, lon1, lat2, lon2) => {

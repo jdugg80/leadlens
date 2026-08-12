@@ -38,12 +38,10 @@ async function persistBounds(key, zip, bounds) {
       allRings: bounds.allRings || [],
     },
   });
-  AsyncStorage.setSync(key, cacheData);
   try {
-    const RawStorage = require('@react-native-async-storage/async-storage').default;
-    await RawStorage.setItem(key, cacheData);
+    await AsyncStorage.setItem(key, cacheData);
   } catch (err) {
-    console.warn('[ZipBoundaryCache] AsyncStorage write failed for key:', key, err?.message || String(err));
+    console.warn('[ZipBoundaryCache] Cache write failed for key:', key, err?.message || String(err));
   }
 }
 
@@ -74,10 +72,9 @@ export async function getZipBounds(zip) {
     console.warn('[ZipBoundaryCache] MMKV read failed for key:', key, err?.message || String(err));
   }
 
-  // 2. Check raw AsyncStorage
+  // 2. Check AsyncStorage through storageBridge (reconciles with MMKV)
   try {
-    const RawStorage = require('@react-native-async-storage/async-storage').default;
-    const raw = await RawStorage.getItem(key);
+    const raw = await AsyncStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed?.savedAt && Date.now() - parsed.savedAt < CACHE_TTL) {

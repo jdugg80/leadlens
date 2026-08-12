@@ -201,7 +201,9 @@ export function bindAutoExportOnAppResume(user) {
   if (appStateListenerBound) return;
   appStateCallback = (state) => {
     if (state === 'active') {
-      maybeRunAutoExport(user).catch(() => {});
+      maybeRunAutoExport(user).catch((err) =>
+        console.error('[AutoExport] Resume-triggered auto-export failed:', err)
+      );
     }
   };
   AppState.addEventListener('change', appStateCallback);

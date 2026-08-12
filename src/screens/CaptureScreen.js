@@ -552,7 +552,9 @@ export default function CaptureScreen({ navigation, route }) {
       });
     } catch (err) {
       console.warn('[Capture] Failed resuming recovery batch:', err);
-      await updateScanSessionStatus(recoverySession.id, SCAN_SESSION_STATUS.FAILED).catch(() => {});
+      await updateScanSessionStatus(recoverySession.id, SCAN_SESSION_STATUS.FAILED).catch((sessionErr) =>
+        console.warn('[Capture] Failed to mark recovery session failed:', sessionErr)
+      );
       setRecoveryModalVisible(true);
     } finally {
       setProcessing(false);
@@ -571,8 +573,6 @@ export default function CaptureScreen({ navigation, route }) {
     // Clear any stuck state
     if (processing) { setProcessing(false); setProcessingMsg(''); }
     scanInProgress.current = true;
-    console.log('[Capture] handleScan triggered');
-
     // GPS runs in parallel while user takes photo — ready by processing time
     // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
     const coordsPromise = Promise.race([
@@ -584,20 +584,16 @@ export default function CaptureScreen({ navigation, route }) {
     let keepScanning = true;
 
     while (keepScanning) {
-      console.log(`[Capture] Opening scan camera for photo ${assets.length + 1}`);
-
       // Use in-app CameraView — no external intent, no Android activity issues
       const capture = await openScanCamera();
 
       if (!capture) {
-        console.log('[Capture] Scan camera closed without capture');
         if (!assets.length) { scanInProgress.current = false; return; }
         break;
       }
 
       // capture is { uri, base64 } — store both so processAssets can skip file reading
       assets.push(capture);
-      console.log(`[Capture] Photo ${assets.length} captured`);
 
       // Wait for ScanCameraModal to fully close before showing Alert
       // Android drops Alerts fired while a Modal is still animating out
@@ -619,14 +615,11 @@ export default function CaptureScreen({ navigation, route }) {
 
     if (!assets.length) { scanInProgress.current = false; return; }
 
-    console.log('[Capture] Processing', assets.length, 'asset(s), base64 available:', assets.map(a => !!a.base64));
-
     // Race GPS against a 4s timeout — never let GPS block processing
     const coords = await Promise.race([
       coordsPromise,
       new Promise(r => setTimeout(() => r(null), 4000)),
     ]);
-    console.log('[Capture] GPS coords:', coords ? 'obtained' : 'timed out');
 
     setProcessing(true);
     setProcessingMsg(assets.length > 1
@@ -655,7 +648,6 @@ export default function CaptureScreen({ navigation, route }) {
       const callback = cameraModalCallback.current;
       cameraModalCallback.current = null; // Clear immediately to prevent double-call
       
-      console.log('[Capture] Camera capture received, invoking callback');
       if (callback && typeof callback === 'function') {
         await callback(photo);
       } else {
@@ -698,9 +690,6 @@ export default function CaptureScreen({ navigation, route }) {
 
   const openCamera = async (quality = 0.75, skipPermissionRequest = false) => {
     try {
-      console.log('[Capture] ===== OPENING CAMERA =====');
-      console.log('[Capture] Checking camera permissions...');
-      
       try {
         let status = 'granted';
         if (!skipPermissionRequest) {
@@ -709,13 +698,9 @@ export default function CaptureScreen({ navigation, route }) {
             permResult = await ImagePicker.requestCameraPermissionsAsync();
           }
           status = permResult.status;
-          console.log('[Capture] Permission response received!');
-          console.log('[Capture] Camera permission status:', status, 'canAskAgain:', permResult.canAskAgain);
 
           if (status !== 'granted') {
-            console.log('[Capture] Permission NOT granted');
             if (!permResult.canAskAgain) {
-              console.log('[Capture] Showing permanent block alert');
               showThemedAlert(
                 'Permission Blocked',
                 'Camera access is permanently denied. Please enable it in your device settings to capture prospects.',
@@ -725,23 +710,19 @@ export default function CaptureScreen({ navigation, route }) {
                 ]
               );
             } else {
-              console.log('[Capture] Showing permission required alert');
               showThemedAlert('Camera permission required', 'Please grant camera access to take photos.');
             }
             return null;
           }
         } else {
-          console.log('[Capture] Skipping permission request (already requested)');
         }
 
-        console.log('[Capture] Permission granted! Launching camera...');
         const result = await ImagePicker.launchCameraAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           quality,
           allowsEditing: false,
           base64: false,
         });
-        console.log('[Capture] Camera result canceled:', result.canceled);
         return result.canceled ? null : result.assets[0];
       } catch (permErr) {
         console.error('[Capture] Permission check error:', permErr);
@@ -1092,30 +1073,22 @@ export default function CaptureScreen({ navigation, route }) {
         // Wait for alert to fully dismiss before re-opening camera
         await new Promise(r => setTimeout(r, 500));
       }
-      console.log(`[Capture] Opening camera for ${label} #${stepNum}...`);
       const asset = await openCamera(quality, skipPermission);
       if (!asset) {
-        console.log(`[Capture] Camera returned null for ${label} #${stepNum}`);
         break;
       }
-      console.log(`[Capture] Camera returned asset for ${label} #${stepNum}`);
       assets.push(asset);
     }
-    console.log(`[Capture] captureMultiplePhotos complete: ${assets.length} assets captured`);
     return assets;
   };
 
   const handleSingleCapture = async (isStorefront = false) => {
-    console.log('[Capture] handleSingleCapture started, isStorefront:', isStorefront);
     let coords = null;
     if (isStorefront) {
-      console.log('[Capture] Getting location for storefront scan');
-      // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
       coords = await Promise.race([
         getCurrentCoords(),
         new Promise(resolve => setTimeout(() => resolve(null), 5000)),
       ]).catch(() => null);
-      console.log('[Capture] Coords received:', !!coords);
     }
     
     try {
@@ -1162,7 +1135,6 @@ export default function CaptureScreen({ navigation, route }) {
       }
       
       if (!assets.length) {
-        console.log('[Capture] No assets captured');
         return;
       }
       
@@ -1178,19 +1150,15 @@ export default function CaptureScreen({ navigation, route }) {
   };
 
   const handleCardCapture = async () => {
-    console.log('[Capture] handleCardCapture triggered');
-
     // Request camera permissions BEFORE showing the alert modal.
     // On Android, calling requestCameraPermissionsAsync() while a modal is
     // still dismissing causes the permission dialog to hang silently.
-    console.log('[Capture] Requesting camera permissions upfront...');
     try {
       let permResult = await ImagePicker.getCameraPermissionsAsync();
       if (permResult?.status !== 'granted') {
         permResult = await ImagePicker.requestCameraPermissionsAsync();
       }
       const { status, canAskAgain } = permResult;
-      console.log('[Capture] Camera permission status:', status);
       if (status !== 'granted') {
         if (!canAskAgain) {
           showThemedAlert(
@@ -1215,7 +1183,6 @@ export default function CaptureScreen({ navigation, route }) {
       {
         text: 'Single-Sided',
         onPress: async () => {
-          console.log('[Capture] Single-Sided option selected');
           scanInProgress.current = true;
           let sessionId = null;
           try {
@@ -1275,7 +1242,6 @@ export default function CaptureScreen({ navigation, route }) {
             }
 
             if (!assets.length) {
-              console.log('[Capture] No cards captured');
               if (sessionId) {
                 await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.DISCARDED);
                 await logScanSessionSnapshot(sessionId, 'single-sided discarded before processing');
@@ -1283,7 +1249,6 @@ export default function CaptureScreen({ navigation, route }) {
               }
               return;
             }
-            console.log(`[Capture] Processing ${assets.length} card(s)`);
             setProcessing(true);
             setProcessingMsg(assets.length > 1 ? `Reading ${assets.length} cards...` : 'Reading card...');
             if (!sessionId || !SCAN_QUEUE_PROCESSING_ENABLED) {
@@ -1291,7 +1256,9 @@ export default function CaptureScreen({ navigation, route }) {
                 returnLeadsOnly: true,
               });
               if (sessionId) {
-                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch((sessionErr) =>
+                  console.warn('[Capture] Failed to mark scan session completed:', sessionErr)
+                );
               }
               if (leads?.length) {
                 clearScanBlockingState();
@@ -1349,7 +1316,6 @@ export default function CaptureScreen({ navigation, route }) {
       {
         text: 'Front & Back',
         onPress: async () => {
-          console.log('[Capture] Front & Back option selected');
           scanInProgress.current = true;
           let sessionId = null;
           try {
@@ -1367,7 +1333,6 @@ export default function CaptureScreen({ navigation, route }) {
             });
             // Give the modal time to fully close
             await new Promise(r => setTimeout(r, 500));
-            console.log('[Capture] Opening camera for front side');
             
             const front = await openCameraWithModal({
               mode: 'portrait',
@@ -1376,7 +1341,6 @@ export default function CaptureScreen({ navigation, route }) {
             });
             
             if (!front) {
-              console.log('[Capture] Front photo not taken, returning early');
               if (sessionId) {
                 await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.DISCARDED);
                 await logScanSessionSnapshot(sessionId, 'front-back discarded before front capture');
@@ -1403,7 +1367,6 @@ export default function CaptureScreen({ navigation, route }) {
                 console.warn('[Capture] Failed to persist front card:', cardSaveErr);
               }
             }
-            console.log('[Capture] Front photo taken, showing step 2');
 
             await new Promise((resolve) => {
               showThemedAlert('Step 2 of 2', 'Now take a photo of the BACK of the card', [
@@ -1412,7 +1375,6 @@ export default function CaptureScreen({ navigation, route }) {
             });
             // Give the modal time to fully close
             await new Promise(r => setTimeout(r, 500));
-            console.log('[Capture] Opening camera for back side');
             
             const back = await openCameraWithModal({
               mode: 'portrait',
@@ -1421,7 +1383,6 @@ export default function CaptureScreen({ navigation, route }) {
             });
             
             if (!back) {
-              console.log('[Capture] Back photo not taken, returning early');
               if (sessionId) {
                 await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.DISCARDED);
                 await logScanSessionSnapshot(sessionId, 'front-back discarded before back capture');
@@ -1448,7 +1409,6 @@ export default function CaptureScreen({ navigation, route }) {
                 console.warn('[Capture] Failed to persist back card:', cardSaveErr);
               }
             }
-            console.log('[Capture] Back photo taken, processing both');
 
             const frontBackCaptureMethod = 'business-card-2-sided';
             setProcessing(true);
@@ -1461,7 +1421,9 @@ export default function CaptureScreen({ navigation, route }) {
                 ? [mergeTwoSidedCardLeads(extractedLeads)]
                 : (extractedLeads || []);
               if (sessionId) {
-                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch(() => {});
+                await updateScanSessionStatus(sessionId, SCAN_SESSION_STATUS.COMPLETED).catch((sessionErr) =>
+                  console.warn('[Capture] Failed to mark scan session completed:', sessionErr)
+                );
               }
               if (leads.length) {
                 clearScanBlockingState();
@@ -1519,19 +1481,17 @@ export default function CaptureScreen({ navigation, route }) {
           }
         },
       },
-      { text: 'Cancel', style: 'cancel', onPress: () => console.log('[Capture] Card capture cancelled') },
+      { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
   const openGallery = async () => {
     try {
-      console.log('[Capture] Checking gallery permissions...');
       let permResult = await ImagePicker.getMediaLibraryPermissionsAsync();
       if (permResult?.status !== 'granted') {
         permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       }
       const { status, canAskAgain } = permResult;
-      console.log('[Capture] Gallery permission status:', status, 'canAskAgain:', canAskAgain);
 
       if (status !== 'granted') {
         if (!canAskAgain) {
@@ -1549,7 +1509,6 @@ export default function CaptureScreen({ navigation, route }) {
         return;
       }
 
-      console.log('[Capture] Launching image library...');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.85,
@@ -1560,12 +1519,10 @@ export default function CaptureScreen({ navigation, route }) {
         exif: true,
       });
 
-      console.log('[Capture] Gallery result canceled:', result.canceled);
       if (!result.canceled && result.assets && result.assets.length > 0) {
         // Extract EXIF GPS data from gallery images for location resolution
         for (const asset of result.assets) {
           if (asset.exif) {
-            console.log('[Capture] Asset has EXIF:', !!asset.exif.GPSLatitude, !!asset.exif.GPSLongitude);
           }
         }
         await processAssets(result.assets, null, 'image');
