@@ -76,12 +76,7 @@ const LEADLENS_URL    = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://qkbvwry
 // EAS GraphQL
 const EAS_GRAPHQL_URL = 'https://api.expo.dev/graphql';
 
-// Resend tester email list
-const TESTER_EMAILS = [
-  'theokaymediafam@gmail.com',
-  'josecbueno22@gmail.com',
-  'ritzob4life@gmail.com',
-];
+// Resend emails — sent via emailTesters() which queries Scarlett beta_testers dynamically
 
 // ─── Flags ─────────────────────────────────────────────────────────────────
 
@@ -716,49 +711,111 @@ async function insertBetaRelease(buildInfo) {
   }
 }
 
+// ─── 9b. Email beta testers via Resend ────────────────────────────────────
+
+async function emailTesters({ buildInfo, newVersion, downloadUrl }) {
+  const RESEND_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_KEY) {
+    warn('RESEND_API_KEY not set — skipping tester emails');
+    return;
+  }
+
+  if (DRY_RUN) {
+    dryLog('Would query Scarlett beta_testers and send release emails via Resend');
+    return;
+  }
+
+  const SCARLETT_URL  = 'https://dlntgyhfxxbcwwcxaorn.supabase.co';
+  const SERVICE_KEY   = process.env.SCARLETT_SERVICE_ROLE_KEY;
+  const today         = buildInfo.buildDate || new Date().toISOString().slice(0, 10);
+
+  // 1. Fetch approved testers from Scarlett
+  let testers = [];
+  try {
+    const res = await fetch(
+      `${SCARLETT_URL}/rest/v1/beta_testers?select=email,first_name&status=in.(approved,active)`,
+      {
+        headers: {
+          'apikey':        SERVICE_KEY,
+          'Authorization': `Bearer ${SERVICE_KEY}`,
+        },
+      }
+    );
+    if (res.ok) testers = await res.json();
+  } catch (err) {
+    warn(`Could not fetch testers from Scarlett: ${err.message}`);
+    return;
+  }
+
+  if (!testers.length) {
+    info('No approved testers — skipping emails');
+    return;
+  }
+
+  // 2. Build HTML email
+  const bulletLines = (buildInfo.changesText || '')
+    .split('\n')
+    .filter(l => l.trim())
+    .map(l => `<li>${l.replace(/^[•\-]\s*/, '')}</li>`)
+    .join('\n');
+
+  const html = `<!DOCTYPE html>
+<html><body style="font-family:system-ui,-apple-system,sans-serif;background:#080A0F;color:#E8EAF2;padding:24px;">
+  <div style="max-width:520px;margin:0 auto;">
+    <h1 style="color:#00C9FF;font-size:20px;margin-bottom:4px;">LeadLens ${buildInfo.version}</h1>
+    <p style="color:#A0A8C0;font-size:13px;margin-top:0;">Ready for testing — ${today}</p>
+    ${bulletLines ? `<ul style="color:#B8BDD0;font-size:14px;line-height:1.6;">${bulletLines}</ul>` : ''}
+    <a href="${downloadUrl}"
+       style="display:inline-block;background:#00C9FF;color:#000;font-weight:800;font-size:14px;
+              padding:12px 28px;border-radius:10px;text-decoration:none;margin-top:16px;">
+      Download APK
+    </a>
+    <p style="color:#5A6080;font-size:11px;margin-top:24px;">You received this because you're an approved LeadLens beta tester.</p>
+  </div>
+</body></html>`;
+
+  // 3. Send to each tester
+  let sent = 0, failed = 0;
+  for (const t of testers) {
+    if (!t.email) { failed++; continue; }
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${RESEND_KEY}`,
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({
+          from:    'LeadLens Updates <noreply@support.okayestmedia.com>',
+          to:      [t.email],
+          subject: `\u{1F680} LeadLens ${buildInfo.version} Ready for Testing`,
+          html,
+        }),
+      });
+      if (res.ok) {
+        sent++;
+      } else {
+        const err = await res.text();
+        warn(`Email to ${t.email} failed (${res.status}): ${err}`);
+        failed++;
+      }
+    } catch (err) {
+      warn(`Email to ${t.email} failed: ${err.message}`);
+      failed++;
+    }
+  }
+
+  if (sent) ok(`Tester emails sent: ${sent}/${testers.length}`);
+  if (failed) warn(`Tester emails failed: ${failed}/${testers.length}`);
+}
+
 // ─── 10. Notify testers (Resend email + Expo push) ─────────────────────────
 
 async function notifyTesters(buildInfo, newVersion, downloadUrl) {
   console.log('\n📧 Notifying testers...');
 
-  // ── Resend emails ──
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    warn('RESEND_API_KEY not set — skipping emails');
-  } else if (DRY_RUN) {
-    dryLog(`Would email ${TESTER_EMAILS.length} testers via Resend`);
-  } else {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendKey}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({
-        from: 'LeadLens Updates <noreply@support.okayestmedia.com>',
-        to:      TESTER_EMAILS,
-        subject: `🚀 LeadLens ${buildInfo.version} Ready for Testing`,
-        html: `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-            <h2 style="color:#00C9FF;">LeadLens ${buildInfo.version} is ready!</h2>
-            <p><strong>Version:</strong> v${newVersion}</p>
-            <p><strong>Build Date:</strong> ${buildInfo.buildDate}</p>
-            <h3>What's New:</h3>
-            <pre style="background:#111;color:#ccc;padding:12px;border-radius:4px;white-space:pre-wrap;">${buildInfo.changesText}</pre>
-            <p>
-              <a href="${downloadUrl}"
-                 style="background:#00C9FF;color:#000;padding:12px 24px;text-decoration:none;border-radius:4px;display:inline-block;font-weight:bold;">
-                📥 Download APK
-              </a>
-            </p>
-            <p style="color:#666;font-size:12px;">Please report any bugs or feedback to the team.</p>
-          </div>
-        `,
-      }),
-    });
-    if (!res.ok) warn(`Email send failed (${res.status}) — continuing`);
-    else ok(`Emails sent to ${TESTER_EMAILS.length} tester(s)`);
-  }
+  // ── Resend emails (dynamic query from Scarlett beta_testers) ──
+  await emailTesters({ buildInfo, newVersion, downloadUrl });
 
   // ── Expo push notifications to registered devices ──
   if (DRY_RUN) {
@@ -768,7 +825,10 @@ async function notifyTesters(buildInfo, newVersion, downloadUrl) {
 
   try {
     // LeadLens service key for user_push_tokens table (different project from Scarlett)
-    const leadlensKey = process.env.LEADLENS_SERVICE_ROLE_KEY || process.env.SCARLETT_SERVICE_ROLE_KEY;
+    const leadlensKey = process.env.LEADLENS_SERVICE_ROLE_KEY;
+    if (!leadlensKey) {
+      throw new Error('LEADLENS_SERVICE_ROLE_KEY not set in .env — required for push token lookup (do NOT use SCARLETT_SERVICE_ROLE_KEY here)');
+    }
     const tokenRes   = await fetch(
       `${LEADLENS_URL}/rest/v1/user_push_tokens?select=push_token,user_id`,
       {
