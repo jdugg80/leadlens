@@ -3,6 +3,23 @@
 
 # Changelog
 
+## BETA-63 | 2026-08-19
+
+### 🏠 Property Data — Real County Records
+- **Harris, Tarrant, Travis CAD Integration** — Property data now pulled live from official county appraisal district sources (HCAD, TAD, TCAD). Owner name, address, appraised/market value, and year built returned where available. Replaces the previous dead endpoint / AI-estimate-only fallback for these three counties.
+- **"CAD VERIFIED" Badge** — Badge text updated from "HCAD VERIFIED" to "CAD VERIFIED" to accurately reflect real county data across all three counties.
+- **Multi-County Routing** — ZIP-to-county lookup table routes addresses to the correct county API. AI-estimated property data remains the fallback for addresses outside these three counties, or when a county lookup returns no match.
+
+### 💼 Business Enrichment — Closed Business Filtering
+- **Permanently Closed Filtering** — Businesses marked permanently closed by Google Places are now filtered out before enrichment runs — no more wasted lookups or false leads on shuttered businesses. Detected at both the search stage (primary) and the details stage (safety net).
+- **Temporarily Closed Flagging** — Temporarily closed businesses are now flagged in the app so reps can make an informed call on whether it's worth pursuing, rather than being enriched identically to an open business.
+
+### 🛡️ Data Integrity
+- **Seed Data Filter** — Fixed a gap where seed/test data could have appeared in production territory and signal views if seed files were ever run against the live database (defensive fix — confirmed zero seed rows currently exist in production).
+
+### 🔧 Release Infrastructure
+- **Release Script Hardening** — Removed stale duplicate `scripts/release.js` (which hardcoded version `v2.0.1` in Scarlett updates and had a build-download race condition). Wired up dynamic beta tester email queries from Scarlett's `beta_testers` table instead of a hardcoded list. Cross-project service key fallback at push-token lookup now fails fast with a clear error instead of silently falling back to the wrong Supabase project key.
+
 ## BETA-62 | 2026-07-30
 
 ### 🔧 Crash Reporting Infrastructure
