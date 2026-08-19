@@ -13,7 +13,7 @@ export default function TargetLensHomeownerView() {
 
   async function loadProspects() {
     setLoading(true);
-    let q = supabase.from('targetlens_prospects').select('*').eq('lookback_bucket', lookback).order('efficiency_score', { ascending: false });
+    let q = supabase.from('targetlens_prospects').select('*').neq('source', 'seed_test').eq('lookback_bucket', lookback).order('efficiency_score', { ascending: false });
     if (ownerType !== 'all') q = q.eq('prospect_type', ownerType);
     if (stateFilter !== 'all') q = q.eq('state', stateFilter.toUpperCase());
     const { data } = await q;

@@ -1219,7 +1219,7 @@ const persistLead = async (ignoreDuplicate = false) => {
                           <Text style={{ color: COLORS.accent, fontSize: 11, fontWeight: '700' }}>PROPERTY DETAILS</Text>
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isHcad ? 'rgba(46,204,113,0.15)' : 'rgba(241,196,15,0.15)' }}>
                             <Text style={{ color: isHcad ? COLORS.success : '#f1c40f', fontSize: 9, fontWeight: '700' }}>
-                              {isHcad ? 'HCAD VERIFIED' : 'AI ESTIMATED'}
+                              {isHcad ? 'CAD VERIFIED' : 'AI ESTIMATED'}
                             </Text>
                           </View>
                         </View>

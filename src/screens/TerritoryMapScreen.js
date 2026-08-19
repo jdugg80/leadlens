@@ -394,6 +394,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         .select('*')
         .not('lat', 'is', null)
         .not('lng', 'is', null)
+        .neq('source', 'seed_test')
         .eq('lookback_bucket', lookbackWindow || '90d')
         .order('efficiency_score', { ascending: false })
         .limit(200);

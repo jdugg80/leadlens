@@ -854,7 +854,7 @@ export default function ProspectQueueScreen({ navigation, route }) {
                 return (
                   <View style={{ marginTop: 8, marginBottom: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignSelf: 'flex-start', backgroundColor: isHcad ? 'rgba(46,204,113,0.15)' : 'rgba(241,196,15,0.15)' }}>
                     <Text style={{ color: isHcad ? '#2ecc71' : '#f1c40f', fontSize: 9, fontWeight: '700' }}>
-                      {isHcad ? 'HCAD VERIFIED' : 'AI ESTIMATED'}
+                      {isHcad ? 'CAD VERIFIED' : 'AI ESTIMATED'}
                     </Text>
                   </View>
                 );

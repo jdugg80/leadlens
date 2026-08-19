@@ -15,10 +15,10 @@ const SUPABASE_PROJECT_ID = 'qkbvwryucaakkkqaqvka';
 
 const PROPERTY_TAX_SOURCES = {
   tx: {
-    harris: { url: 'https://pdata.hcad.org/data/', county: 'Harris' },
-    tarrant: { url: 'https://www.tad.org/', county: 'Tarrant' },
+    harris: { url: 'https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query', county: 'Harris' },
+    tarrant: { url: 'https://mapit.tarrantcounty.com/arcgis/rest/services/Tax/TCProperty/MapServer/0/query', county: 'Tarrant' },
     dallas: { url: 'https://www.dallascad.org/SearchAddr.aspx', county: 'Dallas' },
-    travis: { url: 'https://traviscad.org/', county: 'Travis' },
+    travis: { url: 'https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD/MapServer/0/query', county: 'Travis' },
   },
   ma: {
     massgis: { url: 'https://arcgis.com/sharing/rest/content/items/', county: 'All' },

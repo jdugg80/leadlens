@@ -12,7 +12,8 @@ insert into lenssignal_records (
   violation_text,
   latitude,
   longitude,
-  source_name
+  source_name,
+  is_seed_data
 ) values (
   'Test Taco Shop',
   'Compliance Signal',
@@ -23,7 +24,8 @@ insert into lenssignal_records (
   'Observed roach activity near food prep area.',
   29.5321,
   -98.4936,
-  'Local Health Dept'
+  'Local Health Dept',
+  true
 );
 
 -- 2. Opening Signal
@@ -35,7 +37,8 @@ insert into lenssignal_records (
   permit_type,
   latitude,
   longitude,
-  source_name
+  source_name,
+  is_seed_data
 ) values (
   'Future Coffee Spot',
   'Opening Signal',
@@ -44,7 +47,8 @@ insert into lenssignal_records (
   'Food Permit Activity',
   29.5331,
   -98.4926,
-  'City Planning'
+  'City Planning',
+  true
 );
 
 -- 3. Clean Compliance Signal
@@ -56,7 +60,8 @@ insert into lenssignal_records (
   pest_indicator,
   latitude,
   longitude,
-  source_name
+  source_name,
+  is_seed_data
 ) values (
   'Clean Test Cafe',
   'Compliance Signal',
@@ -65,7 +70,8 @@ insert into lenssignal_records (
   false,
   29.5311,
   -98.4946,
-  'Local Health Dept'
+  'Local Health Dept',
+  true
 );
 
 -- Test Query to verify:

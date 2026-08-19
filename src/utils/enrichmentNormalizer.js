@@ -571,6 +571,40 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
           type: "place_search_result",
         });
         console.log('[LeadLock Enrichment] Selected candidate:', bestSearchMatch.name, bestSearchMatch.formatted_address);
+
+        // Early exit: permanently closed businesses have no sales value — skip
+        // all further enrichment (Details, Comptroller, BizCollect, scraping).
+        // businessStatus is reliably populated by the New Places API at search time.
+        if (bestSearchMatch.businessStatus === 'CLOSED_PERMANENTLY') {
+          console.log('[LeadLock Enrichment] Business permanently closed per Google — skipping enrichment:', bestSearchMatch.name);
+          return {
+            ...business,
+            business_status: 'CLOSED_PERMANENTLY',
+            enrichment_confidence: 'Missing',
+            enrichment_confidence_score: 0,
+            enrichment_status: 'none',
+            enrichment_notes: 'Business permanently closed per Google',
+            business_match_score: null,
+            business_match_label: null,
+            business_match_details: [],
+            enrichment: {
+              ...(business.enrichment || {}),
+              sources: sources.map(s => ({ name: s.source || '', url: s.googleMapsUri || '', type: s.type || '' })).filter(s => s.name),
+              rawSources: sources,
+              enrichedAt: new Date().toISOString(),
+            },
+            phone: business.phone || '',
+            website: business.website || '',
+            email: business.email || '',
+            formatted_address: bestSearchMatch.formatted_address || business.address || '',
+            address: bestSearchMatch.formatted_address || business.address || '',
+            city: business.city || '',
+            state: business.state || '',
+            zip: business.zip || '',
+            zipCode: business.zip || '',
+            zip_code: business.zip || '',
+          };
+        }
       }
     } catch (e) {
       console.warn("[PublicEnrichment] Google Search failed:", e.message);
@@ -588,6 +622,39 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
       const placeDetails = await fetchPlaceDetails(placeId);
       console.log('[LeadLock Enrichment] placeDetails fetched:', placeDetails ? 'yes' : 'no');
       if (placeDetails) {
+        // Safety-net: catch CLOSED_PERMANENTLY from Details API when caller
+        // already had a placeId (skipping search) or Legacy API was used.
+        if (placeDetails.business_status === 'CLOSED_PERMANENTLY') {
+          console.log('[LeadLock Enrichment] Business permanently closed per Google Details — skipping enrichment:', placeDetails.name);
+          return {
+            ...business,
+            business_status: 'CLOSED_PERMANENTLY',
+            enrichment_confidence: 'Missing',
+            enrichment_confidence_score: 0,
+            enrichment_status: 'none',
+            enrichment_notes: 'Business permanently closed per Google',
+            business_match_score: null,
+            business_match_label: null,
+            business_match_details: [],
+            enrichment: {
+              ...(business.enrichment || {}),
+              sources: [],
+              rawSources: [],
+              enrichedAt: new Date().toISOString(),
+            },
+            phone: business.phone || '',
+            website: business.website || '',
+            email: business.email || '',
+            formatted_address: placeDetails.formatted_address || business.address || '',
+            address: placeDetails.formatted_address || business.address || '',
+            city: business.city || '',
+            state: business.state || '',
+            zip: business.zip || '',
+            zipCode: business.zip || '',
+            zip_code: business.zip || '',
+          };
+        }
+
         sources.push({
           ...placeDetails,
           source: "Google Places",
@@ -801,8 +868,13 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
   const topLevelState = bestPlaceSource.state || business.state || '';
   const topLevelZip = bestPlaceSource.zip || bestPlaceSource.zipCode || bestPlaceSource.zip_code || business.zip || '';
 
+  // Surface business_status so CLOSED_TEMPORARILY is visible in ReviewScreen UI.
+  // CLOSED_PERMANENTLY is already handled by early returns above.
+  const businessStatus = bestPlaceSource.businessStatus || bestPlaceSource.business_status || null;
+
   return {
     ...business,
+    business_status: businessStatus,
     enrichment_confidence: enrichmentConfidenceLabel,
     enrichment_confidence_score: enrichmentScore,
     enrichment_status: enrichmentStatus,
