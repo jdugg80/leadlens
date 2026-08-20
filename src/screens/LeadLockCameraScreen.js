@@ -953,16 +953,22 @@ export default function LeadLockCameraScreen({ navigation }) {
               activeOpacity={0.7}
             >
               {/* Risk indicator */}
-              <View
-                style={[
-                  s.riskBadge,
-                  {
-                    backgroundColor: getRiskColor(business.riskLevel),
-                  },
-                ]}
-              >
-                <Text style={s.riskBadgeText}>{business.riskLevel}</Text>
-                <Text style={s.riskScore}>{business.riskScore}</Text>
+              <View style={{ alignItems: 'center', marginRight: 10 }}>
+                <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(241,196,15,0.15)', marginBottom: 4 }}>
+                  <Text style={{ color: '#f1c40f', fontSize: 8, fontWeight: '700' }}>AI ESTIMATED</Text>
+                </View>
+                <View
+                  style={[
+                    s.riskBadge,
+                    {
+                      backgroundColor: getRiskColor(business.riskLevel),
+                    },
+                  ]}
+                >
+                  <Text style={s.riskBadgeText}>{business.riskLevel}</Text>
+                  <Text style={s.riskScore}>{business.riskScore}</Text>
+                </View>
+                <Text style={{ color: '#8A8FA8', fontSize: 8, marginTop: 3, textAlign: 'center', maxWidth: 80 }}>Possible risk based on business type</Text>
               </View>
 
               {/* Business info */}
@@ -985,7 +991,7 @@ export default function LeadLockCameraScreen({ navigation }) {
                 {/* Pest indicators */}
                 {business.pestIndicators.length > 0 && (
                   <Text style={s.pestIndicators}>
-                    ⚠️ {business.pestIndicators.join(', ')}
+                    ⚠️ Possible: {business.pestIndicators.join(', ')}
                   </Text>
                 )}
               </View>

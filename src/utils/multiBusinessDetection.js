@@ -449,7 +449,7 @@ function generateBusinessBadges(business) {
   // Health violations
   if (business.intelligence?.healthViolations > 0) {
     badges.push({
-      label: 'Violations',
+      label: 'Est. Violations',
       value: business.intelligence.healthViolations,
       color: '#FF6B6B',
     });
