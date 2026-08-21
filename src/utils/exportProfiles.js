@@ -247,6 +247,15 @@ const AUTO_HEADER_MATCHES = {
   imageuri: 'imageUri',
 };
 
+function decodeBase64(base64) {
+  const binary = global.atob ? global.atob(base64) : Buffer.from(base64, 'base64').toString('binary');
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 async function syncProfileToSupabase(profile) {
   try {
     const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
@@ -257,17 +266,58 @@ async function syncProfileToSupabase(profile) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return;
 
+    let templateStoragePath = null;
+    if (profile.templateUri) {
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(profile.templateUri);
+        if (!fileInfo.exists) {
+          console.warn('[syncProfileToSupabase] Local template file missing:', profile.templateUri);
+        } else {
+          const base64 = await FileSystem.readAsStringAsync(profile.templateUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const sanitizedName = String(profile.name || 'template').replace(/[^a-zA-Z0-9_-]/g, '_');
+          const ext = profile.templateUri.toLowerCase().endsWith('.csv') ? '.csv' : '.xlsx';
+          const storagePath = `${user.id}/${sanitizedName}${ext}`;
+          const { error: uploadError } = await supabase.storage
+            .from('export-templates')
+            .upload(storagePath, decodeBase64(base64), {
+              contentType:
+                ext === '.csv'
+                  ? 'text/csv'
+                  : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              upsert: true,
+            });
+          if (uploadError) {
+            console.error('[syncProfileToSupabase] Template upload failed:', uploadError.message);
+          } else {
+            templateStoragePath = storagePath;
+          }
+        }
+      } catch (uploadErr) {
+        console.error('[syncProfileToSupabase] Template upload error:', uploadErr.message);
+      }
+    }
+
     const { error } = await supabase
       .from('export_templates')
       .upsert({
         user_id: user.id,
         name: profile.name,
-        config: profile
+        template_storage_path: templateStoragePath,
+        sheet_name: profile.sheetName || null,
+        headers: profile.headers || [],
+        mapping: profile.mapping || {},
+        file_base_name: profile.fileBaseName || profile.name || null,
+        start_row: profile.startRow || null,
+        updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,name' });
 
-    if (error) console.warn('[syncProfileToSupabase] Failed:', error.message);
+    if (error) {
+      console.error('[syncProfileToSupabase] Export template metadata upsert failed:', error.message);
+    }
   } catch (err) {
-    console.warn('[syncProfileToSupabase] Unexpected error:', err.message);
+    console.error('[syncProfileToSupabase] Unexpected error:', err.message);
   }
 }
 

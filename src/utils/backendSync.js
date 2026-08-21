@@ -55,6 +55,7 @@ function buildRow(lead = {}, user = {}, authUserId = null) {
     // New queue/viability fields
     collected_at:      lead.collectedAt || lead.createdAt || lead.capturedAt || new Date().toISOString(),
     reviewed_at:       lead.reviewedAt || null,
+    reviewed:          !!lead.reviewed,
     last_edited_at:    lead.lastEditedAt || null,
     queue_status:      lead.queueStatus || 'new',
     queue_sort_group:  lead.queueSortGroup ?? 0,
@@ -286,6 +287,7 @@ export async function syncProspectsFromSupabase(supabaseSettings = {}) {
         viabilityLabel: row.viability_label,
         shadeKey: row.shade_key,
         queueStatus: row.queue_status || 'new',
+        reviewed: !!row.reviewed,
       };
     });
 
@@ -520,4 +522,48 @@ export async function syncAllDataFromSupabase(supabaseSettings = {}) {
     prospects: results[0],
     settings: results[1],
   };
+}
+
+// ─── Auto Export Settings Sync (server-side scheduled export needs these) ─────
+
+export async function syncAutoExportSettingsToSupabase(settings = {}, user = {}, supabaseSettings = {}) {
+  try {
+    const supabase = createSupabaseClient(supabaseSettings);
+    if (!supabase) return { ok: false, reason: 'missing-config' };
+
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) return { ok: false, reason: 'unauthorized' };
+
+    const { error } = await supabase
+      .from('auto_export_settings')
+      .upsert({
+        user_id: authUser.id,
+        enabled: !!settings.enabled,
+        time: settings.time || '16:00',
+        recipients: settings.recipients || '',
+        subject: settings.subject || 'LeadLens Scheduled Export ({count} prospects)',
+        body: settings.body || 'Attached is your scheduled LeadLens export containing {count} queued prospects.',
+        export_format: settings.exportFormat || 'universal_excel',
+        template_id: settings.templateId || null,
+        template_name: settings.templateName || null,
+        reviewed_only: !!settings.reviewedOnly,
+        exclude_duplicates: !!settings.excludeDuplicates,
+        clear_after_send: !!settings.clearAfterSend,
+        archive_after_send: !!settings.archiveAfterSend,
+        days: Array.isArray(settings.days) ? settings.days : [1, 2, 3, 4, 5],
+        timezone: settings.timezone || 'America/Chicago',
+        last_status: settings.lastStatus || '',
+        last_run_date: settings.lastRunDate || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+
+    if (error) {
+      console.error('[syncAutoExportSettingsToSupabase] Supabase error:', error.message);
+      throw error;
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error('[syncAutoExportSettingsToSupabase] Unexpected error:', err.message);
+    return { ok: false, reason: err?.message, category: categorizeError(err) };
+  }
 }

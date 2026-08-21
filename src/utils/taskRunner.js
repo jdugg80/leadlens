@@ -1,4 +1,4 @@
-import { getTaskQueue, updateTaskStatus, TASK_STATUS, TASK_TYPES } from './taskQueue';
+import { enqueueTask, getTaskQueue, updateTaskStatus, TASK_STATUS, TASK_TYPES } from './taskQueue';
 import { syncAllProspectsToSupabase } from './backendSync';
 import { enrichLead, extractLeadsWithDebugFromImage } from './claudeApi';
 import { fetchPlaceDetails, parseAddressComponents } from './nearbySearch';
@@ -16,6 +16,24 @@ export async function processQueue() {
   isProcessing = true;
 
   try {
+    // ─── Auto-enqueue periodic Supabase sync ──────────────────────────────
+    // On every processQueue cycle (app startup, resume, background 15-min),
+    // ensure a SYNC_ALL task exists in the queue. Skip if one is already
+    // pending/running to avoid duplicate work.
+    try {
+      const currentQueue = await getTaskQueue();
+      const hasSyncPending = currentQueue.some(
+        (t) => t.type === TASK_TYPES.SYNC_ALL
+          && (t.status === TASK_STATUS.PENDING || t.status === TASK_STATUS.RUNNING)
+      );
+      if (!hasSyncPending) {
+        await enqueueTask(TASK_TYPES.SYNC_ALL, {});
+      }
+    } catch (syncErr) {
+      console.warn('[TaskQueue] Auto-enqueue SYNC_ALL failed:', syncErr?.message);
+    }
+    // ─── End auto-enqueue ─────────────────────────────────────────────────
+
     const queue = await getTaskQueue();
     const pendingTasks = queue.filter((t) => t.status === TASK_STATUS.PENDING || t.status === TASK_STATUS.FAILED);
 

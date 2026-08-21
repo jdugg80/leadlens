@@ -3,6 +3,14 @@
 
 # Changelog
 
+## BETA-64 | 2026-08-20
+
+### 📤 Scheduled Export — Fully Automatic
+- **Scheduled exports now send even when the app is closed** — Previously the scheduled export had no server-side scheduler, so it only ran when the app was open and a user manually triggered it. Now the schedule is honored automatically via a server-side job, so your daily/weekly export email arrives whether the app is foregrounded or not.
+- **Custom export templates now sync properly, including uploaded files** — Custom template files and field mappings are now saved to Supabase and available for the scheduled export, so you don't have to recreate your custom template on each device.
+- **Export settings are now stored server-side** — Scheduled export settings (time, days, recipients, format, timezone) are synced to Supabase, so the server-side scheduler knows exactly what to send and when.
+- **Timezone support** — The device timezone is now captured automatically when you save scheduled export settings, so the export fires at the right time for your local clock instead of defaulting to a single fixed zone.
+
 ## BETA-63 | 2026-08-19
 
 ### 🏠 Property Data — Real County Records

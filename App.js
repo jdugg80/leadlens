@@ -27,9 +27,10 @@ import { ToastProvider } from './src/context/ToastContext';
 import { ProcessingProvider } from './src/context/ProcessingContext';
 import ProcessingOverlay from './src/components/ProcessingOverlay';
 import { storage as AsyncStorage } from './src/utils/storage';
-import { USER_STORAGE_KEY, getAppVersionString } from './src/constants';
+import { USER_STORAGE_KEY, AUTO_EXPORT_SETTINGS_KEY, SUPABASE_SETTINGS_KEY, getAppVersionString } from './src/constants';
 import { bindAutoExportOnAppResume, registerBackgroundAutoExport } from './src/utils/autoExport';
 import { processQueue } from './src/utils/taskRunner';
+import { syncAutoExportSettingsToSupabase } from './src/utils/backendSync';
 import BetaTracker from './utils/betaTracker';
 import { getCurrentCoords, reverseGeocodeCoords } from './src/utils/geoEnrich';
 import {
@@ -303,6 +304,20 @@ export default function App() {
               if (user.email) {
                 BetaTracker.setEmail(user.email);
                 await BetaTracker.init(user.email);
+              }
+
+              // ── Backfill auto-export settings to Supabase if they exist locally ──
+              try {
+                const rawAutoExport = await AsyncStorage.getItem(AUTO_EXPORT_SETTINGS_KEY);
+                if (rawAutoExport) {
+                  const autoExportSettings = JSON.parse(rawAutoExport);
+                  const rawSupabaseSettings = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+                  const supabaseSettings = rawSupabaseSettings ? JSON.parse(rawSupabaseSettings) : {};
+                  syncAutoExportSettingsToSupabase(autoExportSettings, user, supabaseSettings)
+                    .catch((err) => console.warn('[App] Auto-export settings backfill failed:', err?.message));
+                }
+              } catch (backfillErr) {
+                console.warn('[App] Auto-export settings backfill error:', backfillErr?.message);
               }
             }
           } catch (err) {

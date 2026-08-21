@@ -79,6 +79,7 @@ import { getPreviewLine } from '../utils/aiPersonality';
 import { resetAllTutorials } from '../utils/tutorialManager';
 import {
   verifyExportsBucket,
+  syncAutoExportSettingsToSupabase,
 } from '../utils/backendSync';
 import { sendBackendEmail } from '../utils/backendEmail';
 import { resetUserLearningData, recordUserActivityEvent, upsertUserLearningProfile, loadUserLearningProfile } from '../utils/userLearning';
@@ -131,6 +132,7 @@ const DEFAULT_AUTO_EXPORT = {
   clearAfterSend: false,
   archiveAfterSend: false,
   days: [1, 2, 3, 4, 5],
+  timezone: 'America/Chicago',
   lastStatus: '',
   lastRunDate: '',
 };
@@ -484,6 +486,7 @@ export default function SettingsScreen({ navigation, route }) {
       setSaving(true);
       const normalizedAutoExportTime = normalizeTimeString(autoExport.time) || DEFAULT_AUTO_EXPORT.time;
       const normalizedAutomationTime = normalizeTimeString(automation.sendTime) || DEFAULT_AUTOMATION.sendTime;
+      const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       const exportSettingsPayload = {
         mode: defaultExportMode,
@@ -511,7 +514,7 @@ export default function SettingsScreen({ navigation, route }) {
         AsyncStorage.setItem(AUTO_INTRO_KEY, String(autoIntro)),
         AsyncStorage.setItem(
           AUTO_EXPORT_SETTINGS_KEY,
-          JSON.stringify({ ...autoExport, time: normalizedAutoExportTime })
+          JSON.stringify({ ...autoExport, time: normalizedAutoExportTime, timezone: deviceTimeZone })
         ),
         AsyncStorage.setItem(SUPABASE_SETTINGS_KEY, JSON.stringify(supabaseSettings)),
         AsyncStorage.setItem(
@@ -533,6 +536,20 @@ export default function SettingsScreen({ navigation, route }) {
         if (upsertError) {
           console.warn("[Settings] Supabase upsert failed:", upsertError.message);
         }
+      }
+
+      // Sync auto-export settings to Supabase (server-side scheduled export needs them)
+      try {
+        if (user?.id) {
+          await syncAutoExportSettingsToSupabase(
+            { ...autoExport, time: normalizedAutoExportTime, timezone: deviceTimeZone },
+            user,
+            supabaseSettings
+          );
+          console.log('[Settings] Auto-export settings synced to Supabase');
+        }
+      } catch (syncErr) {
+        console.warn('[Settings] Auto-export settings Supabase sync failed:', syncErr?.message);
       }
 
       setUserProfile(savedUser);
