@@ -3,6 +3,11 @@
 
 # Changelog
 
+## BETA-65 | 2026-08-20
+
+### 🔧 Release Infrastructure
+- **EAS Environment Variables for OTA** — Added `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_SCARLETT_SUPABASE_URL`, and `EXPO_PUBLIC_SCARLETT_ANON_KEY` to the EAS production environment. The previous BETA-64 OTA was built without these variables, so the JS bundle could not connect to Supabase. This follow-up OTA repackages the same code with the missing credentials baked into the bundle.
+
 ## BETA-64 | 2026-08-20
 
 ### 📤 Scheduled Export — Fully Automatic
