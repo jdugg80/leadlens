@@ -3,6 +3,11 @@
 
 # Changelog
 
+## BETA-66 | 2026-08-20
+
+### 🐛 Bug Fixes
+- **Beta feedback button no longer crashes the app when the keyboard opens** — The Beta feedback button used a native-driver scale animation on the same node that its position animation later manipulated with JS driver. When the keyboard appeared (e.g., editing scheduled export recipients), this mismatch caused a red-screen crash. The scale animation now runs with JS driver, keeping the node on the same driver as its position animation.
+
 ## BETA-65 | 2026-08-20
 
 ### 🔧 Release Infrastructure

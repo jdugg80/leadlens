@@ -31,8 +31,8 @@ export default function BetaFeedbackFAB({ testerEmail = '', testerName = '', inv
   function handlePress() {
     if (isDragging) return;
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.88, duration: 80, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1,    duration: 80, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.88, duration: 80, useNativeDriver: false }),
+      Animated.timing(scaleAnim, { toValue: 1,    duration: 80, useNativeDriver: false }),
     ]).start();
 
     navigation.navigate('BetaFeedback', {
