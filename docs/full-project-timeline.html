@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeadLens — Full Project Timeline</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --text-muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --orange: #d29922; --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  .stats-bar { display: flex; gap: 1.5rem; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 2rem; }
+  .stat { text-align: center; }
+  .stat .num { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+  .stat .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .era-divider { font-size: 1.1rem; font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; margin: 2rem 0 1rem; }
+  .phase { margin-bottom: 1.5rem; }
+  .phase-header { font-size: 0.95rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; }
+  .entry { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 1rem; margin-bottom: 0.4rem; border-left: 3px solid var(--border); }
+  .entry.win { border-left-color: var(--green); }
+  .entry.bug { border-left-color: var(--red); }
+  .entry.decision { border-left-color: var(--orange); }
+  .entry.security { border-left-color: var(--purple); }
+  .entry .date { font-size: 0.7rem; color: var(--text-muted); }
+  .entry .msg { font-size: 0.85rem; }
+  .entry .hash { font-size: 0.7rem; color: var(--text-muted); font-family: monospace; }
+</style>
+</head>
+<body>
+<h1>LeadLens — Full Project Timeline</h1>
+
+<div class="stats-bar">
+  <div class="stat"><div class="num">227</div><div class="label">Commits</div></div>
+  <div class="stat"><div class="num">86</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">68.1</div><div class="label">Hours</div></div>
+  <div class="stat"><div class="num">48</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">22.6</div><div class="label">Weeks</div></div>
+  <div class="stat"><div class="num">1</div><div class="label">Clients Live</div></div>
+</div>
+
+<div class="era-divider">Era 1 — Foundation &amp; Camera (Apr 11 – Apr 21, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 1 · Initial Setup &amp; Camera Core</div>
+  <div class="entry win"><span class="date">Apr 11</span> <span class="msg">Camera capture + auto-capture, logo, camera modes, admin, manual entry</span> <span class="hash">b225a3d0</span></div>
+  <div class="entry win"><span class="date">Apr 11</span> <span class="msg">Camera flash transitions, Samsung capture fix, MIME type validation</span> <span class="hash">b0672ad3</span></div>
+  <div class="entry win"><span class="date">Apr 11</span> <span class="msg">Manual shutter only + intro outreach flow</span> <span class="hash">30f9cab5</span></div>
+  <div class="entry win"><span class="date">Apr 12</span> <span class="msg">Initial project setup (bare workflow)</span> <span class="hash">3de8899f</span></div>
+  <div class="entry win"><span class="date">Apr 13</span> <span class="msg">Storefront geo enrichment via OpenStreetMap</span> <span class="hash">1ca5d3da</span></div>
+  <div class="entry win"><span class="date">Apr 14</span> <span class="msg">Delete, fix batch delete, web app, AI animation</span> <span class="hash">240e2582</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 2 · Email &amp; Backend Integration</div>
+  <div class="entry win"><span class="date">Apr 19</span> <span class="msg">Add Resend Netlify email function + send-email Edge Function</span> <span class="hash">72541383</span></div>
+  <div class="entry win"><span class="date">Apr 21</span> <span class="msg">LeadLens backend email integration, resolve initial merge conflicts</span> <span class="hash">19f5f53d</span></div>
+</div>
+
+<div class="era-divider">Era 2 — Infrastructure &amp; Backup Hygiene (May 7 – May 26, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 3 · Git Cleanup &amp; Automated Backups</div>
+  <div class="entry decision"><span class="date">May 7</span> <span class="msg">Clean up Git tracking and update LeadLens files</span> <span class="hash">b6f51edb</span></div>
+  <div class="entry decision"><span class="date">May 13</span> <span class="msg">Backup LeadLens updates</span> <span class="hash">6d2fbbc1</span></div>
+  <div class="entry win"><span class="date">May 15</span> <span class="msg">Move AI welcome Anthropic call to Supabase Edge Function</span> <span class="hash">e65df3ef</span></div>
+  <div class="entry decision"><span class="date">May 23</span> <span class="msg">Automated backup snapshots, gitignore for build outputs, remove APK from repo</span> <span class="hash">9dbbad57</span></div>
+  <div class="entry decision"><span class="date">May 26</span> <span class="msg">Automated backup snapshots (6 commits)</span> <span class="hash">1db8af40</span></div>
+</div>
+
+<div class="era-divider">Era 3 — BETA-50 Launch &amp; Admin Portal (Jun 3 – Jun 5, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 4 · BETA-50 Release &amp; Admin Portal</div>
+  <div class="entry win"><span class="date">Jun 4</span> <span class="msg">Admin portal v1 — dashboard, prospects, reps, territories, support, roadmap, settings</span> <span class="hash">6ddcd85a</span></div>
+  <div class="entry bug"><span class="date">Jun 4</span> <span class="msg">Fix mobile responsive sidebar, SPA routing 404, affected_screens crash</span> <span class="hash">619f216e</span></div>
+  <div class="entry win"><span class="date">Jun 4</span> <span class="msg">OTA vs rebuild deploy classification, push notifications, error handling</span> <span class="hash">6686bfa6</span></div>
+  <div class="entry bug"><span class="date">Jun 4</span> <span class="msg">Fix prospects query column names, dashboard RLS, roadmap deploy classification</span> <span class="hash">a7066a13</span></div>
+  <div class="entry win"><span class="date">Jun 5</span> <span class="msg">ZIP capture in global location + LeadLock camera, OTA tags, settings page schema fix</span> <span class="hash">098a5715</span></div>
+</div>
+
+<div class="era-divider">Era 4 — BETA-51 Features &amp; TargetLens (Jun 9 – Jun 17, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 5 · Prospect Queue Import &amp; AI Extraction</div>
+  <div class="entry win"><span class="date">Jun 14</span> <span class="msg">ProspectQueue import screen — photo/doc gallery picker + AI extraction</span> <span class="hash">eeef8586</span></div>
+  <div class="entry bug"><span class="date">Jun 14</span> <span class="msg">Fix queue header layout hiding MANAGE button, LeadLockCamera zip crash, SupportScreen version</span> <span class="hash">02138714</span></div>
+  <div class="entry win"><span class="date">Jun 14</span> <span class="msg">Global crash prevention — error boundary, unhandled promise catching, memory monitoring</span> <span class="hash">6b5ba6af</span></div>
+  <div class="entry win"><span class="date">Jun 14</span> <span class="msg">Skip-to-bottom button with scroll lock for ProspectQueueScreen</span> <span class="hash">e66c795c</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 6 · TargetLens Homeowner Vertical</div>
+  <div class="entry win"><span class="date">Jun 15</span> <span class="msg">TargetLens homeowner vertical — profile switcher, filter panel, signal card, agent sources</span> <span class="hash">a672c068</span></div>
+  <div class="entry bug"><span class="date">Jun 15</span> <span class="msg">Hide business pins in homeowner mode, filter by active TargetLens profile vertical</span> <span class="hash">6ff1fa71</span></div>
+  <div class="entry win"><span class="date">Jun 15</span> <span class="msg">Admin portal TargetLens route, seed SQL, agent orchestrator, migration</span> <span class="hash">9a11a941</span></div>
+  <div class="entry bug"><span class="date">Jun 15</span> <span class="msg">Persist activeProfile across restarts, roadmap status save/delete to Supabase</span> <span class="hash">da2218c9</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 7 · Outreach &amp; Card Scan</div>
+  <div class="entry win"><span class="date">Jun 17</span> <span class="msg">Automated prospect outreach with email/SMS templates and tracking</span> <span class="hash">84e0da77</span></div>
+  <div class="entry win"><span class="date">Jun 17</span> <span class="msg">AI scan + batch card scan — extract multiple phones with mobile priority</span> <span class="hash">a96ffe60</span></div>
+  <div class="entry win"><span class="date">Jun 17</span> <span class="msg">Phone number abbreviation recognition + fallback regex extraction</span> <span class="hash">cc3529d0</span></div>
+</div>
+
+<div class="era-divider">Era 5 — Audit Sprint &amp; BETA-52/53 (Jun 20 – Jul 2, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 8 · iOS Fixes &amp; Clock</div>
+  <div class="entry bug"><span class="date">Jun 20</span> <span class="msg">iOS header positioning bug — Support, BugReport, FeatureRequest screens (7 commits)</span> <span class="hash">30a246b4</span></div>
+  <div class="entry win"><span class="date">Jun 20</span> <span class="msg">12-hour clock from 24-hour clock</span> <span class="hash">66249bc7</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 9 · Full Audit Sprint (BETA-52)</div>
+  <div class="entry security"><span class="date">Jun 29</span> <span class="msg">Full audit sprint — security, RLS hardening, comptroller write path fix</span> <span class="hash">338334d4</span></div>
+  <div class="entry bug"><span class="date">Jun 30</span> <span class="msg">Fix: TaskQueue logging, enrichLead error propagation, AsyncStorage backup clear</span> <span class="hash">efb2fe51</span></div>
+  <div class="entry bug"><span class="date">Jun 30</span> <span class="msg">Fix: BetaTracker email from MMKV, LeadCard phone object crash, ProspectOutreachModal hooks</span> <span class="hash">8c4c6b13</span></div>
+  <div class="entry bug"><span class="date">Jun 30</span> <span class="msg">Fix: mergeTwoSidedCardLeads, scan blocking state, 5s GPS timeout</span> <span class="hash">a82b7540</span></div>
+  <div class="entry win"><span class="date">Jun 30</span> <span class="msg">Background AI enrichment for card scan leads, pluggable enrichment providers</span> <span class="hash">46545b5a</span></div>
+  <div class="entry win"><span class="date">Jun 30</span> <span class="msg">TX Comptroller permit status check, release.js beta tester emails</span> <span class="hash">553675ce</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 10 · BETA-52 Release &amp; Logout Fix</div>
+  <div class="entry win"><span class="date">Jul 1</span> <span class="msg">BETA-52 release — export, prospect queue save verification, screenshot merge durability</span> <span class="hash">6895f2cf</span></div>
+  <div class="entry bug"><span class="date">Jul 1</span> <span class="msg">Fix: logout button signs out, version label canonical source, custom What's New modal</span> <span class="hash">c09c9d33</span></div>
+  <div class="entry win"><span class="date">Jul 1</span> <span class="msg">expo-dev-client setup, screenshot fallback enrichment to prospect queue</span> <span class="hash">ecc932bc</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 11 · BETA-53 &amp; MMKV Durability</div>
+  <div class="entry win"><span class="date">Jul 2</span> <span class="msg">BETA-53 — MMKV dual-write reconciliation, prospect queue save read-back, screenshot merge durability</span> <span class="hash">f7c893df</span></div>
+  <div class="entry bug"><span class="date">Jul 2</span> <span class="msg">Revert broken TerritoryMap filter build — permits table schema mismatch</span> <span class="hash">a4d4bbe8</span></div>
+</div>
+
+<div class="era-divider">Era 6 — Territory, Enrichment &amp; LeadLock (Jul 6 – Jul 17, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 12 · Enrichment Stack &amp; Property Source Flag</div>
+  <div class="entry win"><span class="date">Jul 6</span> <span class="msg">Full project audit &amp; integrity sweep, enrichment methods diagnostic</span> <span class="hash">c29e4a89</span></div>
+  <div class="entry win"><span class="date">Jul 6</span> <span class="msg">Schema migration + source_type backfill, property source flag extraction</span> <span class="hash">4b001e6c</span></div>
+  <div class="entry bug"><span class="date">Jul 6</span> <span class="msg">Fix source_type reclassification, property details UI for HCAD and AI field names</span> <span class="hash">a7b1fccd</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 13 · BETA-54/55 — Territory Map &amp; LeadLock</div>
+  <div class="entry win"><span class="date">Jul 8</span> <span class="msg">BETA-54 — TerritoryMap filter spec, commercial/residential taxonomy, business_data table</span> <span class="hash">8c363504</span></div>
+  <div class="entry win"><span class="date">Jul 9</span> <span class="msg">BETA-55 — LeadLock address flow verified, global toast provider, ZIP boundary fixes</span> <span class="hash">e1b557be</span></div>
+  <div class="entry bug"><span class="date">Jul 9</span> <span class="msg">Fix: TerritoryMap filter bottom sheet scrollable, ZIP boundary polygons in both modes</span> <span class="hash">5e24ee92</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 14 · BETA-56/57 — Beta Feedback &amp; LeadLock UX</div>
+  <div class="entry win"><span class="date">Jul 9</span> <span class="msg">BETA-56 — BetaFeedbackScreen + FAB, personalized success message</span> <span class="hash">565fe700</span></div>
+  <div class="entry win"><span class="date">Jul 10</span> <span class="msg">BETA-57 — LeadLock ZIP acquisition UX, property source labeling, manual entry enrichment</span> <span class="hash">1ff5cd83</span></div>
+  <div class="entry win"><span class="date">Jul 11</span> <span class="msg">Prospect list export functionality</span> <span class="hash">a0758eaa</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 15 · BETA-58/59/60 — Export &amp; Detection</div>
+  <div class="entry win"><span class="date">Jul 15</span> <span class="msg">BETA-58 — ExportModal, CSV/XLSX formatters, OneDrive/Google Drive/Local export</span> <span class="hash">dc16ce88</span></div>
+  <div class="entry win"><span class="date">Jul 16</span> <span class="msg">BETA-59 — Logout flow overhaul, responsive login logo, territory map button unification</span> <span class="hash">c71b5e26</span></div>
+  <div class="entry bug"><span class="date">Jul 17</span> <span class="msg">BETA-60 — Detection regression fix (max_tokens bump), territory map filter fixes, LeadLock ZIP reacquire</span> <span class="hash">5f83da09</span></div>
+</div>
+
+<div class="era-divider">Era 7 — Sentry &amp; Release Infrastructure (Jul 26 – Aug 20, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 16 · BETA-61 — Sentry Crash Reporting</div>
+  <div class="entry win"><span class="date">Jul 29</span> <span class="msg">BETA-61 — Sentry integration with Expo config plugin, parallel crash reporting pipeline</span> <span class="hash">88c20652</span></div>
+  <div class="entry win"><span class="date">Jul 29</span> <span class="msg">Native Sentry Android SDK + symbol upload config, manifest merge conflict fix</span> <span class="hash">560b8950</span></div>
+  <div class="entry decision"><span class="date">Jul 30</span> <span class="msg">Update branding to O-Kay-est Media LLC, switch to local app version source</span> <span class="hash">f9a6eec7</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 17 · BETA-62 — Security &amp; Cleanup</div>
+  <div class="entry security"><span class="date">Aug 7</span> <span class="msg">BETA-62 — Remove hardcoded Scarlett credentials, fix module-scope throw crashing app</span> <span class="hash">7831dcd2</span></div>
+  <div class="entry bug"><span class="date">Aug 7</span> <span class="msg">Fix: read fresh employee number from MMKV at export/sync time</span> <span class="hash">5c13c8c1</span></div>
+  <div class="entry win"><span class="date">Aug 12</span> <span class="msg">Storage bypasses converted to storageBridge, silent-failure catches remediated</span> <span class="hash">7f611bb5</span></div>
+  <div class="entry win"><span class="date">Aug 12</span> <span class="msg">LeadLock address parsing, dead code/debug log cleanup, unused dependency removal</span> <span class="hash">2c597676</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 18 · BETA-63/64/65/66 — Property Data &amp; Export</div>
+  <div class="entry win"><span class="date">Aug 19</span> <span class="msg">BETA-63 — Tarrant/Travis CAD integration, business_status filter, release.js hardening</span> <span class="hash">cac3a86e</span></div>
+  <div class="entry bug"><span class="date">Aug 20</span> <span class="msg">Fix: honest AI-estimate labeling for health risk badges and pest indicators</span> <span class="hash">5cbc69d6</span></div>
+  <div class="entry win"><span class="date">Aug 20</span> <span class="msg">BETA-64 — Scheduled export rebuild: server-side scheduler, settings sync, timezone capture</span> <span class="hash">bdf5fd53</span></div>
+  <div class="entry bug"><span class="date">Aug 20</span> <span class="msg">BETA-65 — Add missing EAS production env vars for Supabase/Scarlett</span> <span class="hash">12c33215</span></div>
+  <div class="entry bug"><span class="date">Aug 20</span> <span class="msg">BETA-66 — Fix Beta feedback button keyboard animation crash</span> <span class="hash">a462e0bf</span></div>
+</div>
+
+<div class="era-divider">Era 8 — Security Hardening (Sep 16, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 19 · API Key Failover &amp; Client-Side Key Removal</div>
+  <div class="entry security"><span class="date">Sep 16</span> <span class="msg">claude-proxy: Vault-based primary/secondary key failover, RETRYABLE_STATUSES, usage-limit detection</span> <span class="hash">707cfcee</span></div>
+  <div class="entry security"><span class="date">Sep 16</span> <span class="msg">extract-prospect: Ported identical failover pattern</span> <span class="hash">707cfcee</span></div>
+  <div class="entry security"><span class="date">Sep 16</span> <span class="msg">Routed 6 client-side Anthropic call sites through claude-proxy — eliminated EXPO_PUBLIC_ANTHROPIC_API_KEY exposure</span> <span class="hash">707cfcee</span></div>
+  <div class="entry win"><span class="date">Sep 16</span> <span class="msg">Dead code cleanup — removed unused ANTHROPIC_API_KEY from buildingPermitsService.js</span> <span class="hash">707cfcee</span></div>
+</div>
+
+</body>
+</html>

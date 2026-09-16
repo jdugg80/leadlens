@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeadLens — Session Timeline</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --text-muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --orange: #d29922; --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  .stats-bar { display: flex; gap: 1.5rem; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 2rem; }
+  .stat { text-align: center; }
+  .stat .num { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+  .stat .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .narrative { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }
+  .narrative h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: var(--accent); }
+  .narrative p { margin-bottom: 0.5rem; font-size: 0.9rem; }
+  .narrative ul { margin: 0.5rem 0 0.5rem 1.5rem; font-size: 0.9rem; }
+  .narrative li { margin-bottom: 0.3rem; }
+  .day { margin-bottom: 1.5rem; }
+  .day-header { font-size: 0.95rem; font-weight: 600; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; margin-bottom: 0.5rem; }
+  .entry { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.8rem; margin-bottom: 0.3rem; border-left: 3px solid var(--border); font-size: 0.85rem; }
+  .entry.win { border-left-color: var(--green); }
+  .entry.bug { border-left-color: var(--red); }
+  .entry.decision { border-left-color: var(--orange); }
+  .entry.security { border-left-color: var(--purple); }
+  .hash { font-size: 0.7rem; color: var(--text-muted); font-family: monospace; margin-left: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>LeadLens — Session Timeline</h1>
+
+<div class="stats-bar">
+  <div class="stat"><div class="num">227</div><div class="label">Total Commits</div></div>
+  <div class="stat"><div class="num">86</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">68.1</div><div class="label">Total Hours</div></div>
+  <div class="stat"><div class="num">48</div><div class="label">Active Days</div></div>
+</div>
+
+<div class="narrative">
+  <h2>Session — Sep 16, 2026</h2>
+  <p><strong>Security: API Key Exposure Remediation</strong></p>
+  <p>This session addressed a critical security issue: <code>EXPO_PUBLIC_ANTHROPIC_API_KEY</code> was compiled into the Android APK in plaintext, extractable by anyone with the binary. Six client-side files called the Anthropic API directly using this exposed key.</p>
+  <p><strong>What was done:</strong></p>
+  <ul>
+    <li><strong>claude-proxy failover</strong> — Added <code>getApiKeys()</code> to the <code>claude-proxy</code> Edge Function with primary key from env + secondary from Supabase Vault (<code>anthropic_api_key_secondary</code> via <code>get_secret</code> RPC). Added <code>RETRYABLE_STATUSES = [429, 500, 502, 503, 529]</code> and 400 usage-limit detection with automatic key switching.</li>
+    <li><strong>extract-prospect failover</strong> — Ported identical failover pattern to <code>extract-prospect</code> Edge Function.</li>
+    <li><strong>Client-side key removal</strong> — Routed 6 direct Anthropic call sites through <code>claude-proxy</code> via <code>supabase.functions.invoke()</code>:
+      <ul>
+        <li><code>multiBusinessDetection.js</code> — vision/image calls</li>
+        <li><code>claudeApi.js</code> — first-choice photo extraction</li>
+        <li><code>businessCardEnricher.js</code> — kept exponential backoff retry wrapper</li>
+        <li><code>healthDepartmentService.js</code> — kept rule-based fallback</li>
+        <li><code>propertyRecordsService.js</code> — kept <code>{ success: false }</code> fallback</li>
+      </ul>
+    </li>
+    <li><strong>Dead code cleanup</strong> — Removed unused <code>ANTHROPIC_API_KEY</code> from <code>buildingPermitsService.js</code>.</li>
+  </ul>
+  <p><strong>Remaining manual steps:</strong> Rotate the compromised key in Anthropic Console, remove from app.json/eas.json, new EAS build required.</p>
+</div>
+
+<div class="day">
+  <div class="day-header">Sep 16, 2026</div>
+  <div class="entry security">Route all Anthropic calls through claude-proxy, add Vault key failover <span class="hash">707cfcee</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Aug 20, 2026</div>
+  <div class="entry bug">BETA-66: fix Beta feedback button keyboard animation crash <span class="hash">a462e0bf</span></div>
+  <div class="entry bug">BETA-65: add missing EAS production env vars for Supabase/Scarlett <span class="hash">12c33215</span></div>
+  <div class="entry win">BETA-64: scheduled export rebuild — server-side scheduler, settings sync, custom template sync, timezone capture <span class="hash">bdf5fd53</span></div>
+  <div class="entry bug">Fix: honest AI-estimate labeling for health risk badges and pest indicators <span class="hash">5cbc69d6</span></div>
+  <div class="entry decision">Sync expo_runtime_version to 2.0.63 <span class="hash">d4c40451</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Aug 19, 2026</div>
+  <div class="entry win">BETA-63 — 2026-08-19 release <span class="hash">01d53ee2</span></div>
+  <div class="entry win">Tarrant/Travis CAD integration, business_status filter, seed data cleanup <span class="hash">cac3a86e</span></div>
+  <div class="entry win">Harden release.js — remove stale duplicate script, wire up dynamic tester emails <span class="hash">36052c22</span></div>
+  <div class="entry decision">Add BETA-63 changelog entry <span class="hash">f36bf052</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Aug 12, 2026</div>
+  <div class="entry win">Storage bypasses converted to storageBridge, silent-failure catches remediated <span class="hash">7f611bb5</span></div>
+  <div class="entry win">LeadLock address parsing into street/city/state/zip components <span class="hash">2c597676</span></div>
+  <div class="entry win">Dead code, stale fix scripts, debug logs, unused dependency cleanup <span class="hash">e5f8e2d8</span></div>
+  <div class="entry decision">Add push token columns migration <span class="hash">3185d401</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Aug 7–8, 2026</div>
+  <div class="entry security">Remove hardcoded Scarlett credentials, fix module-scope throw crashing app <span class="hash">7831dcd2</span></div>
+  <div class="entry bug">Read fresh employee number from MMKV at export/sync time <span class="hash">5c13c8c1</span></div>
+  <div class="entry bug">Restore Bug Report and Feature Request navigation buttons <span class="hash">9a8b8d7a</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jul 29–30, 2026</div>
+  <div class="entry win">BETA-61 — Sentry crash reporting with Expo config plugin <span class="hash">88c20652</span></div>
+  <div class="entry win">Native Sentry Android SDK + symbol upload config <span class="hash">560b8950</span></div>
+  <div class="entry decision">Update branding to O-Kay-est Media LLC <span class="hash">f9a6eec7</span></div>
+  <div class="entry bug">Fix manifest merge conflict for Sentry auto-init <span class="hash">47c00e7c</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jul 16–17, 2026</div>
+  <div class="entry win">BETA-59 — Logout flow overhaul, responsive login logo <span class="hash">c71b5e26</span></div>
+  <div class="entry bug">BETA-60 — Detection regression fix, territory map filter fixes, LeadLock ZIP reacquire <span class="hash">5f83da09</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jul 14–15, 2026</div>
+  <div class="entry win">BETA-58 — ExportModal, CSV/XLSX formatters, OneDrive/Google Drive/Local export <span class="hash">dc16ce88</span></div>
+  <div class="entry win">Prospect list export functionality <span class="hash">a0758eaa</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jul 8–11, 2026</div>
+  <div class="entry win">BETA-54 — TerritoryMap filter spec, commercial/residential taxonomy <span class="hash">8c363504</span></div>
+  <div class="entry win">BETA-55 — LeadLock address flow verified, global toast provider <span class="hash">e1b557be</span></div>
+  <div class="entry win">BETA-56 — BetaFeedbackScreen + FAB <span class="hash">565fe700</span></div>
+  <div class="entry win">BETA-57 — LeadLock ZIP acquisition UX, property source labeling <span class="hash">1ff5cd83</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jul 6, 2026</div>
+  <div class="entry win">Full project audit &amp; integrity sweep <span class="hash">c29e4a89</span></div>
+  <div class="entry win">Schema migration + source_type backfill, property source flag <span class="hash">4b001e6c</span></div>
+  <div class="entry bug">Fix source_type reclassification, property details UI <span class="hash">a7b1fccd</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jul 1–2, 2026</div>
+  <div class="entry win">BETA-52 — Export, prospect queue save verification, screenshot merge durability <span class="hash">6895f2cf</span></div>
+  <div class="entry bug">Fix: logout, version label, custom What's New modal <span class="hash">c09c9d33</span></div>
+  <div class="entry win">BETA-53 — MMKV dual-write reconciliation, screenshot fallback enrichment <span class="hash">f7c893df</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jun 29–30, 2026</div>
+  <div class="entry security">Full audit sprint — security, RLS hardening, comptroller write path <span class="hash">338334d4</span></div>
+  <div class="entry bug">Fix: TaskQueue logging, BetaTracker email, LeadCard crash, ProspectOutreachModal hooks <span class="hash">efb2fe51</span></div>
+  <div class="entry win">Background AI enrichment, pluggable enrichment providers, TX Comptroller permit check <span class="hash">46545b5a</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jun 14–17, 2026</div>
+  <div class="entry win">BETA-51 — ProspectQueue import, AI extraction, skip-to-bottom <span class="hash">eeef8586</span></div>
+  <div class="entry win">TargetLens homeowner vertical <span class="hash">a672c068</span></div>
+  <div class="entry win">Automated prospect outreach, batch card scan, phone extraction <span class="hash">84e0da77</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Jun 3–5, 2026</div>
+  <div class="entry win">BETA-50 — Admin portal v1, OTA tags, push notifications <span class="hash">6ddcd85a</span></div>
+  <div class="entry bug">Fix: mobile sidebar, SPA routing, dashboard queries <span class="hash">619f216e</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">May 15–26, 2026</div>
+  <div class="entry win">Move AI welcome to Edge Function <span class="hash">e65df3ef</span></div>
+  <div class="entry decision">Automated backup snapshots, gitignore cleanup, build artifact removal <span class="hash">9dbbad57</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Apr 11–21, 2026</div>
+  <div class="entry win">Initial project setup, camera core, storefront geo enrichment <span class="hash">3de8899f</span></div>
+  <div class="entry win">Email integration, Resend Netlify function <span class="hash">19f5f53d</span></div>
+</div>
+
+</body>
+</html>
