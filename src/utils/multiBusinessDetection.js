@@ -8,9 +8,28 @@ import { enrichProspectProfile } from './dataEnrichmentOrchestrator';
 import { extractLocationFromBusinessCard, parseAddressWithGoogleGeocoding } from './addressGeocoder';
 import { enrichBusinessWithPublicSources } from './enrichmentNormalizer';
 import { extractPhoneCandidatesFromText, mergePhoneCandidates, selectBestPhone } from './phoneExtraction';
+import { supabase } from '../lib/supabase';
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+/**
+ * Call Claude via claude-proxy Edge Function (failover-safe, no client-side key exposure)
+ * @private
+ */
+async function callClaudeVision(payload) {
+  const { data, error } = await supabase.functions.invoke('claude-proxy', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(`claude-proxy error: ${error.message || JSON.stringify(error)}`);
+  }
+
+  // claude-proxy passes through Anthropic response shape
+  if (data && data.error) {
+    throw new Error(`Claude API error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  return data;
+}
 
 /**
  * Analyze photo for multiple businesses/storefronts
@@ -69,8 +88,8 @@ async function detectBusinessesWithVision(base64Image, context) {
   // Guard against null context — GPS may not be available
   const safeContext = context || {};
   try {
-    if (!ANTHROPIC_API_KEY) {
-      throw new Error('EXPO_PUBLIC_ANTHROPIC_API_KEY is not set');
+    if (!supabase) {
+      throw new Error('Supabase client is not available');
     }
 
     const systemPrompt = `You are a business intelligence system analyzing photos of commercial areas for pest control sales prospecting.
@@ -111,45 +130,30 @@ CRITICAL RULES for extraction:
 If no businesses are clearly identifiable, return:
 {"businesses": [], "totalDetected": 0, "analysisNotes": "reason no businesses detected"}`;
 
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-5',
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: 'image/jpeg',
-                  data: base64Image,
-                },
+    const data = await callClaudeVision({
+      model: 'claude-opus-4-5',
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: base64Image,
               },
-              {
-                type: 'text',
-                text: `Analyze this photo taken near ${safeContext.city || 'Houston'}, ${safeContext.county ? safeContext.county + ' County,' : ''} TX. Identify every visible business and storefront. Focus on signage, storefronts, and any commercial activity. This is for pest control sales prospecting — note any food service, waste areas, or conditions that indicate pest risk.`,
-              },
-            ],
-          },
-        ],
-      }),
+            },
+            {
+              type: 'text',
+              text: `Analyze this photo taken near ${safeContext.city || 'Houston'}, ${safeContext.county ? safeContext.county + ' County,' : ''} TX. Identify every visible business and storefront. Focus on signage, storefronts, and any commercial activity. This is for pest control sales prospecting — note any food service, waste areas, or conditions that indicate pest risk.`,
+            },
+          ],
+        },
+      ],
     });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      throw new Error(`Claude API ${response.status}: ${errText}`);
-    }
-
-    const data = await response.json();
     const rawText = data.content?.[0]?.text || '';
     console.log('[LeadLock] Claude raw response:', rawText.slice(0, 200));
 
@@ -619,8 +623,8 @@ export async function detectBusinessCardsInPhoto(base64Image, context = {}) {
   const safeContext = context || {};
 
   try {
-    if (!ANTHROPIC_API_KEY) {
-      throw new Error('EXPO_PUBLIC_ANTHROPIC_API_KEY is not set');
+    if (!supabase) {
+      throw new Error('Supabase client is not available');
     }
 
     const systemPrompt = `You are a business card OCR system for a field sales app. The user has photographed one or more business cards laid on a flat surface.
@@ -664,41 +668,26 @@ Respond ONLY with valid JSON — no markdown, no explanation:
 If no business cards are found return:
 {"cards": [], "totalDetected": 0, "analysisNotes": "no cards detected"}`;
 
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-5',
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: 'image/jpeg', data: base64Image },
-              },
-              {
-                type: 'text',
-                text: `Extract all business cards visible in this photo. Capture every readable field. This is for pest control sales prospecting near ${safeContext.city || 'Houston'}, TX.`,
-              },
-            ],
-          },
-        ],
-      }),
+    const data = await callClaudeVision({
+      model: 'claude-opus-4-5',
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: 'image/jpeg', data: base64Image },
+            },
+            {
+              type: 'text',
+              text: `Extract all business cards visible in this photo. Capture every readable field. This is for pest control sales prospecting near ${safeContext.city || 'Houston'}, TX.`,
+            },
+          ],
+        },
+      ],
     });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      throw new Error(`Claude API ${response.status}: ${errText}`);
-    }
-
-    const data = await response.json();
     const rawText = data.content?.[0]?.text || '';
     const clean = rawText.replace(/```json|```/g, '').trim();
 

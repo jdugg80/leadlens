@@ -6,8 +6,27 @@
  * Falls back to AI estimation for unsupported counties or query failures.
  */
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+import { supabase } from '../lib/supabase';
+
+/**
+ * Call Claude via claude-proxy Edge Function (failover-safe, no client-side key exposure)
+ * @private
+ */
+async function callClaudeVision(payload) {
+  const { data, error } = await supabase.functions.invoke('claude-proxy', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(`claude-proxy error: ${error.message || JSON.stringify(error)}`);
+  }
+
+  if (data && data.error) {
+    throw new Error(`Claude API error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  return data;
+}
 
 const propertyCache = new Map();
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -184,7 +203,7 @@ export async function getPropertyRecord(address) {
   }
 
   // AI fallback
-  if (ANTHROPIC_API_KEY) {
+  if (supabase) {
     try {
       const estimated = await estimatePropertyRiskWithAI(address);
       const result = { success: true, address, property: estimated.property, pestRiskFactors: estimated.riskFactors, pestRiskScore: estimated.riskScore, dataSource: 'ai_estimate', fetchedAt: new Date().toISOString() };
@@ -446,23 +465,13 @@ function parseTcadProperty(attrs) {
 // ---------------------------------------------------------------------------
 
 async function estimatePropertyRiskWithAI(address) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    signal: controller.signal,
-    headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 400,
-      system: 'You estimate commercial property pest risk from an address. Return ONLY valid JSON — no markdown, no code fences, no commentary, no bullet points before or after. Just the raw JSON object: {"property":{"propertyType":"COMMERCIAL|INDUSTRIAL|RETAIL|OFFICE|OTHER","estimatedAge":years_or_null,"landUse":"description"},"riskScore":0-100,"riskFactors":{"factors":["factor1"],"warnings":["warning1"]}}',
-      messages: [{ role: 'user', content: `Estimate pest control risk for: "${address}". Base on address clues (street name, business district, area type).` }],
-    }),
+  const data = await callClaudeVision({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 400,
+    system: 'You estimate commercial property pest risk from an address. Return ONLY valid JSON — no markdown, no code fences, no commentary, no bullet points before or after. Just the raw JSON object: {"property":{"propertyType":"COMMERCIAL|INDUSTRIAL|RETAIL|OFFICE|OTHER","estimatedAge":years_or_null,"landUse":"description"},"riskScore":0-100,"riskFactors":{"factors":["factor1"],"warnings":["warning1"]}}',
+    messages: [{ role: 'user', content: `Estimate pest control risk for: "${address}". Base on address clues (street name, business district, area type).` }],
   });
-  clearTimeout(timeout);
 
-  const data = await response.json();
   const text = (data.content?.[0]?.text || '').trim();
   const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '')
     .replace(/^[\s]*[-*]\s*/gm, '').trim();

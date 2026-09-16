@@ -9,8 +9,6 @@
  */
 
 const HOUSTON_PERMIT_SEARCH = 'https://permits.houstontx.gov/api/';
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
 
 const permitsCache = new Map();
 const CACHE_TTL = 14 * 24 * 60 * 60 * 1000; // 14 days

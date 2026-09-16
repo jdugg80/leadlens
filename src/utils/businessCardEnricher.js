@@ -4,8 +4,27 @@
  * Runs efficiently without breaking existing functionality
  */
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY || '';
+import { supabase } from '../lib/supabase';
+
+/**
+ * Call Claude via claude-proxy Edge Function (failover-safe, no client-side key exposure)
+ * @private
+ */
+async function callClaudeVision(payload) {
+  const { data, error } = await supabase.functions.invoke('claude-proxy', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(`claude-proxy error: ${error.message || JSON.stringify(error)}`);
+  }
+
+  if (data && data.error) {
+    throw new Error(`Claude API error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  return data;
+}
 
 /**
  * Enrich business card data using Claude
@@ -66,36 +85,15 @@ RESPOND ONLY WITH VALID JSON (no markdown, no preamble):
 }`;
 
   const MAX_RETRIES = 3;
-  const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 529]);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(ANTHROPIC_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-opus-4-20250805',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
+      const response = await callClaudeVision({
+        model: 'claude-opus-4-20250805',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }],
       });
 
-      // Retry on transient server errors
-      if (RETRYABLE_STATUS.has(res.status)) {
-        const delay = Math.min(1000 * 2 ** (attempt - 1), 8000); // 1s, 2s, 4s
-        console.warn(`[businessCardEnricher] API ${res.status} — retry ${attempt}/${MAX_RETRIES} in ${delay}ms`);
-        if (attempt < MAX_RETRIES) {
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        throw new Error(`API error: ${res.status}`);
-      }
-
-      const response = await res.json();
       const responseText = response.content?.[0]?.type === 'text'
         ? response.content[0].text
         : null;

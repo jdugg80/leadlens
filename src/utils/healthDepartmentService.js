@@ -11,8 +11,27 @@
  * function below.
  */
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+import { supabase } from '../lib/supabase';
+
+/**
+ * Call Claude via claude-proxy Edge Function (failover-safe, no client-side key exposure)
+ * @private
+ */
+async function callClaudeVision(payload) {
+  const { data, error } = await supabase.functions.invoke('claude-proxy', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(`claude-proxy error: ${error.message || JSON.stringify(error)}`);
+  }
+
+  if (data && data.error) {
+    throw new Error(`Claude API error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  return data;
+}
 
 // Cache by business key
 const violationsCache = new Map();
@@ -38,7 +57,7 @@ export async function searchHealthViolations(businessName, city = 'Houston', bus
 
   try {
     let result;
-    if (ANTHROPIC_API_KEY) {
+    if (supabase) {
       result = await assessRiskWithClaude(businessName, city, businessType);
     } else {
       result = assessRiskWithRules(businessName, businessType);
@@ -53,7 +72,7 @@ export async function searchHealthViolations(businessName, city = 'Houston', bus
       riskFactors: result.riskFactors,
       businessName,
       city,
-      dataSource: ANTHROPIC_API_KEY ? 'ai_assessment' : 'rule_based',
+      dataSource: supabase ? 'ai_assessment' : 'rule_based',
       fetchedAt: new Date().toISOString(),
     };
 
@@ -70,29 +89,18 @@ async function assessRiskWithClaude(businessName, city, businessType) {
   const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 600,
-        system: `You are a pest control risk assessment system. Based on business name and type, estimate pest/health risk.
+    const data = await callClaudeVision({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: `You are a pest control risk assessment system. Based on business name and type, estimate pest/health risk.
 Return ONLY valid JSON — no markdown, no code fences, no commentary, no bullet points before or after. Just the raw JSON object: {"riskScore":0-100,"riskLevel":"LOW|MEDIUM|HIGH|CRITICAL","riskFactors":["factor1"],"violations":[{"description":"desc","severity":"MINOR|MAJOR|CRITICAL_PEST","riskFactors":["factor"]}],"notes":"brief explanation"}`,
-        messages: [{
-          role: 'user',
-          content: `Business: "${businessName}", Type: "${businessType || 'unknown'}", City: "${city}". Assess pest/health risk for a pest control sales prospect. Be specific about why this business type has the risk level you assign.`
-        }],
-      }),
+      messages: [{
+        role: 'user',
+        content: `Business: "${businessName}", Type: "${businessType || 'unknown'}", City: "${city}". Assess pest/health risk for a pest control sales prospect. Be specific about why this business type has the risk level you assign.`
+      }],
     });
 
     clearTimeout(timeout);
-    if (!response.ok) throw new Error(`API ${response.status}`);
-    const data = await response.json();
     const text = (data.content?.[0]?.text || '').trim();
     // Strip markdown code fences and leading bullet/heading characters
     const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '')

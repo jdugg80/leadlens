@@ -1,9 +1,27 @@
 import { enqueueTask, TASK_TYPES } from './taskQueue';
 import { extractProspectAI } from '../services/extractProspectAI';
 import { extractPhoneCandidatesFromText, mergePhoneCandidates, selectBestPhone } from './phoneExtraction';
+import { supabase } from '../lib/supabase';
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+/**
+ * Call Claude via claude-proxy Edge Function (failover-safe, no client-side key exposure)
+ * @private
+ */
+async function callClaudeVision(payload) {
+  const { data, error } = await supabase.functions.invoke('claude-proxy', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(`claude-proxy error: ${error.message || JSON.stringify(error)}`);
+  }
+
+  if (data && data.error) {
+    throw new Error(`Claude API error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+
+  return data;
+}
 
 /**
  * Robust direct Claude extraction — handles business cards, storefronts,
@@ -11,8 +29,8 @@ const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
  * might photograph. Infers missing fields from context clues and GPS.
  */
 export async function extractProspectRobust(base64Image, mimeType = 'image/jpeg', coords = null) {
-  if (!ANTHROPIC_API_KEY) {
-    console.warn('[extractProspectRobust] No API key — falling back to edge function');
+  if (!supabase) {
+    console.warn('[extractProspectRobust] Supabase not available — falling back to edge function');
     return null;
   }
 
@@ -89,39 +107,25 @@ Return ONLY valid JSON, no markdown, no explanation, exactly this structure:
 If nothing business-relevant is visible, return: {"image_type":"general","businesses":[],"rawText":""}`;
 
   try {
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mimeType, data: base64Image },
-            },
-            {
-              type: 'text',
-              text: 'Extract all business prospect information from this photo. Be thorough — extract and infer everything you can.',
-            },
-          ],
-        }],
-      }),
+    const data = await callClaudeVision({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: base64Image },
+          },
+          {
+            type: 'text',
+            text: 'Extract all business prospect information from this photo. Be thorough — extract and infer everything you can.',
+          },
+        ],
+      }],
     });
 
-    if (!response.ok) {
-      console.warn('[extractProspectRobust] API error:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
     const rawText = data.content?.[0]?.text || '';
     const clean = rawText.replace(/```json|```/g, '').trim();
 

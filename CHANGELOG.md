@@ -1,6 +1,19 @@
 ## 2026-07-25
 - Fixed Test — reported by a LeadLens user. Thank you!
 
+## SESSION | 2026-09-16
+
+### 🔐 Security — API Key Exposure Remediation
+- **claude-proxy Failover** — Added `getApiKeys()` to `claude-proxy` Edge Function with primary key from env + secondary from Supabase Vault (`anthropic_api_key_secondary` via `get_secret` RPC). Added `RETRYABLE_STATUSES = [429, 500, 502, 503, 529]` and 400 usage-limit detection with automatic key switching.
+- **extract-prospect Failover** — Ported identical failover pattern to `extract-prospect` Edge Function. Same Vault secret, same retryable status list, same usage-limit detection.
+- **Client-Side Key Removal** — Routed 6 direct Anthropic API call sites through `claude-proxy` via `supabase.functions.invoke()`, eliminating all client-side `EXPO_PUBLIC_ANTHROPIC_API_KEY` exposure:
+  - `multiBusinessDetection.js` — `detectBusinessesWithVision()` and `detectBusinessCardsInPhoto()` (vision/image calls)
+  - `claudeApi.js` — `extractProspectRobust()` (first-choice photo extraction path)
+  - `businessCardEnricher.js` — `enrichBusinessCardWithClaude()` (kept exponential backoff retry wrapper)
+  - `healthDepartmentService.js` — `assessRiskWithClaude()` (kept rule-based fallback)
+  - `propertyRecordsService.js` — `estimatePropertyRiskWithAI()` (kept `{ success: false }` fallback)
+- **Dead Code Cleanup** — Removed unused `ANTHROPIC_API_URL` and `ANTHROPIC_API_KEY` constants from `buildingPermitsService.js`.
+
 # Changelog
 
 ## BETA-66 | 2026-08-20

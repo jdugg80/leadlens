@@ -1,9 +1,83 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+const ANTHROPIC_API_KEY_PRIMARY = Deno.env.get("ANTHROPIC_API_KEY");
+
+const supabaseAdmin = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+);
+
+const RETRYABLE_STATUSES = [429, 500, 502, 503, 529];
+
+async function getApiKeys(): Promise<string[]> {
+  const keys: string[] = [];
+  if (ANTHROPIC_API_KEY_PRIMARY) keys.push(ANTHROPIC_API_KEY_PRIMARY);
+
+  const { data, error } = await supabaseAdmin.rpc("get_secret", {
+    secret_name: "anthropic_api_key_secondary",
+  });
+
+  if (!error && data) {
+    keys.push(data as string);
+  } else if (error) {
+    console.error("extract-prospect: couldn't load secondary key:", error.message);
+  }
+
+  return keys;
+}
+
+async function callClaudeWithFailover(payload: any) {
+  const keys = await getApiKeys();
+
+  if (keys.length === 0) {
+    throw new Error("No Anthropic API keys available");
+  }
+
+  let lastResponse: Response | null = null;
+
+  for (let i = 0; i < keys.length; i++) {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": keys[i],
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      if (i > 0) console.log(`extract-prospect: succeeded on fallback key ${i}`);
+      return response;
+    }
+
+    lastResponse = response;
+
+    if (RETRYABLE_STATUSES.includes(response.status)) {
+      continue;
+    }
+
+    if (response.status === 400) {
+      const cloned = response.clone();
+      const errBody = await cloned.json().catch(() => null);
+      if (errBody?.error?.message?.toLowerCase().includes("usage limit")) {
+        console.log(`extract-prospect: key ${i} hit usage limit, trying next`);
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  return lastResponse!;
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -30,22 +104,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
+    const body = await req.json();
     const model =
       Deno.env.get("CLAUDE_API_MODEL") || "claude-haiku-4-5-20251001";
-
-    if (!anthropicKey) {
-      return jsonResponse(
-        {
-          ok: false,
-          error:
-            "Missing ANTHROPIC_API_KEY in Supabase Edge Function secrets.",
-        },
-        500
-      );
-    }
-
-    const body = await req.json();
 
     const {
       imageBase64,
@@ -150,24 +211,16 @@ ${text || ""}
       text: systemPrompt,
     });
 
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 2000,
-        system: "You are a helpful sales lead extraction assistant.",
-        messages: [
-          {
-            role: "user",
-            content: content,
-          },
-        ],
-      }),
+    const claudeRes = await callClaudeWithFailover({
+      model,
+      max_tokens: 2000,
+      system: "You are a helpful sales lead extraction assistant.",
+      messages: [
+        {
+          role: "user",
+          content: content,
+        },
+      ],
     });
 
     const claudeJson = await claudeRes.json();
