@@ -70,6 +70,34 @@ export default function FeatureRequestScreen({ navigation, route }) {
 
       if (error) throw error;
 
+      // Also notify via email — the feature_requests insert above only
+      // feeds the admin Roadmap view. This restores an email alert for
+      // feature requests too, matching what bug reports now do.
+      try {
+        const ticketRes = await fetch(`${SUPABASE_URL}/functions/v1/send-support-ticket`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            repEmail,
+            repName,
+            issueType: 'feature',
+            subject: title.trim(),
+            details: description.trim(),
+            appVersion: version,
+            platform: Platform.OS,
+          }),
+        });
+        if (!ticketRes.ok) {
+          console.warn('[FeatureRequestScreen] send-support-ticket returned', ticketRes.status);
+        }
+      } catch (notifyErr) {
+        // Non-fatal — the feature request itself was already saved above.
+        console.warn('[FeatureRequestScreen] Email notification failed:', notifyErr?.message || notifyErr);
+      }
+
       const message = getFeatureConfirmation(repName, title.trim());
       showToast(message, 'success');
       setTimeout(() => navigation.goBack(), 1800);

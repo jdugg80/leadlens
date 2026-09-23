@@ -144,6 +144,34 @@ export default function BugReportScreen({ navigation, route }) {
 
       if (error) throw error;
 
+      // Also notify via email — the feature_requests insert above only
+      // feeds the admin Roadmap view. This restores the email alert this
+      // screen used to send before it was switched to the Roadmap table.
+      try {
+        const ticketRes = await fetch(`${SUPABASE_URL}/functions/v1/send-support-ticket`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            repEmail,
+            repName,
+            issueType: 'bug',
+            subject: subject.trim(),
+            details: details.trim(),
+            appVersion: version,
+            platform: Platform.OS,
+          }),
+        });
+        if (!ticketRes.ok) {
+          console.warn('[BugReportScreen] send-support-ticket returned', ticketRes.status);
+        }
+      } catch (notifyErr) {
+        // Non-fatal — the bug report itself was already saved above.
+        console.warn('[BugReportScreen] Email notification failed:', notifyErr?.message || notifyErr);
+      }
+
       const message = getBugConfirmation(repName, subject.trim());
       showToast(message, 'success');
       setTimeout(() => navigation.goBack(), 1800);

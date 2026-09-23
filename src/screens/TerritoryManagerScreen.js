@@ -26,6 +26,7 @@ import {
 import { TARGET_LENS_PROFILES_KEY, TARGET_LENS_SEARCH_MODE_KEY } from '../constants';
 import { showThemedAlert } from '../components/ThemedAlert';
 import BetaTracker from '../../utils/betaTracker';
+import { parseZipRosterAOA, matchRepZips, getDistinctRepNames } from '../utils/zipRosterImport';
 
 const TABS = ['Heat Map', 'My ZIPs', 'Leads', 'Team'];
 
@@ -215,8 +216,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
   const handleImportSpreadsheet = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-               'application/vnd.ms-excel', 'text/csv', '*/*'],
+        type: '*/*',
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
@@ -262,6 +262,148 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     } catch (err) {
     BetaTracker.crash('TerritoryManagerScreen', err);
       showThemedAlert('Import failed', err.message || 'Could not read file.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
+  };
+
+  // ─── Import Team ZIP Roster (multi-rep, matches by name) ──────────────
+
+  const handleImportZipRoster = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+
+      setLoading(true);
+      setStatusText('Reading roster...');
+
+      const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const wb = read(b64, { type: 'base64' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      const entries = parseZipRosterAOA(aoa);
+      if (!entries.length) {
+        showThemedAlert('No roster data found', 'Could not detect any ZIP/rep name pairs in this file.');
+        return;
+      }
+
+      const repFirstName = String(user?.repName || '').trim().split(/\s+/)[0] || '';
+      const { matched, matchType } = matchRepZips(entries, repFirstName);
+
+      if (!matched.length) {
+        const distinct = getDistinctRepNames(entries);
+        showThemedAlert(
+          'No match found',
+          `Could not find "${repFirstName}" in this roster. Names found in file: ${distinct.join(', ') || 'none'}.`
+        );
+        return;
+      }
+
+      const zips = [...new Set(matched.map(m => m.zip))];
+
+      showThemedAlert(
+        'Confirm Import',
+        `Found ${zips.length} ZIP${zips.length !== 1 ? 's' : ''} for "${repFirstName}"${matchType === 'loose' ? ' (partial name match — please verify)' : ''}:\n\n${zips.slice(0, 15).join(', ')}${zips.length > 15 ? `, +${zips.length - 15} more` : ''}\n\nAdd these to your territory?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Add ZIPs',
+            onPress: async () => {
+              const { valid, duplicates } = validateZipBatch(zips, myZips);
+              if (!valid.length) {
+                showThemedAlert('Nothing to add', `All ${duplicates.length} matched ZIP(s) are already in your territory.`);
+                return;
+              }
+              const newEntries = valid.map(z => buildZipEntry(z));
+              const updated = [...myZips, ...newEntries];
+              await saveMyZips(updated);
+              await refreshData(updated);
+              BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'roster_import', screen: 'TerritoryManagerScreen' });
+              showThemedAlert(
+                'Roster import complete',
+                `${valid.length} ZIP(s) added for ${repFirstName}.${duplicates.length ? ` ${duplicates.length} already in your territory.` : ''}`
+              );
+            },
+          },
+        ]
+      );
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Import failed', err.message || 'Could not read roster file.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
+  };
+
+  // ─── Remove ZIPs belonging to other reps (recovery from a bad full-file import) ──
+
+  const handleCleanupOtherRepZips = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setLoading(true);
+      setStatusText('Reading roster...');
+
+      const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const wb = read(b64, { type: 'base64' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      const entries = parseZipRosterAOA(aoa);
+      if (!entries.length) {
+        showThemedAlert('No roster data found', 'Could not detect any ZIP/rep name pairs in this file.');
+        return;
+      }
+
+      const repFirstName = String(user?.repName || '').trim().split(/\s+/)[0] || '';
+      const targetLower = repFirstName.toLowerCase();
+
+      // ZIPs the roster explicitly assigns to someone else
+      const otherRepZips = new Set(
+        entries
+          .filter(e => e.repName.trim().toLowerCase() !== targetLower)
+          .map(e => e.zip)
+      );
+
+      const toRemove = myZips.filter(z => otherRepZips.has(z.zip));
+      if (!toRemove.length) {
+        showThemedAlert('Nothing to remove', 'None of your current ZIPs are attributed to another rep in this roster.');
+        return;
+      }
+
+      showThemedAlert(
+        "Remove Other Reps' ZIPs",
+        `Found ${toRemove.length} ZIP(s) in your territory that this roster attributes to another rep:\n\n${toRemove.map(z => z.zip).slice(0, 15).join(', ')}${toRemove.length > 15 ? `, +${toRemove.length - 15} more` : ''}\n\nAnything not in this roster, or listed under your own name, is left untouched. Remove these?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: async () => {
+              const removeSet = new Set(toRemove.map(z => z.zip));
+              const updated = myZips.filter(z => !removeSet.has(z.zip));
+              await saveMyZips(updated);
+              await refreshData(updated);
+              BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'cleanup_other_rep_zips', screen: 'TerritoryManagerScreen' });
+              showThemedAlert('Cleanup complete', `${toRemove.length} ZIP(s) removed.`);
+            },
+          },
+        ]
+      );
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Cleanup failed', err.message || 'Could not read roster file.');
     } finally {
       setLoading(false);
       setStatusText('');
@@ -496,6 +638,18 @@ export default function TerritoryManagerScreen({ navigation, route }) {
           <TouchableOpacity style={s.importBtn} onPress={handleImportPhoto}>
             <Text style={s.importIcon}>📷</Text>
             <Text style={s.importLabel}>Import from Photo</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={s.importRow}>
+          <TouchableOpacity style={s.importBtn} onPress={handleImportZipRoster}>
+            <Text style={s.importIcon}>👥</Text>
+            <Text style={s.importLabel}>Import Team ZIP Roster</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={s.importRow}>
+          <TouchableOpacity style={[s.importBtn, { borderColor: COLORS.danger || '#CC1040' }]} onPress={handleCleanupOtherRepZips}>
+            <Text style={s.importIcon}>🧹</Text>
+            <Text style={[s.importLabel, { color: COLORS.danger || '#CC1040' }]}>Remove Other Reps' ZIPs</Text>
           </TouchableOpacity>
         </View>
       </Card>

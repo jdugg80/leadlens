@@ -80,18 +80,36 @@ export default function SupportScreen({ navigation, route }) {
     }
     setSubmitting(true);
     try {
-      // Simulate an API call
-      await new Promise((resolve, reject) =>
-        setTimeout(() => {
-          // Simulate occasional failure for demo purposes:
-          // Math.random() < 0.3 ? reject(new Error('Network error')) : resolve();
-          resolve();
-        }, 1500)
-      );
+      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+      const topicLabel = TOPICS.find(t => t.value === form.topic)?.label || 'General Inquiry';
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-support-ticket`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          repEmail: form.email.trim(),
+          repName: form.name.trim(),
+          issueType: form.topic,
+          subject: topicLabel,
+          details: form.message.trim(),
+          platform: Platform.OS,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
       setForm(INITIAL_FORM);
       setErrors({});
       showToast("Your message has been sent! We'll get back to you soon.", 'success');
     } catch (err) {
+      console.error('[SupportScreen] Submit error:', err);
       showToast('Failed to send message. Please try again.', 'error');
     } finally {
       setSubmitting(false);

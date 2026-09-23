@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
   <li><strong>Submitted:</strong> ${new Date(ticket.created_at).toLocaleString()}</li>
 </ul>
  
-<p><a href="https://support.okayestmedia.com/tickets/${ticket.id}">View Ticket</a></p>
+<p><a href="https://leadlens-flame.vercel.app/support-tickets">View in Support Tickets</a></p>
     `;
  
     const emailResponse = await fetch('https://api.resend.com/emails', {
