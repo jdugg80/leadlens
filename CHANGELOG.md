@@ -14,7 +14,7 @@
   - `propertyRecordsService.js` — `estimatePropertyRiskWithAI()` (kept `{ success: false }` fallback)
 - **Dead Code Cleanup** — Removed unused `ANTHROPIC_API_URL` and `ANTHROPIC_API_KEY` constants from `buildingPermitsService.js`.
 
-## BETA-67 | 2026-09-22
+## BETA-67 | 2026-09-23
 
 ### 🐛 Bug Fixes — Boot Stability & Crash Prevention
 - **App no longer freezes on boot** — Exhausted `SYNC_ALL_PROSPECTS` tasks (max retries exceeded) were marked failed but never removed from the queue, so every processing cycle re-read and re-warned on them forever, saturating the JS thread before login. Added `removeTask()` and a login-state guard so exhausted tasks are pruned instead of looping.
