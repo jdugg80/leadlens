@@ -73,7 +73,10 @@ WebBrowser.maybeCompleteAuthSession();
 const Stack = createNativeStackNavigator();
 
 let globalHandlersInstalled = false;
-
+let lastLocationUpdateAt = 0;
+const LOCATION_UPDATE_MIN_INTERVAL_MS = 15000; // don't refresh GPS more than once per 15s
+let lastQueueProcessAt = 0;
+const QUEUE_PROCESS_MIN_INTERVAL_MS = 10000; // don't re-run the task queue more than once per 10s
 function reportGlobalCrash(source, error, fatal = false) {
   const message = error instanceof Error ? error.message : String(error || 'Unknown error');
   const stack = error instanceof Error && error.stack ? error.stack.slice(0, 1200) : '';
@@ -222,6 +225,12 @@ async function checkForUpdate(onUpdateAvailable) {
 
 // ── UPDATE GLOBAL LOCATION ──────────────────────────────────────────────────
 async function updateGlobalLocation() {
+  const now = Date.now();
+  if (now - lastLocationUpdateAt < LOCATION_UPDATE_MIN_INTERVAL_MS) {
+    return;
+  }
+  lastLocationUpdateAt = now;
+
   console.log('[GPS] Updating global location...');
   try {
     // 5s timeout prevents indefinite hang if GPS hardware is unresponsive
@@ -230,15 +239,29 @@ async function updateGlobalLocation() {
       new Promise(resolve => setTimeout(() => resolve(null), 5000)),
     ]).catch(() => null);
     if (coords) {
-      let city = 'Houston';
-      let county = 'Harris';
-      let zip = null;
+      // Read whatever is already cached so a failed/early geocode attempt
+      // (common right at cold boot, before the network stack is fully up)
+      // never overwrites a known-good previous location with the
+      // hardcoded Houston/Harris placeholder.
+      let previousLocation = null;
+      try {
+        const rawPrevious = AsyncStorage.getSync('currentLocation');
+        previousLocation = rawPrevious ? JSON.parse(rawPrevious) : null;
+      } catch (readErr) {
+        console.warn('[GPS] Failed to read previous currentLocation:', readErr?.message || String(readErr));
+      }
+
+      let city = previousLocation?.city || 'Houston';
+      let county = previousLocation?.county || 'Harris';
+      let zip = previousLocation?.zip ?? null;
+      let geocodeSucceeded = false;
       try {
         const geoInfo = await reverseGeocodeCoords(coords);
         if (geoInfo) {
-          city = geoInfo.city || geoInfo.town || geoInfo.village || 'Houston';
-          county = geoInfo.county || 'Harris';
-          zip = geoInfo.zip || geoInfo.postcode || geoInfo.postal_code || null;
+          city = geoInfo.city || geoInfo.town || geoInfo.village || city;
+          county = geoInfo.county || county;
+          zip = geoInfo.zip || geoInfo.postcode || geoInfo.postal_code || zip;
+          geocodeSucceeded = true;
         }
       } catch (err) {
         console.warn('[GPS] Reverse geocoding failed:', err);
@@ -259,7 +282,11 @@ async function updateGlobalLocation() {
       } catch (storageErr) {
         console.warn('[GPS] currentLocation storage failed:', storageErr?.message || String(storageErr));
       }
-      console.log('[GPS] Global location updated successfully:', locationObj);
+      console.log(
+        '[GPS] Global location updated successfully:',
+        locationObj,
+        geocodeSucceeded ? '' : '(geocode failed — reused previous/default city/zip)'
+      );
     }
   } catch (err) {
     console.warn('[GPS] Failed to update global location:', err);
@@ -364,6 +391,7 @@ export default function App() {
     const SESSION_DEBOUNCE_MS = 2000;
 
     const sub = AppState.addEventListener('change', async (nextState) => {
+  console.log('[AppState] transition:', appState.current, '->', nextState);
       try {
         const prev = appState.current;
         appState.current = nextState;
@@ -377,7 +405,18 @@ export default function App() {
 
           // Fire immediately (fire-and-forget)
           recordLastActiveAt();
-          processQueue().catch((err) => reportGlobalCrash('task_queue_resume', err, false));
+
+          // Throttled — AppState can cycle active/background dozens of
+          // times in rapid succession on some devices; without this guard,
+          // every flicker re-triggers a full queue pass (AsyncStorage +
+          // potential network), which can pile up and starve the main
+          // thread badly enough to trigger a background ANR.
+          const nowTs = Date.now();
+          if (nowTs - lastQueueProcessAt >= QUEUE_PROCESS_MIN_INTERVAL_MS) {
+            lastQueueProcessAt = nowTs;
+            processQueue().catch((err) => reportGlobalCrash('task_queue_resume', err, false));
+          }
+
           updateGlobalLocation().catch((err) => reportGlobalCrash('global_location_resume', err, false));
 
           // Debounce BetaTracker.init() — only fire if app stays active past the window

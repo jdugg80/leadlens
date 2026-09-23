@@ -1520,11 +1520,8 @@ export default function CaptureScreen({ navigation, route }) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Extract EXIF GPS data from gallery images for location resolution
-        for (const asset of result.assets) {
-          if (asset.exif) {
-          }
-        }
+        // EXIF GPS extraction happens inside processAssets via
+        // resolveZipFromLeadLockPhoto, which reads asset.exif directly.
         await processAssets(result.assets, null, 'image');
       }
     } catch (err) {

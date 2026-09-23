@@ -356,7 +356,45 @@ export default function LoginScreen({ navigation }) {
 
     // Auto-fill from local storage if exists
     const rawSaved = await AsyncStorage.getItem(USER_STORAGE_KEY);
-    const saved = safeParseJson(rawSaved, null);
+    let saved = safeParseJson(rawSaved, null);
+
+    // Fall back to the Supabase profiles table when local storage has
+    // nothing usable — covers reinstalls, storage wipes, and new devices.
+    // Local storage stays primary so a normal login never pays this
+    // network round-trip. Self-contained (own client + own user fetch)
+    // since the earlier supabase/authUser above are out of scope here.
+    if (!saved || !saved.firstName || !saved.role) {
+      try {
+        const supabaseForProfile = createSupabaseClient(supabaseSettings);
+        if (supabaseForProfile) {
+          const { data: { user: profileAuthUser } } = await supabaseForProfile.auth.getUser();
+          if (profileAuthUser?.id) {
+            const { data: remoteProfile, error: profileErr } = await supabaseForProfile
+              .from('profiles')
+              .select('rep_name, role, branch_num, employee_num')
+              .eq('id', profileAuthUser.id)
+              .single();
+
+            if (!profileErr && remoteProfile?.rep_name) {
+              const nameParts = String(remoteProfile.rep_name).trim().split(/\s+/);
+              saved = {
+                ...saved,
+                firstName: nameParts[0] || '',
+                lastName: nameParts.slice(1).join(' ') || '',
+                role: remoteProfile.role || saved?.role || '',
+                branchNum: remoteProfile.branch_num || saved?.branchNum || '',
+                employeeNum: remoteProfile.employee_num || saved?.employeeNum || '',
+              };
+              await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(saved)).catch(() => {});
+              console.log('[Login] Restored profile from Supabase profiles table');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Login] Supabase profile pull failed:', err?.message || String(err));
+      }
+    }
+
     if (saved && saved.firstName && saved.role) {
       // Preserve the auth email — old saved user may have a different repEmail
       setUser({ ...nextUser, ...saved, repEmail: email });
@@ -428,13 +466,19 @@ export default function LoginScreen({ navigation }) {
     setAuthMode('local');
 
     // If we have all profile info, we can go straight to the Enter button
-    if (saved?.firstName && saved?.lastName && saved?.role) {
+    const hasFullProfile = !!(saved?.firstName && saved?.lastName && saved?.role);
+    if (hasFullProfile) {
        setStep('profile');
     } else {
        setStep('role');
     }
 
-    showThemedAlert('Signed in', 'Your profile has been restored.');
+    showThemedAlert(
+      'Signed in',
+      hasFullProfile
+        ? 'Your profile has been restored.'
+        : 'Signed in — please re-enter your profile details.'
+    );
   };
 
   const runEmailSignIn = async (kind = 'signin') => {

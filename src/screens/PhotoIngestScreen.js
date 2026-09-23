@@ -50,8 +50,7 @@ export default function PhotoIngestScreen({ navigation }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Scan mode: 'storefronts' | 'cards'
-  const [scanMode, setScanMode] = useState('storefronts');
+
 
   useEffect(() => {
     getLocation();
@@ -171,7 +170,9 @@ export default function PhotoIngestScreen({ navigation }) {
   };
 
   // ─────────────────────────────────────────────────────────────────────
-  // DETECT — routes to storefront or card detection based on mode
+  // DETECT — tries card detection first (narrower/more specific match),
+  // falls back to general storefront detection if no card was found.
+  // No manual mode selection required.
   // ─────────────────────────────────────────────────────────────────────
   const handleDetectBusinesses = async (base64) => {
     if (!base64) {
@@ -183,9 +184,14 @@ export default function PhotoIngestScreen({ navigation }) {
     setExtractionError(null);
 
     try {
-      if (scanMode === 'cards') {
-        await handleDetectCards(base64);
-      } else {
+      // Try card detection first — genuine business cards have a
+      // recognizable layout (name/title/company/contact fields), so this
+      // extracts richer structured data (contact name, title, mobile vs.
+      // main phone, email, website) when the photo is actually a card.
+      const foundCard = await handleDetectCards(base64, { silent: true });
+      if (!foundCard) {
+        // Not a card — fall back to general/storefront detection, the
+        // broader catch-all for signage, strip malls, and businesses.
         await handleDetectStorefronts(base64);
       }
     } catch (error) {
@@ -196,46 +202,18 @@ export default function PhotoIngestScreen({ navigation }) {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────
-  // STOREFRONT DETECTION (original LeadLock flow — unchanged)
-  // ─────────────────────────────────────────────────────────────────────
-  const handleDetectStorefronts = async (base64) => {
-    console.log('[PhotoIngest] Storefront detection...');
-    const result = await detectMultipleBusinessesInPhoto(base64, location);
-
-    if (!result.success || !result.businesses || result.businesses.length === 0) {
-      setExtractionError(result.error || 'No businesses detected. Try a clearer photo.');
-      return;
-    }
-
-    setDetectionResult(result);
-    const prospects = result.businesses.map((b, idx) => ({
-      id: `photo_${Date.now()}_${idx}`,
-      scanMode: 'storefronts',
-      businessName: b.detection?.name || 'Unknown Business',
-      address: b.detection?.address || '',
-      businessType: b.detection?.businessType || '',
-      confidence: b.detection?.confidence || 0,
-      pestIndicators: b.detection?.pestIndicators || [],
-      riskScore: b.riskScore || 50,
-      riskLevel: b.riskLevel || 'UNKNOWN',
-      notes: b.detection?.notes || '',
-    }));
-
-    setProspectsToConfirm(prospects);
-    setShowConfirmation(true);
-  };
-
-  // ─────────────────────────────────────────────────────────────────────
-  // BUSINESS CARD DETECTION (table-scan flow)
-  // ─────────────────────────────────────────────────────────────────────
-  const handleDetectCards = async (base64) => {
+  // ─────────────────────────────────────────────────────────────
+  // BUSINESS CARD DETECTION — tried first on every capture
+  // ─────────────────────────────────────────────────────────────
+  const handleDetectCards = async (base64, options = {}) => {
     console.log('[PhotoIngest] Business card detection...');
     const result = await detectBusinessCardsInPhoto(base64, location);
 
     if (!result.success || !result.cards || result.cards.length === 0) {
-      setExtractionError(result.error || 'No business cards detected. Try a flatter, well-lit photo.');
-      return;
+      if (!options.silent) {
+        setExtractionError(result.error || 'No business cards detected. Try a flatter, well-lit photo.');
+      }
+      return false;
     }
 
     setDetectionResult(result);
@@ -258,6 +236,10 @@ export default function PhotoIngestScreen({ navigation }) {
         phoneCandidates: candidates,
         email: card.email || '',
         website: card.website || '',
+        streetAddress: card.address || '',
+        city: card.city || '',
+        state: card.state || '',
+        zip: card.zip || '',
         address: [card.address, card.city, card.state, card.zip].filter(Boolean).join(', '),
         confidence: card.confidence || 0,
         pestIndicators: [],
@@ -269,6 +251,40 @@ export default function PhotoIngestScreen({ navigation }) {
 
     setProspectsToConfirm(prospects);
     setShowConfirmation(true);
+    return true;
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // STOREFRONT / GENERAL DETECTION — fallback when no card is found
+  // ─────────────────────────────────────────────────────────────
+  const handleDetectStorefronts = async (base64, options = {}) => {
+    console.log('[PhotoIngest] Storefront detection...');
+    const result = await detectMultipleBusinessesInPhoto(base64, location);
+
+    if (!result.success || !result.businesses || result.businesses.length === 0) {
+      if (!options.silent) {
+        setExtractionError(result.error || 'No businesses detected. Try a clearer photo.');
+      }
+      return false;
+    }
+
+    setDetectionResult(result);
+    const prospects = result.businesses.map((b, idx) => ({
+      id: `photo_${Date.now()}_${idx}`,
+      scanMode: 'storefronts',
+      businessName: b.detection?.name || 'Unknown Business',
+      address: b.detection?.address || '',
+      businessType: b.detection?.businessType || '',
+      confidence: b.detection?.confidence || 0,
+      pestIndicators: b.detection?.pestIndicators || [],
+      riskScore: b.riskScore || 50,
+      riskLevel: b.riskLevel || 'UNKNOWN',
+      notes: b.detection?.notes || '',
+    }));
+
+    setProspectsToConfirm(prospects);
+    setShowConfirmation(true);
+    return true;
   };
 
   // ─────────────────────────────────────────────────────────────────────
@@ -280,12 +296,28 @@ export default function PhotoIngestScreen({ navigation }) {
     try {
       setSaving(true);
 
-      const savedProspects = prospectsToConfirm.map((prospect) =>
-        normalizeLead({
+      const savedProspects = prospectsToConfirm.map((prospect) => {
+        // Split a single "First Last" contact name into pocFirst/pocLast —
+        // normalizeLead has no concept of a combined contactName field, so
+        // this has to happen before we hand data off to it or the name is
+        // silently dropped.
+        const nameParts = String(prospect.contactName || '').trim().split(/\s+/).filter(Boolean);
+        const pocFirst = nameParts[0] || '';
+        const pocLast = nameParts.slice(1).join(' ') || '';
+
+        return normalizeLead({
           businessName: prospect.businessName,
-          contactName: prospect.contactName || '',
+          pocFirst,
+          pocLast,
           contactTitle: prospect.title || '',
-          streetAddress: prospect.address,
+          // Card detection gives us street/city/state/zip separately — pass
+          // them through as their own fields instead of the pre-joined
+          // display string, so normalizeLead's address splitting only ever
+          // has to deal with the street portion, not city/state/zip mixed in.
+          streetAddress: prospect.streetAddress || prospect.address,
+          city: prospect.city || '',
+          state: prospect.state || '',
+          zip: prospect.zip || '',
           phone: prospect.phone || '',
           email: prospect.email || '',
           website: prospect.website || '',
@@ -300,8 +332,8 @@ export default function PhotoIngestScreen({ navigation }) {
           riskScore: prospect.riskScore,
           riskLevel: prospect.riskLevel,
           rawExtractedText: prospect.notes || '',
-        })
-      );
+        });
+      });
 
       // Read existing queue
       const raw = storageBridge.getSync(LEADS_STORAGE_KEY);
@@ -360,32 +392,12 @@ export default function PhotoIngestScreen({ navigation }) {
           <View style={s.headerSpacer} />
         </View>
 
-        {/* Mode toggle */}
-        <View style={[s.modeToggleRow, { top: insets.top + 52 }]}>
-          <TouchableOpacity
-            style={[s.modeBtn, scanMode === 'storefronts' && s.modeBtnActive]}
-            onPress={() => setScanMode('storefronts')}
-          >
-            <Text style={[s.modeBtnText, scanMode === 'storefronts' && s.modeBtnTextActive]}>🏪 Storefronts</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.modeBtn, scanMode === 'cards' && s.modeBtnActive]}
-            onPress={() => setScanMode('cards')}
-          >
-            <Text style={[s.modeBtnText, scanMode === 'cards' && s.modeBtnTextActive]}>📇 Business Cards</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Capture button */}
+                {/* Capture button */}
         <View style={[s.footer, { paddingBottom: insets.bottom + 20 }]}>
           <TouchableOpacity style={s.captureBtn} onPress={handleTakePhoto}>
             <View style={s.captureBtnInner} />
           </TouchableOpacity>
-          <Text style={s.captureHint}>
-            {scanMode === 'cards'
-              ? 'Lay cards flat, tap to scan all at once'
-              : 'Point at storefronts, tap to capture'}
-          </Text>
+          <Text style={s.captureHint}>Point at anything — tap to capture</Text>
         </View>
       </View>
     );
@@ -398,9 +410,7 @@ export default function PhotoIngestScreen({ navigation }) {
     return (
       <View style={[s.root, s.centerContent]}>
         <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={s.loadingText}>
-          {scanMode === 'cards' ? 'Reading business cards...' : 'Analyzing photo for businesses...'}
-        </Text>
+        <Text style={s.loadingText}>Analyzing photo...</Text>
       </View>
     );
   }
@@ -705,31 +715,6 @@ const s = StyleSheet.create({
     alignSelf: 'center',
   },
   retryBtnText: { color: COLORS.bg, fontWeight: '700' },
-
-  // Mode toggle
-  modeToggleRow: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    gap: 8,
-    zIndex: 10,
-  },
-  modeBtn: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
-    alignItems: 'center',
-    backgroundColor: 'rgba(8,10,15,0.75)',
-    borderWidth: 1,
-    borderColor: 'rgba(184,189,208,0.25)',
-  },
-  modeBtnActive: {
-    backgroundColor: 'rgba(0,201,255,0.15)',
-    borderColor: COLORS.accent,
-  },
-  modeBtnText: { color: COLORS.textDim, fontSize: 12, fontWeight: '600' },
-  modeBtnTextActive: { color: COLORS.accent },
 
   // Card contact fields
   prospectContact: { color: COLORS.text, fontSize: 12, fontWeight: '600', marginBottom: 4 },

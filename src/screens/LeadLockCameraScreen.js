@@ -181,7 +181,13 @@ export default function LeadLockCameraScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
-    if (!leadLockGps?.latitude || !leadLockGps?.longitude || location?.zip) return;
+    // Deliberately does NOT bail out just because location.zip is already
+    // set — a resolved ZIP must not permanently stop this effect, or the
+    // screen keeps showing a stale ZIP after the rep moves to a new area
+    // until the app is force-closed and reopened. The key comparison below
+    // is what actually prevents wasteful re-resolution (same ~11m-rounded
+    // coordinate), so it's safe to let this run on every GPS update.
+    if (!leadLockGps?.latitude || !leadLockGps?.longitude) return;
 
     const key = `${Number(leadLockGps.latitude).toFixed(4)},${Number(leadLockGps.longitude).toFixed(4)}`;
     if (locationResolveKeyRef.current === key) return;

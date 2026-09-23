@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useEffect, useState } from 'react';
 import {
   View,
@@ -1635,12 +1636,26 @@ export default function SettingsScreen({ navigation, route }) {
           <Text style={s.infoValue}>v{getAppVersionString()}</Text>
         </View>
         <View style={s.infoRow}>
+          <Text style={s.infoLabel}>OTA Update</Text>
+          <Text style={s.infoValue}>
+            {Updates.updateId ? Updates.updateId.slice(0, 8) : 'Running embedded bundle'}
+          </Text>
+        </View>
+        <View style={s.infoRow}>
+          <Text style={s.infoLabel}>Updated</Text>
+          <Text style={s.infoValue}>
+            {Updates.createdAt
+              ? new Date(Updates.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : '—'}
+          </Text>
+        </View>
+        <View style={s.infoRow}>
           <Text style={s.infoLabel}>Build Type</Text>
           <Text style={s.infoValue}>Beta Release Candidate</Text>
         </View>
         <View style={s.infoRow}>
           <Text style={s.infoLabel}>Developer</Text>
-          <Text style={s.infoValue}>Joseph Dugger</Text>
+          <Text style={s.infoValue}>O-Kay-est Media LLC</Text>
         </View>
       </Card>
 
@@ -1707,7 +1722,7 @@ export default function SettingsScreen({ navigation, route }) {
 
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScreenHeader title="Settings" onBack={() => navigation.goBack()} badge="TABBED" />
+      <ScreenHeader title="Settings" onBack={() => navigation.goBack()} />
 
       <View style={s.tabsWrap}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsRow}>

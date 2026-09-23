@@ -12,6 +12,12 @@ export const TASK_TYPES = {
   NEARBY_HYDRATE: 'NEARBY_HYDRATE',
 };
 
+export async function removeTask(taskId) {
+  const queue = await getTaskQueue();
+  const filtered = queue.filter((t) => t.id !== taskId);
+  await saveTaskQueue(filtered);
+}
+
 export const TASK_STATUS = {
   PENDING: 'pending',
   RUNNING: 'running',

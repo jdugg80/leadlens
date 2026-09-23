@@ -111,7 +111,7 @@ export const supabase = isSupabaseConfigured
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
-        flowType: 'pkce',
+        flowType: 'implicit',
       },
     })
   : createMissingSupabaseClient()
