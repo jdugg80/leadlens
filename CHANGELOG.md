@@ -14,6 +14,31 @@
   - `propertyRecordsService.js` — `estimatePropertyRiskWithAI()` (kept `{ success: false }` fallback)
 - **Dead Code Cleanup** — Removed unused `ANTHROPIC_API_URL` and `ANTHROPIC_API_KEY` constants from `buildingPermitsService.js`.
 
+## SESSION | 2026-09-22
+
+### 🐛 Bug Fixes — Boot Stability & Crash Prevention
+- **App no longer freezes on boot** — Exhausted `SYNC_ALL_PROSPECTS` tasks (max retries exceeded) were marked failed but never removed from the queue, so every processing cycle re-read and re-warned on them forever, saturating the JS thread before login. Added `removeTask()` and a login-state guard so exhausted tasks are pruned instead of looping.
+- **Google sign-in no longer fails immediately** — Supabase's PKCE flow calls `crypto.subtle` for the code challenge, which isn't available in Hermes (React Native's JS engine), so the OAuth browser dismissed instantly. Switched to `implicit` flow.
+- **Background ANR mitigation** — `AppState` was observed cycling `active ⇄ background` dozens of times per second on device, each transition re-triggering a full task-queue pass; throttled queue processing on resume to at most once per 10 seconds (Sentry had flagged a related Background ANR).
+- **GPS location no longer floods or shows the wrong city on boot** — The same `AppState` thrashing was also re-triggering GPS/reverse-geocode calls on every flicker; debounced to once per 15 seconds. Separately, a failed or not-yet-resolved geocode on cold boot was overwriting a known-good cached city/ZIP with a hardcoded Houston/Harris placeholder — now preserves the last known value instead.
+- **LeadLock ZIP no longer requires a force-close to update** — A resolved ZIP permanently disabled the location-refresh effect for the rest of the screen's session, so entering a new territory required restarting the app to pick up the new ZIP. Fixed the stale guard so it re-resolves on genuine GPS movement.
+- **Profile fields now restore correctly on re-login** — Name, employee number, role, and branch were only ever stored locally with no cloud fallback, so any storage reset (device change, reinstall) meant re-entering everything by hand despite an existing Supabase `profiles` table already holding this data from onboarding. Added a pull-on-login fallback, and fixed the "Your profile has been restored" message firing even when nothing was actually restored.
+
+### 🚀 Capture Accuracy
+- **AI Scan tries business card detection first, storefront second — no manual selector** — Removed the manual storefront/business-card toggle on Photo Ingest. Card detection runs first since it extracts richer structured data (contact name, title, phone, email); falls back to general storefront detection automatically if the photo isn't a card.
+- **Fixed address and contact name loss on card scans** — Card-detected addresses were joined into a single string (street+city+state+zip) before being handed to the lead normalizer, which only knows how to split off a street number — the rest was dumping wholesale into the street name field. Contact names had no path into the `pocFirst`/`pocLast` fields at all and were silently dropped. Fixed by keeping address components separate and splitting the contact name before saving.
+
+### 📄 Legal & Branding
+- Updated Privacy Policy and Terms of Use from "Joseph Dugger" to **O-Kay-est Media LLC** throughout, updated contact email, set effective date, and bumped both policy versions to trigger re-acknowledgment for existing users.
+
+### 🧹 Cleanup
+- Removed a leftover "TABBED" debug badge from the Settings header.
+- Removed a dead, no-op EXIF-extraction stub in the gallery import flow (the real EXIF handling already happens correctly downstream in `processAssets`).
+
+### ⚠️ Known Issues
+- A native crash (`disabled` prop receiving a String instead of Boolean) is confirmed via Sentry but not yet localized to a specific screen.
+- Territory Manager's 90-day prospect activity average reads live from local device storage only; any rep with "clear after send" enabled on scheduled export has their count history silently corrupted once prospects are cleared. Needs a design decision before it can be fixed.
+
 # Changelog
 
 ## BETA-66 | 2026-08-20

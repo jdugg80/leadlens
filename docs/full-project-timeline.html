@@ -34,11 +34,11 @@
 <h1>LeadLens — Full Project Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">227</div><div class="label">Commits</div></div>
-  <div class="stat"><div class="num">86</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">68.1</div><div class="label">Hours</div></div>
-  <div class="stat"><div class="num">48</div><div class="label">Active Days</div></div>
-  <div class="stat"><div class="num">22.6</div><div class="label">Weeks</div></div>
+  <div class="stat"><div class="num">229</div><div class="label">Commits</div></div>
+  <div class="stat"><div class="num">87</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">74.6</div><div class="label">Hours</div></div>
+  <div class="stat"><div class="num">49</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">23.5</div><div class="label">Weeks</div></div>
   <div class="stat"><div class="num">1</div><div class="label">Clients Live</div></div>
 </div>
 
@@ -202,6 +202,22 @@
   <div class="entry security"><span class="date">Sep 16</span> <span class="msg">extract-prospect: Ported identical failover pattern</span> <span class="hash">707cfcee</span></div>
   <div class="entry security"><span class="date">Sep 16</span> <span class="msg">Routed 6 client-side Anthropic call sites through claude-proxy — eliminated EXPO_PUBLIC_ANTHROPIC_API_KEY exposure</span> <span class="hash">707cfcee</span></div>
   <div class="entry win"><span class="date">Sep 16</span> <span class="msg">Dead code cleanup — removed unused ANTHROPIC_API_KEY from buildingPermitsService.js</span> <span class="hash">707cfcee</span></div>
+</div>
+
+<div class="era-divider">Era 9 — Stability &amp; Reliability Sweep (Sep 22, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 20 · Boot Crash Fixes, Capture Accuracy &amp; Profile Restore</div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Fix TaskQueue infinite loop on exhausted tasks — was freezing app on boot before login</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Fix OAuth sign-in failure — switch PKCE to implicit flow (Hermes lacks WebCrypto)</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry win"><span class="date">Sep 22</span> <span class="msg">AI Scan: card detection tried first with storefront fallback, removed manual mode selector</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Fix PhotoIngest address/POC field mapping — was dumping full address into streetName, dropping contact name</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry decision"><span class="date">Sep 22</span> <span class="msg">Update legal/branding text to O-Kay-est Media LLC, new contact email, bump policy versions to 1.2</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Debounce global GPS updates against AppState thrashing; preserve last-known city/zip instead of resetting on failed geocode</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Throttle task queue processing on app resume to mitigate background ANR (Sentry-confirmed)</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Fix LeadLock ZIP re-acquisition — stale guard prevented re-resolving after moving to a new area</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Restore profile fields from Supabase on empty local storage; fix misleading "profile restored" message</span> <span class="hash">3ce652a3</span></div>
+  <div class="entry win"><span class="date">Sep 22</span> <span class="msg">Cleanup — removed leftover Settings "TABBED" debug badge and dead EXIF-extraction stub</span> <span class="hash">3ce652a3</span></div>
 </div>
 
 </body>

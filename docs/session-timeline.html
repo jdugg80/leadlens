@@ -36,32 +36,41 @@
 <h1>LeadLens — Session Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">227</div><div class="label">Total Commits</div></div>
-  <div class="stat"><div class="num">86</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">68.1</div><div class="label">Total Hours</div></div>
-  <div class="stat"><div class="num">48</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">229</div><div class="label">Total Commits</div></div>
+  <div class="stat"><div class="num">87</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">74.6</div><div class="label">Total Hours</div></div>
+  <div class="stat"><div class="num">49</div><div class="label">Active Days</div></div>
 </div>
 
 <div class="narrative">
-  <h2>Session — Sep 16, 2026</h2>
-  <p><strong>Security: API Key Exposure Remediation</strong></p>
-  <p>This session addressed a critical security issue: <code>EXPO_PUBLIC_ANTHROPIC_API_KEY</code> was compiled into the Android APK in plaintext, extractable by anyone with the binary. Six client-side files called the Anthropic API directly using this exposed key.</p>
+  <h2>Session — Sep 22, 2026</h2>
+  <p><strong>Stability &amp; Reliability Sweep</strong></p>
+  <p>This session started from two boot-blocking bugs reported at the top of the night — an infinite TaskQueue retry loop freezing the app before login, and OAuth sign-in failing outright — and expanded into a broad reliability and accuracy pass once those were resolved, working manually through chat rather than the usual OpenCode briefing workflow.</p>
   <p><strong>What was done:</strong></p>
   <ul>
-    <li><strong>claude-proxy failover</strong> — Added <code>getApiKeys()</code> to the <code>claude-proxy</code> Edge Function with primary key from env + secondary from Supabase Vault (<code>anthropic_api_key_secondary</code> via <code>get_secret</code> RPC). Added <code>RETRYABLE_STATUSES = [429, 500, 502, 503, 529]</code> and 400 usage-limit detection with automatic key switching.</li>
-    <li><strong>extract-prospect failover</strong> — Ported identical failover pattern to <code>extract-prospect</code> Edge Function.</li>
-    <li><strong>Client-side key removal</strong> — Routed 6 direct Anthropic call sites through <code>claude-proxy</code> via <code>supabase.functions.invoke()</code>:
-      <ul>
-        <li><code>multiBusinessDetection.js</code> — vision/image calls</li>
-        <li><code>claudeApi.js</code> — first-choice photo extraction</li>
-        <li><code>businessCardEnricher.js</code> — kept exponential backoff retry wrapper</li>
-        <li><code>healthDepartmentService.js</code> — kept rule-based fallback</li>
-        <li><code>propertyRecordsService.js</code> — kept <code>{ success: false }</code> fallback</li>
-      </ul>
-    </li>
-    <li><strong>Dead code cleanup</strong> — Removed unused <code>ANTHROPIC_API_KEY</code> from <code>buildingPermitsService.js</code>.</li>
+    <li><strong>Boot-blocking fixes</strong> — Exhausted <code>SYNC_ALL_PROSPECTS</code> tasks were never pruned from the queue, looping forever and saturating the JS thread before login; added <code>removeTask()</code> and a session guard. OAuth was failing because <code>flowType: 'pkce'</code> requires <code>crypto.subtle</code>, unavailable in Hermes — switched to <code>implicit</code> flow.</li>
+    <li><strong>GPS/location floods</strong> — Diagnosed rapid <code>AppState</code> active/background thrashing (dozens of transitions/second on device) driving both a GPS update flood and, per Sentry, a likely background ANR; added debounce guards on <code>updateGlobalLocation</code> and <code>processQueue</code>. Also fixed <code>updateGlobalLocation</code> silently overwriting a known-good cached city/zip with a hardcoded Houston/Harris placeholder whenever reverse geocoding failed or hadn't resolved yet at cold boot.</li>
+    <li><strong>Capture accuracy</strong> — Removed <code>PhotoIngestScreen</code>'s manual storefront/card mode toggle in favor of trying card detection first (falls back to storefront) with no user decision required. Found and fixed a real data bug along the way: card-detected addresses were being joined into one string (street+city+state+zip) before normalization, so the splitter dumped the whole blob into <code>streetName</code>; contact names had no path to <code>pocFirst</code>/<code>pocLast</code> at all and were silently dropped.</li>
+    <li><strong>LeadLock ZIP re-acquisition</strong> — A resolved ZIP permanently short-circuited the GPS-driven re-resolve effect for the rest of the screen's life, so a rep moving into a new territory needed to force-close and reopen the app to pick up the new ZIP. Removed the stale guard so the existing coordinate-based dedup key does its job on every GPS update, not just the first.</li>
+    <li><strong>Profile restore on login</strong> — Traced a misleading "Your profile has been restored" message (fired unconditionally regardless of outcome) back to its real cause: profile fields (name, employee #, role, branch) were only ever read from local <code>AsyncStorage</code>, with no fallback to the existing Supabase <code>profiles</code> table despite that table already being written to on onboarding. Added a pull-on-login fallback and corrected the message to reflect what actually happened.</li>
+    <li><strong>Legal &amp; branding</strong> — Privacy Policy and Terms of Use referenced "Joseph Dugger" throughout instead of the LLC; updated all operator/contact references to O-Kay-est Media LLC, new contact email, effective date, and bumped both policy versions to trigger re-acknowledgment.</li>
+    <li><strong>Cleanup</strong> — Removed a leftover "TABBED" debug badge on the Settings header and a dead, no-op EXIF-extraction stub in the gallery import flow.</li>
   </ul>
-  <p><strong>Remaining manual steps:</strong> Rotate the compromised key in Anthropic Console, remove from app.json/eas.json, new EAS build required.</p>
+  <p><strong>Diagnosed but not yet fixed:</strong> a native <code>UnexpectedNativeTypeException: disabled cannot be cast from String to Boolean</code> crash, confirmed via Sentry but not yet localized to a specific screen — needs either React Navigation breadcrumb instrumentation or a live repro session. Territory Manager's 90-day prospect average was found to read live from local storage only, meaning any rep with <code>clearAfterSend</code> enabled on scheduled export has their count history silently corrupted — needs a real design decision (retain-before-delete, source from Supabase instead, or a separate count log) rather than a quick fix.</p>
+</div>
+
+<div class="day">
+  <div class="day-header">Sep 22, 2026</div>
+  <div class="entry bug">Fix TaskQueue infinite loop on exhausted tasks — boot freeze before login <span class="hash">3ce652a3</span></div>
+  <div class="entry bug">Fix OAuth sign-in — PKCE to implicit flow (Hermes lacks WebCrypto) <span class="hash">3ce652a3</span></div>
+  <div class="entry win">AI Scan — card detection first with storefront fallback, removed manual selector <span class="hash">3ce652a3</span></div>
+  <div class="entry bug">Fix PhotoIngest address/POC field mapping into normalizeLead <span class="hash">3ce652a3</span></div>
+  <div class="entry decision">Legal/branding update — O-Kay-est Media LLC, policy versions bumped to 1.2 <span class="hash">3ce652a3</span></div>
+  <div class="entry bug">Debounce global GPS updates; preserve last-known city/zip on failed geocode <span class="hash">3ce652a3</span></div>
+  <div class="entry bug">Throttle task queue on app resume — mitigate background ANR <span class="hash">3ce652a3</span></div>
+  <div class="entry bug">Fix LeadLock ZIP re-acquisition stale guard <span class="hash">3ce652a3</span></div>
+  <div class="entry bug">Restore profile from Supabase on empty local storage; fix misleading restore message <span class="hash">3ce652a3</span></div>
+  <div class="entry win">Cleanup — removed TABBED debug badge and dead EXIF stub <span class="hash">3ce652a3</span></div>
 </div>
 
 <div class="day">
