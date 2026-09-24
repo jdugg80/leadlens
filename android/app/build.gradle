@@ -115,8 +115,8 @@ android {
         applicationId 'com.okaymedia.leadlens'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 67
-        versionName "2.0.67"
+        versionCode 68
+        versionName "2.0.68"
 
         // Sentry DSN injected from EXPO_PUBLIC_SENTRY_DSN env var
         def sentryDsn = System.getenv("EXPO_PUBLIC_SENTRY_DSN") ?: ""
@@ -207,8 +207,9 @@ sentry {
         enabled = false
     }
     // Enable native debug symbol upload for readable stack traces
-    uploadNativeSymbols = true
-    includeNativeSources = true
+    telemetry = false
+    uploadNativeSymbols = false
+    includeNativeSources = false
 }
 
 if (rnVersion < versionToNumber(0, 75, 0)) {
