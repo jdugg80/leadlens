@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, memo, useRef, useMemo } from 'react';
 import { View, Text, FlatList, TouchableOpacity, Switch, StyleSheet, ActivityIndicator, ScrollView, PanResponder, Animated } from 'react-native';
 import Constants from 'expo-constants';
 import { storageBridge as AsyncStorage } from '../utils/storage';
-import { COLORS, LEADS_STORAGE_KEY } from '../constants';
+import { COLORS, LEADS_STORAGE_KEY, AUTO_INTRO_KEY } from '../constants';
 import { searchGooglePlacesByText } from '../utils/nearbySearch';
 import { getCurrentCoords } from '../utils/geoEnrich';
 import { ScreenHeader, FieldInput, PrimaryButton, Card, SectionLabel, SecondaryButton } from '../components/UI';
@@ -268,6 +268,23 @@ export default function BatchReviewScreen({ navigation, route }) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [outreachProspect, setOutreachProspect] = useState(null);
+  const [outreachQueue, setOutreachQueue] = useState([]);
+
+  // Moves to the next reachable prospect in the queue, or returns to
+  // Dashboard once every reachable prospect from this batch has had a
+  // turn. Used for both a successful send and a dismissed prompt — a
+  // dismiss means "not this one," not "abandon reviewing the batch."
+  const advanceOutreachQueue = () => {
+    setOutreachQueue((prevQueue) => {
+      if (prevQueue.length > 0) {
+        setOutreachProspect(prevQueue[0]);
+        return prevQueue.slice(1);
+      }
+      setOutreachProspect(null);
+      navigation.navigate('Dashboard', { user });
+      return [];
+    });
+  };
 
   const [leads, setLeads] = useState(() =>
     initialLeads.map((lead) => ({
@@ -439,14 +456,27 @@ export default function BatchReviewScreen({ navigation, route }) {
     });
 
     const msg = await getStyledMessage('prospectAdded');
+    const reachable = saved.filter((l) => l.email || l.phone);
+
+    // Respect the same "Auto Intro Prompt" setting ReviewScreen.js already
+    // uses for single-lead saves — this applies it to every capture method
+    // (AI Scan, card batch, spreadsheet import) instead of only manual
+    // entry, so the setting means the same thing everywhere in the app.
+    const rawAutoIntro = await AsyncStorage.getItem(AUTO_INTRO_KEY);
+    const autoIntroEnabled = rawAutoIntro === null ? true : rawAutoIntro === 'true';
+
+    if (autoIntroEnabled && reachable.length) {
+      // Jump straight into outreach for every reachable prospect — no
+      // extra tap needed, matching ReviewScreen's auto-prompt behavior.
+      setOutreachQueue(reachable.slice(1));
+      setOutreachProspect(reachable[0]);
+      return;
+    }
+
+    // Auto Intro Prompt is off, or nothing in this batch has contact info —
+    // save quietly with no outreach option, matching "Save quietly and
+    // decide later" from the Settings description.
     showThemedAlert('Batch saved', msg || `${saved.length} prospect(s) added to queue.`, [
-      {
-        text: 'Reach Out',
-        onPress: () => {
-          const firstReachable = saved.find((l) => l.email || l.phone) || saved[0];
-          if (firstReachable) setOutreachProspect(firstReachable);
-        },
-      },
       { text: 'Done', onPress: () => navigation.navigate('Dashboard', { user }) },
     ]);
   };
@@ -564,14 +594,8 @@ export default function BatchReviewScreen({ navigation, route }) {
         visible={!!outreachProspect}
         prospect={outreachProspect}
         user={user}
-        onClose={() => {
-          setOutreachProspect(null);
-          navigation.navigate('Dashboard', { user });
-        }}
-        onSent={() => {
-          setOutreachProspect(null);
-          navigation.navigate('Dashboard', { user });
-        }}
+        onClose={advanceOutreachQueue}
+        onSent={advanceOutreachQueue}
       />
     </View>
   );

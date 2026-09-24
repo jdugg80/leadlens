@@ -248,7 +248,7 @@ const s = StyleSheet.create({
   },
   backArrow: { color: COLORS.chrome, fontSize: 24, marginTop: -2 },
   title: {
-    flex: 1, fontSize: 19, fontWeight: '800',
+    flex: 1, fontSize: 19, fontWeight: '800', lineHeight: 24,
     color: COLORS.text, letterSpacing: 0.5,
   },
   badgeWrap: {

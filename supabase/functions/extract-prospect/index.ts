@@ -28,6 +28,8 @@ async function getApiKeys(): Promise<string[]> {
     keys.push(data as string);
   } else if (error) {
     console.error("extract-prospect: couldn't load secondary key:", error.message);
+  } else {
+    console.warn("extract-prospect: get_secret RPC returned no data for anthropic_api_key_secondary (no error) — secondary key was NOT added to the pool");
   }
 
   return keys;
@@ -89,9 +91,11 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// Strips a data-URI prefix regardless of mime type (image/*, application/pdf,
+// etc.) so the same helper works for both image and PDF payloads.
 function cleanBase64(input?: string | null) {
   if (!input) return null;
-  return input.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+  return input.replace(/^data:[^;]+;base64,/, "");
 }
 
 Deno.serve(async (req) => {
@@ -111,6 +115,7 @@ Deno.serve(async (req) => {
     const {
       imageBase64,
       mimeType = "image/jpeg",
+      pdfBase64,
       text,
       mode = "leadlock",
       context = "",
@@ -119,6 +124,7 @@ Deno.serve(async (req) => {
     const content: any[] = [];
 
     const cleanedImage = cleanBase64(imageBase64);
+    const cleanedPdf = cleanBase64(pdfBase64);
 
     if (cleanedImage) {
       content.push({
@@ -127,6 +133,20 @@ Deno.serve(async (req) => {
           type: "base64",
           media_type: mimeType,
           data: cleanedImage,
+        },
+      });
+    }
+
+    if (cleanedPdf) {
+      // Anthropic's Messages API accepts PDF documents natively as a
+      // "document" content block — Claude reads the PDF directly rather
+      // than needing it pre-converted to images or text on our side.
+      content.push({
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: cleanedPdf,
         },
       });
     }
@@ -164,6 +184,40 @@ Return ONLY valid JSON with this structure (no markdown, no preamble):
   "totalDetected": number,
   "analysisNotes": "string"
 }
+`.trim();
+    } else if (mode === "address-list") {
+      systemPrompt = `
+You are extracting a list of business/prospect addresses from a document
+or image for LeadLens. This may be a screenshot of an email, a list or
+spreadsheet, a scanned page, or a PDF document — it is NOT necessarily a
+single business card or storefront photo. Find and extract EVERY distinct
+address you can identify, no matter how it's formatted or laid out.
+
+Context: ${context}
+
+For each distinct address found, extract:
+1. Business name, if one is associated with the address (leave blank if it's just a bare address with no business name)
+2. The full address exactly as written — include street, city, state, and ZIP if any of them are visible; do not guess or invent missing parts
+
+Return ONLY valid JSON with this structure (no markdown, no preamble):
+{
+  "addresses": [
+    {
+      "businessName": "string, or empty if none given",
+      "address": "string — the full address as written"
+    }
+  ],
+  "totalFound": number
+}
+
+Rules:
+- Do not guess or fabricate any part of an address.
+- Do not merge unrelated entries together — each distinct address is its own array entry.
+- If the same address appears more than once, only include it once.
+- No markdown, no explanations, no preamble — JSON only.
+
+Raw text, if available:
+${text || ""}
 `.trim();
     } else {
       systemPrompt = `

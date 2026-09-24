@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, FlatList, TouchableOpacity,
   StyleSheet, TextInput, ActivityIndicator,
-  KeyboardAvoidingView, Platform, Animated,
+  KeyboardAvoidingView, Platform, Animated, Linking,
 } from 'react-native';
 import { storage as AsyncStorage } from '../utils/storage';
 import * as DocumentPicker from 'expo-document-picker';
@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, LEADS_STORAGE_KEY, SUPABASE_SETTINGS_KEY } from '../constants';
 import { ScreenHeader, Card, SectionLabel, PrimaryButton, SecondaryButton } from '../components/UI';
 import { extractLeadsFromImage } from '../utils/claudeApi';
+import { extractAddressListFromDocument } from '../services/extractProspectAI';
 import { createSupabaseClient } from '../utils/supabaseClient';
 import {
   loadMyZips, saveMyZips, loadSharedTerritories, saveSharedTerritories,
@@ -27,6 +28,11 @@ import { TARGET_LENS_PROFILES_KEY, TARGET_LENS_SEARCH_MODE_KEY } from '../consta
 import { showThemedAlert } from '../components/ThemedAlert';
 import BetaTracker from '../../utils/betaTracker';
 import { parseZipRosterAOA, matchRepZips, getDistinctRepNames } from '../utils/zipRosterImport';
+import {
+  parseAddressListAOA, geocodeAddressEntries, buildLeadFromGeocodedEntry,
+  filterEntriesByTerritory,
+} from '../utils/addressListImport';
+import { getCurrentCoords } from '../utils/geoEnrich';
 
 const TABS = ['Heat Map', 'My ZIPs', 'Leads', 'Team'];
 
@@ -87,7 +93,7 @@ function PulsingZipTile({ item, colors, level }) {
       </Text>
       <Text style={s.heatLeadLabel}>prospects 90d</Text>
       <Text style={[s.heatWeekly, { color: colors.text }]}>
-        {item.weeklyCount || 0} this wk
+        {item.weeklyAvg90d ?? 0}/wk avg
       </Text>
       <Text style={[s.heatLevelLabel, { color: colors.text }]}>
         {getHeatLabel(level)}
@@ -410,6 +416,249 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     }
   };
 
+  // ─── Shared file-type detection for address-list imports ────────────────
+  // Routes a picked file to the right extraction path: Excel/CSV parses
+  // locally; PDFs and images go through Claude document/vision extraction
+  // via extract-prospect's 'address-list' mode. Word docs aren't
+  // supported — Claude has no native .docx input — so the rep is asked
+  // to save/export as PDF first instead.
+
+  const parseAddressSourceFile = async (asset) => {
+    const name = String(asset.name || asset.uri || '').toLowerCase();
+    const mimeType = String(asset.mimeType || '').toLowerCase();
+
+    const isExcelOrCsv = /\.(xlsx|xls|csv)$/.test(name) ||
+      mimeType.includes('spreadsheet') || mimeType.includes('csv') || mimeType.includes('excel');
+    const isPdf = /\.pdf$/.test(name) || mimeType === 'application/pdf';
+    const isImage = mimeType.startsWith('image/') || /\.(png|jpe?g|heic|webp)$/.test(name);
+    const isWordDoc = /\.docx?$/.test(name) || mimeType.includes('word') || mimeType.includes('officedocument.wordprocessingml');
+
+    if (isWordDoc) {
+      throw new Error("Word documents aren't supported yet. Please save or export the file as a PDF first, then import that instead.");
+    }
+
+    if (isExcelOrCsv) {
+      const b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      const wb = read(b64, { type: 'base64' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = utils.sheet_to_json(ws, { header: 1, defval: '' });
+      return parseAddressListAOA(aoa);
+    }
+
+    if (isPdf) {
+      const b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      return await extractAddressListFromDocument({
+        pdfBase64: b64,
+        context: 'Bulk address list import for LeadLens territory/route planning.',
+      });
+    }
+
+    if (isImage) {
+      const b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      return await extractAddressListFromDocument({
+        imageBase64: b64,
+        mimeType: mimeType || 'image/jpeg',
+        context: 'Bulk address list import for LeadLens territory/route planning.',
+      });
+    }
+
+    // Unknown/unset mimeType — try Excel/CSV parsing as a last resort
+    // (some pickers don't set mimeType reliably), then fail clearly.
+    try {
+      const b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      const wb = read(b64, { type: 'base64' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const entries = parseAddressListAOA(aoa);
+      if (entries.length) return entries;
+    } catch (_err) {
+      // fall through to the error below
+    }
+    throw new Error('Unrecognized file type. Please upload an Excel/CSV file, a PDF, or a photo/screenshot.');
+  };
+
+  // ─── Import Addresses for Route (#19) ───────────────────────────────────
+  // Accepts Excel/CSV, PDF, or a photo/screenshot. Filters to this rep's
+  // assigned territory (same as the Opportunities import), geocodes the
+  // matches, adds all successfully-located ones to the Prospect Queue
+  // (they'll need exporting eventually either way), then hands off to
+  // RoutePreviewScreen to plot the route on the map — where the rep can
+  // save it for later or run it now (Google Maps for the actual drive).
+
+  const handleImportRoute = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setLoading(true);
+      setStatusText('Reading file...');
+
+      let entries;
+      try {
+        entries = await parseAddressSourceFile(result.assets[0]);
+      } catch (parseErr) {
+        showThemedAlert('Could not read file', parseErr.message || 'Please check the file and try again.');
+        return;
+      }
+
+      if (!entries.length) {
+        showThemedAlert('No addresses found', 'Could not detect any addresses in this file.');
+        return;
+      }
+
+      const { matched, unmatched } = filterEntriesByTerritory(entries, myZips);
+      if (!matched.length) {
+        const noZipCount = unmatched.filter((e) => !e.zip).length;
+        showThemedAlert(
+          'No matches in your territory',
+          `None of the ${entries.length} address(es) in this file fall within your assigned ZIP codes.${noZipCount ? ` ${noZipCount} had no detectable ZIP in the address text.` : ''}`
+        );
+        return;
+      }
+
+      setStatusText(`Geocoding ${matched.length} matched address(es)...`);
+      const geocoded = await geocodeAddressEntries(matched, ({ current, total }) => {
+        setStatusText(`Geocoding ${current} of ${total}...`);
+      });
+
+      const successful = geocoded.filter((g) => g.success);
+      if (!successful.length) {
+        showThemedAlert('No addresses geocoded', 'None of the addresses in this file could be located. Check the file format and try again.');
+        return;
+      }
+
+      const newLeads = successful.map(buildLeadFromGeocodedEntry);
+      const currentQueue = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
+      await AsyncStorage.setJSON(LEADS_STORAGE_KEY, [...currentQueue, ...newLeads]);
+
+      setStatusText('Finding your location...');
+      const coords = await Promise.race([
+        getCurrentCoords(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]).catch(() => null);
+
+      setLoading(false);
+      setStatusText('');
+
+      const skippedOutOfTerritory = entries.length - matched.length;
+      const failedCount = geocoded.length - successful.length;
+      BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'route_import', screen: 'TerritoryManagerScreen' });
+
+      if (!coords) {
+        showThemedAlert(
+          'Addresses added',
+          `${successful.length} address${successful.length !== 1 ? 'es' : ''} added to your queue.${skippedOutOfTerritory ? ` ${skippedOutOfTerritory} outside your territory skipped.` : ''}${failedCount ? ` ${failedCount} could not be located.` : ''}\n\nCould not get your current location to preview the route.`
+        );
+        return;
+      }
+
+      navigation.navigate('RoutePreview', {
+        stops: successful,
+        startCoords: coords,
+        sourceLabel: `Route Import — ${successful.length} stop${successful.length !== 1 ? 's' : ''}`,
+      });
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Import failed', err.message || 'Could not process the address file.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
+  };
+
+  // ─── Import Territory-Filtered Opportunities (#23) ──────────────────────
+  // Accepts Excel/CSV, PDF, or a photo/screenshot. Filters the parsed list
+  // down to only addresses whose ZIP falls inside this rep's assigned
+  // territory before geocoding — cheaper, and avoids wasting Nominatim
+  // calls on addresses that will be discarded. Matched addresses are
+  // added to the queue, then routing (via RoutePreviewScreen) is offered.
+
+  const handleImportOpportunities = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setLoading(true);
+      setStatusText('Reading file...');
+
+      let entries;
+      try {
+        entries = await parseAddressSourceFile(result.assets[0]);
+      } catch (parseErr) {
+        showThemedAlert('Could not read file', parseErr.message || 'Please check the file and try again.');
+        return;
+      }
+
+      if (!entries.length) {
+        showThemedAlert('No addresses found', 'Could not detect any addresses in this file.');
+        return;
+      }
+
+      const { matched, unmatched } = filterEntriesByTerritory(entries, myZips);
+      if (!matched.length) {
+        const noZipCount = unmatched.filter((e) => !e.zip).length;
+        showThemedAlert(
+          'No matches in your territory',
+          `None of the ${entries.length} address(es) in this file fall within your assigned ZIP codes.${noZipCount ? ` ${noZipCount} had no detectable ZIP in the address text.` : ''}`
+        );
+        return;
+      }
+
+      setStatusText(`Geocoding ${matched.length} matched address(es)...`);
+      const geocoded = await geocodeAddressEntries(matched, ({ current, total }) => {
+        setStatusText(`Geocoding ${current} of ${total}...`);
+      });
+
+      const successful = geocoded.filter((g) => g.success);
+      const newLeads = successful.map(buildLeadFromGeocodedEntry);
+      const currentQueue = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
+      await AsyncStorage.setJSON(LEADS_STORAGE_KEY, [...currentQueue, ...newLeads]);
+
+      setLoading(false);
+      setStatusText('');
+
+      const skippedOutOfTerritory = entries.length - matched.length;
+      BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'opportunity_import', screen: 'TerritoryManagerScreen' });
+      showThemedAlert(
+        'Opportunities added',
+        `${newLeads.length} address${newLeads.length !== 1 ? 'es' : ''} in your territory added to your queue.${skippedOutOfTerritory ? ` ${skippedOutOfTerritory} outside your territory skipped.` : ''}\n\nWould you like to route these too?`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Route Them',
+            onPress: async () => {
+              setLoading(true);
+              setStatusText('Finding your location...');
+              const coords = await Promise.race([
+                getCurrentCoords(),
+                new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+              ]).catch(() => null);
+              setLoading(false);
+              setStatusText('');
+
+              if (!coords) {
+                showThemedAlert('Location unavailable', 'Could not get your current location to build a route.');
+                return;
+              }
+
+              navigation.navigate('RoutePreview', {
+                stops: successful,
+                startCoords: coords,
+                sourceLabel: `Opportunity Route — ${successful.length} stop${successful.length !== 1 ? 's' : ''}`,
+              });
+            },
+          },
+        ]
+      );
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Import failed', err.message || 'Could not process the opportunity file.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
+  };
+
   // ─── Import from Photo/OCR ──────────────────────────────────────────────────
 
   const handleImportPhoto = async () => {
@@ -554,7 +803,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
             <Text style={s.summaryLabel}>Hot ZIPs</Text>
           </View>
         </View>
-        <Text style={s.benchmarkNote}>90-day rolling count · {dailyGoal} prospects/day goal</Text>
+        <Text style={s.benchmarkNote}>90-day rolling count · {dailyGoal}/day goal ({dailyGoal * 7}/wk)</Text>
       </Card>
 
       <TouchableOpacity
@@ -652,6 +901,16 @@ export default function TerritoryManagerScreen({ navigation, route }) {
             <Text style={[s.importLabel, { color: COLORS.danger || '#CC1040' }]}>Remove Other Reps' ZIPs</Text>
           </TouchableOpacity>
         </View>
+        <View style={s.importRow}>
+          <TouchableOpacity style={s.importBtn} onPress={handleImportRoute}>
+            <Text style={s.importIcon}>🗺️</Text>
+            <Text style={s.importLabel}>Import Addresses for Route</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.importBtn} onPress={handleImportOpportunities}>
+            <Text style={s.importIcon}>🎯</Text>
+            <Text style={s.importLabel}>Import Territory Opportunities</Text>
+          </TouchableOpacity>
+        </View>
       </Card>
 
       {myZips.length === 0 ? (
@@ -668,7 +927,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
                 <View style={{ flex: 1 }}>
                   <Text style={s.zipRowCode}>{entry.zip}</Text>
                   {!!entry.notes && <Text style={s.zipRowNotes}>{entry.notes}</Text>}
-                  <Text style={s.zipRowMeta}>{activity?.prospectCount90d || 0} prospects · {activity?.weeklyCount || 0} this wk · Added {new Date(entry.addedAt).toLocaleDateString()}</Text>
+                  <Text style={s.zipRowMeta}>{activity?.prospectCount90d || 0} prospects (90d) · {activity?.weeklyAvg90d ?? 0}/wk avg · Added {new Date(entry.addedAt).toLocaleDateString()}</Text>
                 </View>
                 <TouchableOpacity onPress={() => handleRemoveZip(entry.zip)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={s.zipRemove}>✕</Text>

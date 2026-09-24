@@ -28,7 +28,8 @@ import {
   convertSelectedBusinessesToProspects,
 } from '../utils/multiBusinessDetection';
 import { storageBridge } from '../utils/storage';
-import { LEADS_STORAGE_KEY } from '../constants';
+import { LEADS_STORAGE_KEY, AUTO_INTRO_KEY, USER_STORAGE_KEY } from '../constants';
+import ProspectOutreachModal from '../components/ProspectOutreachModal';
 import { getCurrentCoords, reverseGeocodeCoords } from '../utils/geoEnrich';
 import { checkGooglePlacesApiHealth } from '../utils/nearbySearch';
 import { onTerritoryZipChange } from '../utils/territoryUtils';
@@ -54,6 +55,37 @@ const COLORS_THEME = {
 
 export default function LeadLockCameraScreen({ navigation }) {
   const cameraRef = useRef(null);
+  const [outreachProspect, setOutreachProspect] = useState(null);
+  const [outreachQueue, setOutreachQueue] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // LeadLock doesn't receive route.params.user like other screens — load
+  // it once from storage so ProspectOutreachModal has real rep data for
+  // its email/SMS templates instead of nothing.
+  useEffect(() => {
+    try {
+      const raw = storageBridge.getSync(USER_STORAGE_KEY);
+      if (raw) setCurrentUser(JSON.parse(raw));
+    } catch (err) {
+      console.warn('[LeadLockCamera] Failed to load user for outreach:', err?.message || err);
+    }
+  }, []);
+
+  // Advances to the next reachable prospect in the outreach queue, or
+  // resets the camera once every reachable prospect has had a turn. This
+  // screen stays on itself after a save (no Dashboard navigation), so
+  // "done" means ready for the next capture, not leaving the screen.
+  const advanceOutreachQueue = () => {
+    setOutreachQueue((prevQueue) => {
+      if (prevQueue.length > 0) {
+        setOutreachProspect(prevQueue[0]);
+        return prevQueue.slice(1);
+      }
+      setOutreachProspect(null);
+      resetCamera();
+      return [];
+    });
+  };
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
@@ -729,6 +761,21 @@ export default function LeadLockCameraScreen({ navigation }) {
       if (!mountedRef.current) return;
       showToast(`${prospects.length} prospect${prospects.length !== 1 ? 's' : ''} added to queue.`, 'success');
       stopProcessing();
+
+      // Respect the same "Auto Intro Prompt" setting used everywhere else
+      // in the app — jump straight into outreach for every prospect with
+      // contact info, instead of only offering a manual button (or, here,
+      // nothing at all — LeadLock never had an outreach prompt before).
+      const reachable = prospects.filter((p) => p.email || p.phone);
+      const rawAutoIntro = await storageBridge.getItem(AUTO_INTRO_KEY);
+      const autoIntroEnabled = rawAutoIntro === null ? true : rawAutoIntro === 'true';
+
+      if (autoIntroEnabled && reachable.length) {
+        setOutreachQueue(reachable.slice(1));
+        setOutreachProspect(reachable[0]);
+        return;
+      }
+
       resetCamera();
     } catch (error) {
       console.error('[LeadLock] Queue save error:', error);
@@ -779,17 +826,21 @@ export default function LeadLockCameraScreen({ navigation }) {
         {/* Header — sibling overlay, not a CameraView child (Android camera
             views can misrender complex nested children) */}
         <View style={[s.header, s.headerAbsolute, { paddingTop: insets.top + 12 }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={s.headerText}>←</Text>
-          </TouchableOpacity>
-          <Text style={s.headerTitle}>LeadLock Camera</Text>
-          <Text style={s.headerSubtitle}>Multi-Business Detection</Text>
-          {location?.zip && (
-            <View style={s.zipIndicatorRow}>
-              <Text style={[s.zipIndicatorDot, { color: '#51CF66' }]}>●</Text>
-              <Text style={s.zipIndicatorText}>ZIP {location.zip}</Text>
+          <View style={s.headerTopRow}>
+            <TouchableOpacity onPress={() => navigation.goBack()}>
+              <Text style={s.headerText}>←</Text>
+            </TouchableOpacity>
+            <View style={s.headerTextColumn}>
+              <Text style={s.headerTitle}>LeadLock</Text>
+              <Text style={s.headerSubtitle}>Multi-Business Detection</Text>
+              {location?.zip && (
+                <View style={s.zipIndicatorRow}>
+                  <Text style={[s.zipIndicatorDot, { color: '#51CF66' }]}>●</Text>
+                  <Text style={s.zipIndicatorText}>ZIP {location.zip}</Text>
+                </View>
+              )}
             </View>
-          )}
+          </View>
 
           {/* Reacquire ZIP button — persistent, always visible in the header row */}
           {cameraActive && !detecting && (
@@ -1040,6 +1091,13 @@ export default function LeadLockCameraScreen({ navigation }) {
           </Text>
         </TouchableOpacity>
       </View>
+      <ProspectOutreachModal
+        visible={!!outreachProspect}
+        prospect={outreachProspect}
+        user={currentUser}
+        onClose={advanceOutreachQueue}
+        onSent={advanceOutreachQueue}
+      />
     </View>
   );
 }
@@ -1117,11 +1175,18 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  headerTextColumn: {
+    flex: 1,
+  },
   headerText: {
     color: COLORS_THEME.accent,
     fontSize: 24,
     fontWeight: '700',
-    marginBottom: 8,
   },
   headerTitle: {
     color: COLORS_THEME.text,
@@ -1131,6 +1196,7 @@ const s = StyleSheet.create({
   headerSubtitle: {
     color: COLORS_THEME.muted,
     fontSize: 12,
+    marginTop: 2,
   },
 
   instructions: {

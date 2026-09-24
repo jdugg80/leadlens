@@ -357,8 +357,13 @@ export function buildZipActivity(myZips = [], leads = []) {
   }
 
   // Calculate daily avg from weekly count (÷7) - for backward compatibility
+  const NINETY_DAY_WEEKS = 90 / 7; // ≈12.857 — smooths a 90-day total into
+  // a rolling weekly average, since the raw single-week count is noisy and
+  // can make one slow (or unusually busy) week look misleading compared to
+  // actual sustained pace.
   for (const zip of Object.keys(activity)) {
     activity[zip].dailyAvg = parseFloat((activity[zip].weeklyCount / 7).toFixed(1));
+    activity[zip].weeklyAvg90d = parseFloat((activity[zip].prospectCount90d / NINETY_DAY_WEEKS).toFixed(1));
     // Also set the new heat level based on 90-day count
     activity[zip].heatLevel = getHeatLevelFromProspectCount(activity[zip].prospectCount90d);
   }

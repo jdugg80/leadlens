@@ -64,6 +64,7 @@ import LeadLockCameraScreen       from './src/screens/LeadLockCameraScreen';
 import PhotoIngestScreen          from './src/screens/PhotoIngestScreen';
 import CardGalleryScreen          from './src/screens/CardGalleryScreen';
 import TargetMapAdjusterScreen    from './src/screens/TargetMapAdjusterScreen';
+import RoutePreviewScreen         from './src/screens/RoutePreviewScreen';
 import ProspectQueueScreen        from './src/screens/ProspectQueueScreen';
 import BetaFeedbackScreen         from './src/screens/BetaFeedbackScreen';
 import BetaFeedbackFAB            from './src/components/BetaFeedbackFAB';
@@ -532,6 +533,11 @@ export default function App() {
           <Stack.Screen
             name="TargetMapAdjuster"
             component={TargetMapAdjusterScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="RoutePreview"
+            component={RoutePreviewScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen
