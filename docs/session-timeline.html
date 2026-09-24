@@ -36,27 +36,40 @@
 <h1>LeadLens — Session Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">229</div><div class="label">Total Commits</div></div>
-  <div class="stat"><div class="num">87</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">74.6</div><div class="label">Total Hours</div></div>
-  <div class="stat"><div class="num">49</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">235</div><div class="label">Total Commits</div></div>
+  <div class="stat"><div class="num">88</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">84.5</div><div class="label">Total Hours</div></div>
+  <div class="stat"><div class="num">50</div><div class="label">Active Days</div></div>
 </div>
 
 <div class="narrative">
-  <h2>Session — Sep 22, 2026</h2>
-  <p><strong>Stability &amp; Reliability Sweep</strong></p>
-  <p>This session started from two boot-blocking bugs reported at the top of the night — an infinite TaskQueue retry loop freezing the app before login, and OAuth sign-in failing outright — and expanded into a broad reliability and accuracy pass once those were resolved, working manually through chat rather than the usual OpenCode briefing workflow.</p>
+  <h2>Session — Sep 23, 2026</h2>
+  <p><strong>Territory Tools &amp; Outreach Automation</strong></p>
+  <p>Continuing off the previous night's stability sweep, this session shipped BETA-67, then moved into a broad Territory Manager expansion — team ZIP roster import, a recovery tool for accidental imports, a genuine regression in the support/bug/feature-request email pipeline caught and fixed, outreach queueing that finally reaches every prospect in a batch instead of just the first, and a full bulk address-import feature (Excel, PDF, and photo/screenshot) for route planning and territory-filtered opportunity import.</p>
   <p><strong>What was done:</strong></p>
   <ul>
-    <li><strong>Boot-blocking fixes</strong> — Exhausted <code>SYNC_ALL_PROSPECTS</code> tasks were never pruned from the queue, looping forever and saturating the JS thread before login; added <code>removeTask()</code> and a session guard. OAuth was failing because <code>flowType: 'pkce'</code> requires <code>crypto.subtle</code>, unavailable in Hermes — switched to <code>implicit</code> flow.</li>
-    <li><strong>GPS/location floods</strong> — Diagnosed rapid <code>AppState</code> active/background thrashing (dozens of transitions/second on device) driving both a GPS update flood and, per Sentry, a likely background ANR; added debounce guards on <code>updateGlobalLocation</code> and <code>processQueue</code>. Also fixed <code>updateGlobalLocation</code> silently overwriting a known-good cached city/zip with a hardcoded Houston/Harris placeholder whenever reverse geocoding failed or hadn't resolved yet at cold boot.</li>
-    <li><strong>Capture accuracy</strong> — Removed <code>PhotoIngestScreen</code>'s manual storefront/card mode toggle in favor of trying card detection first (falls back to storefront) with no user decision required. Found and fixed a real data bug along the way: card-detected addresses were being joined into one string (street+city+state+zip) before normalization, so the splitter dumped the whole blob into <code>streetName</code>; contact names had no path to <code>pocFirst</code>/<code>pocLast</code> at all and were silently dropped.</li>
-    <li><strong>LeadLock ZIP re-acquisition</strong> — A resolved ZIP permanently short-circuited the GPS-driven re-resolve effect for the rest of the screen's life, so a rep moving into a new territory needed to force-close and reopen the app to pick up the new ZIP. Removed the stale guard so the existing coordinate-based dedup key does its job on every GPS update, not just the first.</li>
-    <li><strong>Profile restore on login</strong> — Traced a misleading "Your profile has been restored" message (fired unconditionally regardless of outcome) back to its real cause: profile fields (name, employee #, role, branch) were only ever read from local <code>AsyncStorage</code>, with no fallback to the existing Supabase <code>profiles</code> table despite that table already being written to on onboarding. Added a pull-on-login fallback and corrected the message to reflect what actually happened.</li>
-    <li><strong>Legal &amp; branding</strong> — Privacy Policy and Terms of Use referenced "Joseph Dugger" throughout instead of the LLC; updated all operator/contact references to O-Kay-est Media LLC, new contact email, effective date, and bumped both policy versions to trigger re-acknowledgment.</li>
-    <li><strong>Cleanup</strong> — Removed a leftover "TABBED" debug badge on the Settings header and a dead, no-op EXIF-extraction stub in the gallery import flow.</li>
+    <li><strong>Team ZIP roster import</strong> — Parses a headerless, multi-block roster file (repeating ZIP/name column pairs, no headers) by detecting ZIP-shaped columns by content rather than label, matches the logged-in rep's first name, and shows a confirmation before adding anything. A companion "Remove Other Reps' ZIPs" tool recovers from an accidental full-file import without touching prior data.</li>
+    <li><strong>Support/bug/feature email regression</strong> — Traced a months-old silent failure: a June 25 commit had switched <code>BugReportScreen</code> and <code>FeatureRequestScreen</code> from a real email-sending call to a database-only insert (for Roadmap tracking) without preserving the original notification. Restored the email alongside the existing DB write in both screens, and fixed <code>SupportScreen</code>'s general contact form, which turned out to be entirely placeholder code that had never sent anything at all.</li>
+    <li><strong>Outreach queueing</strong> — The "Reach Out" prompt after a batch save only ever offered the first reachable prospect, regardless of how many were saved; now queues every prospect with a phone/email and cycles through them. Extended to LeadLock's save flow, which never had an outreach prompt at all. Both now respect the same "Auto Intro Prompt" setting <code>ReviewScreen</code> already used, applied consistently across every capture method instead of just manual entry.</li>
+    <li><strong>90-day rolling weekly average</strong> — Territory Manager's heat map and ZIP list showed a raw single-week prospect count, which is noisy week to week; added a smoothed 90-day-total-divided-by-weeks average shown against the daily goal ×7.</li>
+    <li><strong>Bulk address import</strong> — New feature accepting Excel/CSV, PDF, or a photo/screenshot of an address list. Extended the <code>extract-prospect</code> Edge Function with native PDF document support (Claude's Messages API accepts PDFs directly) and a new address-list extraction mode. Two entry points: route import (geocodes everything, orders via nearest-neighbor) and territory-filtered opportunity import (keeps only addresses in the rep's assigned ZIPs before geocoding). Both add results to the Prospect Queue and hand off to a new in-app route preview map (pins + route line) with Save for Later and Run Route (Google Maps handoff for the actual drive) — built as a standalone screen for now, planned to fold into <code>TerritoryMapScreen</code> during its future revamp.</li>
   </ul>
-  <p><strong>Diagnosed but not yet fixed:</strong> a native <code>UnexpectedNativeTypeException: disabled cannot be cast from String to Boolean</code> crash, confirmed via Sentry but not yet localized to a specific screen — needs either React Navigation breadcrumb instrumentation or a live repro session. Territory Manager's 90-day prospect average was found to read live from local storage only, meaning any rep with <code>clearAfterSend</code> enabled on scheduled export has their count history silently corrupted — needs a real design decision (retain-before-delete, source from Supabase instead, or a separate count log) rather than a quick fix.</p>
+  <p><strong>Known issue carried forward:</strong> a real PDF-address-list test only matched 2 of roughly a dozen visible addresses against the rep's territory, despite the rep confirming all addresses should have matched — diagnostic logging was added but not yet resolved; needs the actual parsed-entry log output to determine whether this is a PDF-extraction miss or a filtering bug.</p>
+</div>
+
+<div class="day">
+  <div class="day-header">Sep 23, 2026</div>
+  <div class="entry decision">BETA-67 — 2026-09-23 release <span class="hash">d122621c</span></div>
+  <div class="entry win">Territory Manager — Import Team ZIP Roster with rep-name matching and confirm step <span class="hash">4002f109</span></div>
+  <div class="entry win">Territory Manager — Remove Other Reps' ZIPs recovery tool <span class="hash">4002f109</span></div>
+  <div class="entry bug">Fix support/bug/feature-request email regression — restored email alongside DB write <span class="hash">4002f109</span></div>
+  <div class="entry bug">Fix SupportScreen contact form — was entirely placeholder, wired to send-support-ticket <span class="hash">4002f109</span></div>
+  <div class="entry win">Outreach modal now queues every reachable prospect, respects Auto Intro Prompt app-wide <span class="hash">4882a409</span></div>
+  <div class="entry win">Territory Manager — 90-day rolling weekly average vs. daily goal ×7 <span class="hash">4882a409</span></div>
+  <div class="entry win">LeadLock Camera header restructured — arrow + title on one row <span class="hash">4882a409</span></div>
+  <div class="entry bug">Fix ScreenHeader title clipping at larger font scales <span class="hash">4882a409</span></div>
+  <div class="entry win">Bulk address import (Excel/PDF/photo) for route planning and territory-filtered opportunities <span class="hash">4882a409</span></div>
+  <div class="entry win">New RoutePreviewScreen — in-app route map, Save for Later, Run Route, Saved Routes list <span class="hash">4882a409</span></div>
 </div>
 
 <div class="day">

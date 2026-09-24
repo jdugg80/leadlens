@@ -34,11 +34,11 @@
 <h1>LeadLens — Full Project Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">229</div><div class="label">Commits</div></div>
-  <div class="stat"><div class="num">87</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">74.6</div><div class="label">Hours</div></div>
-  <div class="stat"><div class="num">49</div><div class="label">Active Days</div></div>
-  <div class="stat"><div class="num">23.5</div><div class="label">Weeks</div></div>
+  <div class="stat"><div class="num">235</div><div class="label">Commits</div></div>
+  <div class="stat"><div class="num">88</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">84.5</div><div class="label">Hours</div></div>
+  <div class="stat"><div class="num">50</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">23.7</div><div class="label">Weeks</div></div>
   <div class="stat"><div class="num">1</div><div class="label">Clients Live</div></div>
 </div>
 
@@ -218,6 +218,29 @@
   <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Fix LeadLock ZIP re-acquisition — stale guard prevented re-resolving after moving to a new area</span> <span class="hash">3ce652a3</span></div>
   <div class="entry bug"><span class="date">Sep 22</span> <span class="msg">Restore profile fields from Supabase on empty local storage; fix misleading "profile restored" message</span> <span class="hash">3ce652a3</span></div>
   <div class="entry win"><span class="date">Sep 22</span> <span class="msg">Cleanup — removed leftover Settings "TABBED" debug badge and dead EXIF-extraction stub</span> <span class="hash">3ce652a3</span></div>
+</div>
+
+<div class="era-divider">Era 10 — Territory Tools &amp; Outreach Automation (Sep 23, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 21 · BETA-67 Release &amp; Team ZIP Roster Import</div>
+  <div class="entry decision"><span class="date">Sep 23</span> <span class="msg">BETA-67 — 2026-09-23 release</span> <span class="hash">d122621c</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">Territory Manager: Import Team ZIP Roster — matches a multi-block, headerless roster file by rep name with a confirm step</span> <span class="hash">4002f109</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">Territory Manager: Remove Other Reps' ZIPs — recovery tool for an accidental full-file import</span> <span class="hash">4002f109</span></div>
+  <div class="entry bug"><span class="date">Sep 23</span> <span class="msg">Fix long-standing regression — BugReportScreen/FeatureRequestScreen stopped emailing after a June 25 commit switched them to DB-only inserts; restored email alongside Roadmap tracking</span> <span class="hash">4002f109</span></div>
+  <div class="entry bug"><span class="date">Sep 23</span> <span class="msg">Fix SupportScreen contact form — handleSubmit was entirely placeholder code; wired to send-support-ticket for real</span> <span class="hash">4002f109</span></div>
+  <div class="entry bug"><span class="date">Sep 23</span> <span class="msg">send-support-ticket: fix dead "View Ticket" email link — pointed at a mail-only subdomain with a non-existent route</span> <span class="hash">4002f109</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 22 · Outreach Queueing &amp; Bulk Address/Route Import</div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">Outreach modal now queues every reachable prospect after any capture method, respecting the shared Auto Intro Prompt setting app-wide</span> <span class="hash">4882a409</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">Territory Manager: 90-day rolling weekly average (smoothed vs. the noisy single-week snapshot) shown against the daily goal ×7</span> <span class="hash">4882a409</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">LeadLock Camera: header restructured — arrow + title on one row, subtitle/ZIP stacked beneath</span> <span class="hash">4882a409</span></div>
+  <div class="entry bug"><span class="date">Sep 23</span> <span class="msg">Fix ScreenHeader title clipping — missing lineHeight could clip bold text at larger system font scales</span> <span class="hash">4882a409</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">New bulk address import (Excel/CSV, PDF, or photo/screenshot) for route planning and territory-filtered opportunity import, with nearest-neighbor route ordering</span> <span class="hash">4882a409</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">extract-prospect: added native PDF document support and a new address-list extraction mode</span> <span class="hash">4882a409</span></div>
+  <div class="entry win"><span class="date">Sep 23</span> <span class="msg">New RoutePreviewScreen — in-app map plotting with Save for Later / Run Route, plus a Saved Routes list</span> <span class="hash">4882a409</span></div>
 </div>
 
 </body>

@@ -14,6 +14,22 @@
   - `propertyRecordsService.js` — `estimatePropertyRiskWithAI()` (kept `{ success: false }` fallback)
 - **Dead Code Cleanup** — Removed unused `ANTHROPIC_API_URL` and `ANTHROPIC_API_KEY` constants from `buildingPermitsService.js`.
 
+## BETA-68 | 2026-09-24
+
+### 🗺️ Territory Manager — Team ZIP Roster & Bulk Address Import
+- **Import Team ZIP Roster** — Upload a roster file listing every rep's assigned ZIPs (no headers required — detects ZIP/name column pairs by content), matches it to the logged-in rep by first name, and shows a confirmation before adding anything to your territory.
+- **Remove Other Reps' ZIPs** — A companion recovery tool: re-reads a roster file and removes only the ZIPs it attributes to someone else, for undoing an accidental full-roster import without losing your own prior ZIPs.
+- **Import Addresses for Route** — Upload an address list (Excel/CSV, PDF, or a photo/screenshot) to filter it to your assigned territory, geocode every match, add them to your Prospect Queue, and preview an optimized route on an in-app map before running it.
+- **Import Territory Opportunities** — Same idea for a mixed-territory list (e.g., an emailed opportunity list spanning multiple reps' areas): keeps only the addresses inside your assigned ZIPs, adds them to your queue, and offers the same route preview.
+- **Route Preview & Saved Routes** — New in-app map screen shows your route as pins and a connecting line before you drive it; save a route for later or hand off to Google Maps to actually run it. A "Saved Routes" list lets you reopen anything you've saved.
+- **90-Day Weekly Average** — Territory Manager's heat map and ZIP list now show a smoothed 90-day rolling weekly average instead of a noisy single-week snapshot, compared against your daily goal ×7.
+
+### 🐛 Bug Fixes
+- **Support, bug report, and feature request emails are working again** — A commit from several months back had switched bug reports and feature requests to save directly to a database table (for the admin Roadmap view) without keeping the original email notification, so nothing had been emailing you since. Restored the email alongside the existing database save. Also fixed the general Support contact form, which turned out to have never actually sent anything — it was placeholder code left over from before the feature was finished.
+- **The "Reach Out" outreach prompt now covers every prospect in a batch, not just the first** — Previously, saving several prospects with phone numbers or emails at once only ever offered to reach out to the first one; the rest were silently skipped. Now cycles through every reachable prospect. Extended this same prompt to LeadLock's save flow, which never had one before, and made both respect your "Auto Intro Prompt" setting consistently.
+- **Fixed a header text clipping bug** — A missing line-height on bold header titles could clip the tops of letters on some devices/font sizes; affects every screen using the standard header.
+- **Fixed LeadLock Camera's header layout** — The back arrow and "LeadLock" title now sit on the same row as intended, instead of stacked on separate lines.
+
 ## BETA-67 | 2026-09-23
 
 ### 🐛 Bug Fixes — Boot Stability & Crash Prevention
