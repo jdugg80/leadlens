@@ -80,6 +80,7 @@ const EAS_GRAPHQL_URL = 'https://api.expo.dev/graphql';
 
 // ─── Flags ─────────────────────────────────────────────────────────────────
 
+const CLEAR_CACHE   = process.argv.includes('--clear-cache');
 const DRY_RUN       = process.argv.includes('--dry-run');
 const DOWNLOAD_ONLY = process.argv.includes('--download-only');
 const DL_URL_IDX    = DOWNLOAD_ONLY ? process.argv.indexOf('--download-only') : -1;
@@ -288,7 +289,7 @@ function triggerEASBuild() {
   console.log('\n📦 Triggering EAS cloud build (Android)...');
 
   if (DRY_RUN) {
-    dryLog('Would run: eas build --platform android --profile production --non-interactive --json');
+    dryLog(`Would run: eas build --platform android --profile production --non-interactive${CLEAR_CACHE ? ' --clear-cache' : ''} --json`);
     return 'dry-run-build-id-0000';
   }
 
@@ -297,7 +298,7 @@ function triggerEASBuild() {
     let output = '';
     try {
       output = execSync(
-        'eas build --platform android --profile production --non-interactive --json',
+        `eas build --platform android --profile production --non-interactive${CLEAR_CACHE ? ' --clear-cache' : ''} --json`,
         { encoding: 'utf-8', cwd: PROJECT_ROOT, stdio: ['inherit', 'pipe', 'inherit'] }
       );
     } catch (execErr) {
