@@ -1,18 +1,33 @@
-## 2026-07-25
-- Fixed Test — reported by a LeadLens user. Thank you!
+## BETA-69 | 2026-09-25
 
-## SESSION | 2026-09-16
+> Released via Project Scarlett
 
-### 🔐 Security — API Key Exposure Remediation
-- **claude-proxy Failover** — Added `getApiKeys()` to `claude-proxy` Edge Function with primary key from env + secondary from Supabase Vault (`anthropic_api_key_secondary` via `get_secret` RPC). Added `RETRYABLE_STATUSES = [429, 500, 502, 503, 529]` and 400 usage-limit detection with automatic key switching.
-- **extract-prospect Failover** — Ported identical failover pattern to `extract-prospect` Edge Function. Same Vault secret, same retryable status list, same usage-limit detection.
-- **Client-Side Key Removal** — Routed 6 direct Anthropic API call sites through `claude-proxy` via `supabase.functions.invoke()`, eliminating all client-side `EXPO_PUBLIC_ANTHROPIC_API_KEY` exposure:
-  - `multiBusinessDetection.js` — `detectBusinessesWithVision()` and `detectBusinessCardsInPhoto()` (vision/image calls)
-  - `claudeApi.js` — `extractProspectRobust()` (first-choice photo extraction path)
-  - `businessCardEnricher.js` — `enrichBusinessCardWithClaude()` (kept exponential backoff retry wrapper)
-  - `healthDepartmentService.js` — `assessRiskWithClaude()` (kept rule-based fallback)
-  - `propertyRecordsService.js` — `estimatePropertyRiskWithAI()` (kept `{ success: false }` fallback)
-- **Dead Code Cleanup** — Removed unused `ANTHROPIC_API_URL` and `ANTHROPIC_API_KEY` constants from `buildingPermitsService.js`.
+### 🚀 New Features
+- Imported Address Lists: import a named list of addresses (e.g. "CVS") from Excel, CSV, PDF, or photo — view as a toggleable, color-coded layer on the Territory Map, add individual items to the queue as needed
+- Same-Branch ZIP Visibility: see other reps' assigned ZIPs on the Territory Map as a read-only, gray, toggleable layer
+- Prospect Around: from a lead or imported-list address, search a chosen radius (1/5/10mi) for up to 50 nearby businesses, optionally filtered to a specific industry vertical, ranked by distance and active compliance signals, with bulk add-to-queue
+- Territory Manager reorganized into a new "Lists" tab, separating ZIP management from address-list/route imports, with labeled sections and a cleaner layout
+
+### 🔧 Core App
+- LensSignal compliance/health data rebuilt on a real, live pipeline (Houston Health Department), replacing stale placeholder data, refreshed automatically on a rolling schedule
+- LensSignal results are now scoped to the rep's own assigned ZIPs instead of a fixed-radius search from the current map view
+- Nearby-business search now tries Google's Nearby Search API first (cheaper, single call) before falling back to the broader keyword search, and no longer requests pricing-tier fields it doesn't use
+- "Add to Queue" on the general nearby-discovery card now actually works (was a placeholder)
+
+### 🐛 Bug Fixes
+- Fixed LensSignal (compliance/health) map pins being hidden when absorbed into a generic lead cluster
+- Fixed nearby-search results being filtered out entirely due to a race between the map's animation and the active search location
+- Fixed ZIP boundary polygons on the Territory Map not registering taps on Android
+- Fixed a Metro/Android incompatibility (`Modal` component) on the TargetLens profile selector
+- Added an on-screen warning with a one-tap reset when active filters are hiding all search results from the map
+
+### 🏗️ Infrastructure
+- Added a rolling background job that keeps compliance/health signal data fresh across the full ZIP roster without manual re-runs
+- Address geocoding (imports and compliance data) now uses the free Census Bureau geocoder first, with Google Geocoding only as a fallback
+
+### ⚠️ Known Issues
+- New/upcoming business openings (permit-based discovery) is not yet live — still on the roadmap
+- A cold-start session timing issue may intermittently affect ZIP/branch/imported-list data loading; under investigation
 
 ## BETA-68 | 2026-09-24
 
@@ -55,7 +70,18 @@
 - A native crash (`disabled` prop receiving a String instead of Boolean) is confirmed via Sentry but not yet localized to a specific screen.
 - Territory Manager's 90-day prospect activity average reads live from local device storage only; any rep with "clear after send" enabled on scheduled export has their count history silently corrupted once prospects are cleared. Needs a design decision before it can be fixed.
 
-# Changelog
+## SESSION | 2026-09-16
+
+### 🔐 Security — API Key Exposure Remediation
+- **claude-proxy Failover** — Added `getApiKeys()` to `claude-proxy` Edge Function with primary key from env + secondary from Supabase Vault (`anthropic_api_key_secondary` via `get_secret` RPC). Added `RETRYABLE_STATUSES = [429, 500, 502, 503, 529]` and 400 usage-limit detection with automatic key switching.
+- **extract-prospect Failover** — Ported identical failover pattern to `extract-prospect` Edge Function. Same Vault secret, same retryable status list, same usage-limit detection.
+- **Client-Side Key Removal** — Routed 6 direct Anthropic API call sites through `claude-proxy` via `supabase.functions.invoke()`, eliminating all client-side `EXPO_PUBLIC_ANTHROPIC_API_KEY` exposure:
+  - `multiBusinessDetection.js` — `detectBusinessesWithVision()` and `detectBusinessCardsInPhoto()` (vision/image calls)
+  - `claudeApi.js` — `extractProspectRobust()` (first-choice photo extraction path)
+  - `businessCardEnricher.js` — `enrichBusinessCardWithClaude()` (kept exponential backoff retry wrapper)
+  - `healthDepartmentService.js` — `assessRiskWithClaude()` (kept rule-based fallback)
+  - `propertyRecordsService.js` — `estimatePropertyRiskWithAI()` (kept `{ success: false }` fallback)
+- **Dead Code Cleanup** — Removed unused `ANTHROPIC_API_URL` and `ANTHROPIC_API_KEY` constants from `buildingPermitsService.js`.
 
 ## BETA-66 | 2026-08-20
 

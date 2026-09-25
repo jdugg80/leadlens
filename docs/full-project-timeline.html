@@ -34,11 +34,11 @@
 <h1>LeadLens — Full Project Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">235</div><div class="label">Commits</div></div>
-  <div class="stat"><div class="num">88</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">84.5</div><div class="label">Hours</div></div>
-  <div class="stat"><div class="num">50</div><div class="label">Active Days</div></div>
-  <div class="stat"><div class="num">23.7</div><div class="label">Weeks</div></div>
+  <div class="stat"><div class="num">239</div><div class="label">Commits</div></div>
+  <div class="stat"><div class="num">90</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">93.5</div><div class="label">Hours</div></div>
+  <div class="stat"><div class="num">52</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">23.9</div><div class="label">Weeks</div></div>
   <div class="stat"><div class="num">1</div><div class="label">Clients Live</div></div>
 </div>
 
@@ -241,6 +241,61 @@
   <div class="entry win"><span class="date">Sep 23</span> <span class="msg">New bulk address import (Excel/CSV, PDF, or photo/screenshot) for route planning and territory-filtered opportunity import, with nearest-neighbor route ordering</span> <span class="hash">4882a409</span></div>
   <div class="entry win"><span class="date">Sep 23</span> <span class="msg">extract-prospect: added native PDF document support and a new address-list extraction mode</span> <span class="hash">4882a409</span></div>
   <div class="entry win"><span class="date">Sep 23</span> <span class="msg">New RoutePreviewScreen — in-app map plotting with Save for Later / Run Route, plus a Saved Routes list</span> <span class="hash">4882a409</span></div>
+</div>
+
+<div class="era-divider">Era 11 — Build Fix &amp; BETA-68 Release (Sep 24, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 23 · SQLite Vendor Fix &amp; BETA-68 Release</div>
+  <div class="entry decision"><span class="date">Sep 24</span> <span class="msg">Vendor SQLite dependency directly to fix an EAS cloud build failure</span> <span class="hash">2dfba069</span></div>
+  <div class="entry decision"><span class="date">Sep 24</span> <span class="msg">BETA-68 — 2026-09-24 release</span> <span class="hash">0bca2c6c</span></div>
+</div>
+
+<div class="era-divider">Era 12 — Territory Map Overhaul (Sep 25, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 24 · Branch Territory Visibility &amp; Roster Publishing</div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Same-branch ZIP visibility — read-only, color-coded, toggleable layer on the Territory Map</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Publish full branch roster (all reps' ZIPs) so branch-mates show on the map without installing the app</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed removed ZIPs never syncing to the server, so dropped ZIPs kept showing to other reps</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed territoryZipLoader querying the wrong Supabase column (zip vs. zip_code)</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed own-ZIP polygons missing `tappable`, breaking Android taps</span> <span class="hash">07cc4298</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 25 · Compliance/Health Signal Rebuild</div>
+  <div class="entry decision"><span class="date">Sep 25</span> <span class="msg">Diagnosed a dormant/duplicate compliance data pipeline — two overloaded RPCs pointing at two different tables, one populated by a broken function with hardcoded coordinates, the other five stale hand-entered demo rows</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Rebuilt compliance-ingest — real Houston Health Dept data, Census-first/Google-fallback geocoding, fixed pagination cap, correct table target</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Added a rolling-cursor cron to keep compliance signals fresh across the full ZIP roster automatically</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed LensSignal markers getting absorbed into generic lead cluster bubbles, hiding health/compliance pins</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Removed React Native Modal from the TargetLens selector (Android camera/Modal conflict rule)</span> <span class="hash">07cc4298</span></div>
+  <div class="entry decision"><span class="date">Sep 25</span> <span class="msg">Re-scoped LensSignal fetch from a 25-mile radius search to the rep's own assigned ZIPs</span> <span class="hash">07cc4298</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 26 · Imported Address Lists</div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">New private, per-rep named address list feature (e.g. "CVS") — import via spreadsheet, PDF, or photo, server-side geocoded, toggleable map layer, not auto-added to queue</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">New import-address-list Edge Function with Census-first geocoding</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">New "Lists" tab in Territory Manager — reorganized ZIP vs. address-list actions with labeled sections</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Map rendering — toggle chips, markers, detail card with per-item Add to Queue</span> <span class="hash">07cc4298</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 27 · Nearby-Search Cost &amp; Reliability Fixes</div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed Google Places field mask requesting Enterprise-tier fields never used, cutting cost per call</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed invalid 'establishment' type causing every Nearby Search call to silently fail and fall through to a 5x-costlier keyword search</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed invalid maxResultCount (100 vs. Google's actual max of 20)</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed nearby-search results filtering to zero due to a race between the map's animation and the actual search center</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Added an on-screen warning and one-tap reset when active filters are hiding all results from the map</span> <span class="hash">07cc4298</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 28 · Prospect Around</div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">New scoring/dedup utility — ranks nearby businesses by distance and active compliance signal, dedupes against the rep's existing pipeline</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">New vertical picker (6 pest-relevant categories) wired directly into Google's server-side type filter, avoiding a repeat of the client-side-filter bug class found earlier in the same session</span> <span class="hash">07cc4298</span></div>
+  <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Full Prospect Around panel — count, vertical, distance, exclude-already-prospected toggle, scored results, bulk add to queue</span> <span class="hash">07cc4298</span></div>
+  <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed "Add to Queue" on the general nearby-discovery card, which had been a non-functional placeholder</span> <span class="hash">07cc4298</span></div>
+  <div class="entry decision"><span class="date">Sep 25</span> <span class="msg">Cleaned up CHANGELOG.md — removed a leftover test entry, fixed a chronologically misplaced session entry and a stray duplicate header</span> <span class="hash">07cc4298</span></div>
 </div>
 
 </body>

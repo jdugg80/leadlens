@@ -36,25 +36,57 @@
 <h1>LeadLens — Session Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">235</div><div class="label">Total Commits</div></div>
-  <div class="stat"><div class="num">88</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">84.5</div><div class="label">Total Hours</div></div>
-  <div class="stat"><div class="num">50</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">239</div><div class="label">Total Commits</div></div>
+  <div class="stat"><div class="num">90</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">93.5</div><div class="label">Total Hours</div></div>
+  <div class="stat"><div class="num">52</div><div class="label">Active Days</div></div>
 </div>
 
 <div class="narrative">
-  <h2>Session — Sep 23, 2026</h2>
-  <p><strong>Territory Tools &amp; Outreach Automation</strong></p>
-  <p>Continuing off the previous night's stability sweep, this session shipped BETA-67, then moved into a broad Territory Manager expansion — team ZIP roster import, a recovery tool for accidental imports, a genuine regression in the support/bug/feature-request email pipeline caught and fixed, outreach queueing that finally reaches every prospect in a batch instead of just the first, and a full bulk address-import feature (Excel, PDF, and photo/screenshot) for route planning and territory-filtered opportunity import.</p>
+  <h2>Session — Sep 25, 2026</h2>
+  <p><strong>Territory Map Overhaul — Branch Visibility, Live Compliance Data, Imported Lists &amp; Prospect Around</strong></p>
+  <p>The single largest session on this project to date, spanning the full Territory Map revamp originally scoped out and executed start to finish: same-branch ZIP visibility, a ground-up rebuild of the compliance/health signal pipeline onto real live data, a new private per-rep address-list feature, three rounds of nearby-search cost and reliability debugging, and the full "Prospect Around" feature — count, vertical, distance, and compliance-aware scoring, wired to both leads and imported addresses.</p>
   <p><strong>What was done:</strong></p>
   <ul>
-    <li><strong>Team ZIP roster import</strong> — Parses a headerless, multi-block roster file (repeating ZIP/name column pairs, no headers) by detecting ZIP-shaped columns by content rather than label, matches the logged-in rep's first name, and shows a confirmation before adding anything. A companion "Remove Other Reps' ZIPs" tool recovers from an accidental full-file import without touching prior data.</li>
-    <li><strong>Support/bug/feature email regression</strong> — Traced a months-old silent failure: a June 25 commit had switched <code>BugReportScreen</code> and <code>FeatureRequestScreen</code> from a real email-sending call to a database-only insert (for Roadmap tracking) without preserving the original notification. Restored the email alongside the existing DB write in both screens, and fixed <code>SupportScreen</code>'s general contact form, which turned out to be entirely placeholder code that had never sent anything at all.</li>
-    <li><strong>Outreach queueing</strong> — The "Reach Out" prompt after a batch save only ever offered the first reachable prospect, regardless of how many were saved; now queues every prospect with a phone/email and cycles through them. Extended to LeadLock's save flow, which never had an outreach prompt at all. Both now respect the same "Auto Intro Prompt" setting <code>ReviewScreen</code> already used, applied consistently across every capture method instead of just manual entry.</li>
-    <li><strong>90-day rolling weekly average</strong> — Territory Manager's heat map and ZIP list showed a raw single-week prospect count, which is noisy week to week; added a smoothed 90-day-total-divided-by-weeks average shown against the daily goal ×7.</li>
-    <li><strong>Bulk address import</strong> — New feature accepting Excel/CSV, PDF, or a photo/screenshot of an address list. Extended the <code>extract-prospect</code> Edge Function with native PDF document support (Claude's Messages API accepts PDFs directly) and a new address-list extraction mode. Two entry points: route import (geocodes everything, orders via nearest-neighbor) and territory-filtered opportunity import (keeps only addresses in the rep's assigned ZIPs before geocoding). Both add results to the Prospect Queue and hand off to a new in-app route preview map (pins + route line) with Save for Later and Run Route (Google Maps handoff for the actual drive) — built as a standalone screen for now, planned to fold into <code>TerritoryMapScreen</code> during its future revamp.</li>
+    <li><strong>Branch territory visibility</strong> — Same-branch reps' ZIPs now show as a read-only, color-coded, toggleable layer on the map, plus a full-roster publish option so branch-mates show up even if they haven't installed the app. Found and fixed along the way: removed ZIPs were never syncing off the server (so dropped ZIPs kept showing to other reps), a stale column name in territoryZipLoader, and missing `tappable` on ZIP polygons breaking Android taps.</li>
+    <li><strong>Compliance/health signal rebuild</strong> — Diagnosed a genuinely tangled dormant pipeline: two overloaded database functions with the same name pointing at two different tables, one fed by a broken ingest function that hardcoded every record to the same coordinates, the other holding five stale hand-entered demo rows mistaken for live data. Rebuilt the real ingest path end to end — actual Houston Health Department data, Census Bureau geocoding tried first (free) with Google as a paid fallback, a pagination bug fixed, and a rolling-cursor cron job added so the data now refreshes automatically across the full ZIP roster without manual re-runs. Also fixed LensSignal map pins getting silently absorbed into generic lead-cluster bubbles, removed a React Native `Modal` component that violated the project's Android camera-conflict rule, and re-scoped the whole signal fetch from an arbitrary 25-mile radius to the rep's own assigned ZIPs.</li>
+    <li><strong>Imported Address Lists</strong> — New feature: a rep can import a named list of addresses (e.g. every "CVS" in their territory) from a spreadsheet, PDF, or photo, geocoded server-side via a new Edge Function, shown as a private, toggleable, color-coded map layer that never auto-adds anything to the queue — items get added individually, on demand, from a detail card. Territory Manager gained a new "Lists" tab to hold this alongside the existing route/opportunity imports, replacing a single overcrowded tab with labeled sections.</li>
+    <li><strong>Nearby-search cost and reliability</strong> — Three separate rounds of live-device debugging converged on real fixes: a Google Places field mask was requesting pricing-tier fields nothing used, an invalid legacy-API type value ('establishment') was silently failing every cheaper Nearby Search call and forcing a fallback to a 5x-costlier keyword search every time, a result-count parameter exceeded Google's actual limit, and a race between the map's animation and the real search center was zeroing out valid results. Also found and fixed two silent-filter incidents live with the user (a leftover "signals only" toggle and an unrelated business-type filter each independently zeroing a search with no visible explanation), which led to a new on-screen warning with a one-tap filter reset whenever active filters are hiding a search's results from the map.</li>
+    <li><strong>Prospect Around</strong> — The session's headline feature: from a lead or an imported-list address, a rep can search a chosen radius for a chosen number of businesses, optionally scoped to one of six pest-relevant industry verticals (deliberately filtered server-side via Google's own place types, not as a client-side post-filter, to avoid repeating the exact silent-zero-result bug class found earlier in the same session), ranked by distance and by whether the business already has an active compliance signal, with an "exclude already-prospected" toggle and bulk add-to-queue. Along the way, found and fixed a pre-existing "Coming Soon" placeholder — the general nearby-discovery card's "Add to Queue" button had never actually worked — and built one shared queue-write implementation used by both it and the new feature.</li>
+    <li><strong>Housekeeping</strong> — Cleaned up CHANGELOG.md (a leftover test entry, a session entry sitting in the wrong chronological position, a stray duplicate header) and ran this project's session-lockdown routine for the first time this session, surfacing and backfilling a previously undocumented gap (the Sep 24 SQLite build fix and BETA-68 release, below).</li>
   </ul>
-  <p><strong>Known issue carried forward:</strong> a real PDF-address-list test only matched 2 of roughly a dozen visible addresses against the rep's territory, despite the rep confirming all addresses should have matched — diagnostic logging was added but not yet resolved; needs the actual parsed-entry log output to determine whether this is a PDF-extraction miss or a filtering bug.</p>
+  <p><strong>Known issue carried forward:</strong> an intermittent cold-start session-timing issue was observed live on device — Territory Map RPC calls occasionally return "permission denied" early in the boot sequence, traced to the app's Supabase session not yet being established at that point (confirmed the grants themselves are correct via a direct authenticated RPC call). Not yet root-caused as a reproducible app bug versus normal boot timing; needs monitoring.</li>
+</div>
+
+<div class="day">
+  <div class="day-header">Sep 25, 2026</div>
+  <div class="entry win">Same-branch ZIP visibility layer, full roster publishing <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed removed ZIPs never syncing to the server <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed territoryZipLoader querying the wrong Supabase column <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed own-ZIP polygons missing tappable, breaking Android taps <span class="hash">07cc4298</span></div>
+  <div class="entry decision">Diagnosed a dormant/duplicate compliance data pipeline (two overloaded RPCs, two tables) <span class="hash">07cc4298</span></div>
+  <div class="entry win">Rebuilt compliance-ingest on real Houston Health Dept data, Census-first geocoding <span class="hash">07cc4298</span></div>
+  <div class="entry win">Added rolling-cursor cron to keep compliance signals fresh automatically <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed LensSignal pins getting absorbed into lead cluster bubbles <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Removed a Modal component from TargetLens selector (Android camera conflict) <span class="hash">07cc4298</span></div>
+  <div class="entry decision">Re-scoped LensSignal fetch from 25mi radius to the rep's assigned ZIPs <span class="hash">07cc4298</span></div>
+  <div class="entry win">New Imported Address Lists feature — spreadsheet/PDF/photo import, server-side geocoded, private toggleable map layer <span class="hash">07cc4298</span></div>
+  <div class="entry win">New import-address-list Edge Function <span class="hash">07cc4298</span></div>
+  <div class="entry win">New "Lists" tab in Territory Manager <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed Google Places field mask requesting unused Enterprise-tier fields <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed invalid 'establishment' type silently failing every Nearby Search call <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed invalid maxResultCount exceeding Google's actual limit <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed nearby-search results zeroing out from a map-animation race condition <span class="hash">07cc4298</span></div>
+  <div class="entry win">Added on-screen warning + one-tap reset when filters hide all map results <span class="hash">07cc4298</span></div>
+  <div class="entry win">New Prospect Around feature — scoring, vertical picker, full panel, bulk queue add <span class="hash">07cc4298</span></div>
+  <div class="entry bug">Fixed non-functional "Add to Queue" placeholder on the nearby-discovery card <span class="hash">07cc4298</span></div>
+  <div class="entry decision">Cleaned up CHANGELOG.md structure and chronology <span class="hash">07cc4298</span></div>
+</div>
+
+<div class="day">
+  <div class="day-header">Sep 24, 2026</div>
+  <div class="entry decision">Vendor SQLite dependency directly to fix an EAS cloud build failure <span class="hash">2dfba069</span></div>
+  <div class="entry decision">BETA-68 — 2026-09-24 release <span class="hash">0bca2c6c</span></div>
 </div>
 
 <div class="day">
