@@ -23,6 +23,7 @@ import {
   matchLeadsToTerritory, syncTerritoryToSupabase, fetchSharedTerritories,
   fetchMyTerritoryFromSupabase,
   normalizeZipEntry, isValidZip, getHeatLabel,
+  deleteTerritoryZipsFromSupabase, publishBranchRoster,
 } from '../utils/territoryUtils';
 import { TARGET_LENS_PROFILES_KEY, TARGET_LENS_SEARCH_MODE_KEY } from '../constants';
 import { showThemedAlert } from '../components/ThemedAlert';
@@ -34,7 +35,7 @@ import {
 } from '../utils/addressListImport';
 import { getCurrentCoords } from '../utils/geoEnrich';
 
-const TABS = ['Heat Map', 'My ZIPs', 'Leads', 'Team'];
+const TABS = ['Heat Map', 'My ZIPs', 'Lists', 'Leads', 'Team'];
 
 function PulsingZipTile({ item, colors, level }) {
   const pulse = useRef(new Animated.Value(1)).current;
@@ -120,6 +121,8 @@ export default function TerritoryManagerScreen({ navigation, route }) {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const [pendingListEntries, setPendingListEntries] = useState(null); // parsed, unnamed import awaiting a list name
+  const [listNameInput, setListNameInput] = useState('');
 
   // TargetLens State
   const [activeProfileLabel, setActiveProfileLabel] = useState('Pest Control');
@@ -160,7 +163,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     })();
   }, []));
 
-  const refreshData = async (zips, rawLeads = leads) => {
+  const refreshData = async (zips, rawLeads = leads, removedZips = []) => {
     setMyZips(zips);
     setZipActivity(buildZipActivity(zips, rawLeads));
     setMatchedLeads(matchLeadsToTerritory(rawLeads, zips));
@@ -172,6 +175,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       const supabase = createSupabaseClient(settings);
       if (supabase) {
         await syncTerritoryToSupabase(supabase, user, zips);
+        if (removedZips.length) {
+          await deleteTerritoryZipsFromSupabase(supabase, removedZips);
+        }
         console.log('[Territory] Auto-sync successful');
       }
     } catch (err) {
@@ -211,7 +217,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
           console.log('[Territory] Removing zip:', zip, '- Updated list:', updated.map(z => z.zip).join(', '));
           await saveMyZips(updated);
           console.log('[Territory] Zips saved after removal');
-          await refreshData(updated);
+          await refreshData(updated, leads, [zip]);
         },
       },
     ]);
@@ -349,6 +355,74 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     }
   };
 
+  // ─── Publish full roster so same-branch reps appear on the map (read-only) ──
+
+  const handlePublishBranchRoster = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setLoading(true);
+      setStatusText('Reading roster...');
+
+      const b64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const wb = read(b64, { type: 'base64' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      const entries = parseZipRosterAOA(aoa);
+      if (!entries.length) {
+        showThemedAlert('No roster data found', 'Could not detect any ZIP/rep name pairs in this file.');
+        return;
+      }
+
+      const zipCount = new Set(entries.map((e) => e.zip)).size;
+      const repCount = getDistinctRepNames(entries).length;
+
+      showThemedAlert(
+        'Publish Branch Roster',
+        `Share ${zipCount} ZIP${zipCount !== 1 ? 's' : ''} across ${repCount} rep${repCount !== 1 ? 's' : ''} with reps in your branch? They will see these as read-only gray areas on the Territory Map. This replaces any roster already published for your branch.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Publish',
+            onPress: async () => {
+              setLoading(true);
+              setStatusText('Publishing roster...');
+              try {
+                const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+                const settings = raw ? JSON.parse(raw) : null;
+                const supabase = createSupabaseClient(settings);
+                const res = await publishBranchRoster(supabase, user, entries);
+                if (res.ok) {
+                  BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'publish_branch_roster', screen: 'TerritoryManagerScreen' });
+                  showThemedAlert('Roster published', `${res.count} ZIP assignment${res.count !== 1 ? 's' : ''} are now visible to your branch.`);
+                } else if (res.reason === 'no-branch') {
+                  showThemedAlert('Branch number missing', 'Your profile has no branch number, so the roster cannot be scoped to a branch. Add it in your profile and try again.');
+                } else {
+                  showThemedAlert('Publish failed', res.reason || 'Could not publish the roster.');
+                }
+              } catch (pubErr) {
+                showThemedAlert('Publish failed', pubErr?.message || 'Could not publish the roster.');
+              } finally {
+                setLoading(false);
+                setStatusText('');
+              }
+            },
+          },
+        ]
+      );
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Import failed', err.message || 'Could not read roster file.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
+  };
+
   // ─── Remove ZIPs belonging to other reps (recovery from a bad full-file import) ──
 
   const handleCleanupOtherRepZips = async () => {
@@ -400,7 +474,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
               const removeSet = new Set(toRemove.map(z => z.zip));
               const updated = myZips.filter(z => !removeSet.has(z.zip));
               await saveMyZips(updated);
-              await refreshData(updated);
+              await refreshData(updated, leads, [...removeSet]);
               BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'cleanup_other_rep_zips', screen: 'TerritoryManagerScreen' });
               showThemedAlert('Cleanup complete', `${toRemove.length} ZIP(s) removed.`);
             },
@@ -475,6 +549,131 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       // fall through to the error below
     }
     throw new Error('Unrecognized file type. Please upload an Excel/CSV file, a PDF, or a photo/screenshot.');
+  };
+
+  // ─── Import Address List (map-only, private "CVS"-style lists) ─────────
+  // Unlike Import Addresses for Route / Import Territory Opportunities above,
+  // this does NOT filter to the rep's assigned ZIPs (a national-account list may
+  // legitimately include addresses outside current territory) and does NOT add
+  // anything to the Prospect Queue automatically -- it's purely a toggleable map
+  // layer. A rep adds individual items to the queue later, from the map, as needed.
+  // Reuses parseAddressSourceFile as-is, so Excel/CSV, PDF, and photo imports all
+  // work here for free, exactly like the two flows above.
+
+  const handleImportAddressList = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled) return;
+
+      setLoading(true);
+      setStatusText('Reading file...');
+
+      let entries;
+      try {
+        entries = await parseAddressSourceFile(result.assets[0]);
+      } catch (parseErr) {
+        showThemedAlert('Could not read file', parseErr.message || 'Please check the file and try again.');
+        return;
+      }
+
+      if (!entries.length) {
+        showThemedAlert('No addresses found', 'Could not detect any addresses in this file.');
+        return;
+      }
+
+      // Parsed successfully -- now ask what to call this list (per the confirmed
+      // flow: name comes AFTER parsing, not before picking the file).
+      setPendingListEntries(entries);
+      setListNameInput('');
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Import failed', err.message || 'Could not read address file.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
+  };
+
+  const handleConfirmListImport = async () => {
+    const name = listNameInput.trim();
+    const entries = pendingListEntries;
+    if (!name) {
+      showThemedAlert('Name required', 'Give this list a name (e.g. "CVS") before importing.');
+      return;
+    }
+    if (!entries || !entries.length) {
+      setPendingListEntries(null);
+      return;
+    }
+
+    setPendingListEntries(null);
+    setLoading(true);
+    setStatusText(`Importing "${name}"...`);
+
+    try {
+      const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+      const settings = raw ? JSON.parse(raw) : null;
+      const supabase = createSupabaseClient(settings);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (sessionError || !accessToken) {
+        showThemedAlert('Not signed in', 'Could not verify your session. Please sign in again and retry.');
+        return;
+      }
+      if (!settings?.url) {
+        showThemedAlert('Import failed', 'Supabase URL not found in settings.');
+        return;
+      }
+
+      const rows = entries.map((e) => ({
+        businessName: e.businessName || '',
+        address: e.rawAddress || '',
+      }));
+
+      const MAX_ROWS_PER_CALL = 500; // matches the Edge Function's own cap
+      let totalInserted = 0, totalCensus = 0, totalGoogle = 0, totalFailed = 0;
+
+      for (let i = 0; i < rows.length; i += MAX_ROWS_PER_CALL) {
+        const chunk = rows.slice(i, i + MAX_ROWS_PER_CALL);
+        setStatusText(`Importing "${name}"... ${i + chunk.length} of ${rows.length}`);
+
+        const res = await fetch(`${settings.url}/functions/v1/import-address-list`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ listName: name, rows: chunk }),
+        });
+        const resultJson = await res.json().catch(() => null);
+
+        if (!res.ok || !resultJson?.ok) {
+          showThemedAlert(
+            'Import incomplete',
+            `${totalInserted} of ${rows.length} address(es) imported before an error: ${resultJson?.error || `HTTP ${res.status}`}`
+          );
+          return;
+        }
+
+        totalInserted += resultJson.inserted || 0;
+        totalCensus += resultJson.geocodedViaCensus || 0;
+        totalGoogle += resultJson.geocodedViaGoogle || 0;
+        totalFailed += resultJson.geocodeFailed || 0;
+      }
+
+      BetaTracker.track('feature_use', { feature: 'TerritoryManager', action: 'import_address_list', screen: 'TerritoryManagerScreen' });
+      showThemedAlert(
+        'List imported',
+        `${totalInserted} address${totalInserted !== 1 ? 'es' : ''} added to "${name}".${totalFailed ? ` ${totalFailed} could not be located and were skipped.` : ''} Toggle it on from the Territory Map to view.`
+      );
+    } catch (err) {
+      BetaTracker.crash('TerritoryManagerScreen', err);
+      showThemedAlert('Import failed', err.message || 'Could not import this list.');
+    } finally {
+      setLoading(false);
+      setStatusText('');
+    }
   };
 
   // ─── Import Addresses for Route (#19) ───────────────────────────────────
@@ -879,6 +1078,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
+        <Text style={s.sectionLabel}>Import ZIPs</Text>
         <View style={s.importRow}>
           <TouchableOpacity style={s.importBtn} onPress={handleImportSpreadsheet}>
             <Text style={s.importIcon}>📊</Text>
@@ -889,26 +1089,22 @@ export default function TerritoryManagerScreen({ navigation, route }) {
             <Text style={s.importLabel}>Import from Photo</Text>
           </TouchableOpacity>
         </View>
+
+        <Text style={s.sectionLabel}>Team & Branch</Text>
         <View style={s.importRow}>
           <TouchableOpacity style={s.importBtn} onPress={handleImportZipRoster}>
             <Text style={s.importIcon}>👥</Text>
             <Text style={s.importLabel}>Import Team ZIP Roster</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.importBtn} onPress={handlePublishBranchRoster}>
+            <Text style={s.importIcon}>📡</Text>
+            <Text style={s.importLabel}>Publish Roster to Branch Map</Text>
           </TouchableOpacity>
         </View>
         <View style={s.importRow}>
           <TouchableOpacity style={[s.importBtn, { borderColor: COLORS.danger || '#CC1040' }]} onPress={handleCleanupOtherRepZips}>
             <Text style={s.importIcon}>🧹</Text>
             <Text style={[s.importLabel, { color: COLORS.danger || '#CC1040' }]}>Remove Other Reps' ZIPs</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={s.importRow}>
-          <TouchableOpacity style={s.importBtn} onPress={handleImportRoute}>
-            <Text style={s.importIcon}>🗺️</Text>
-            <Text style={s.importLabel}>Import Addresses for Route</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.importBtn} onPress={handleImportOpportunities}>
-            <Text style={s.importIcon}>🎯</Text>
-            <Text style={s.importLabel}>Import Territory Opportunities</Text>
           </TouchableOpacity>
         </View>
       </Card>
@@ -944,6 +1140,75 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         disabled={syncing}
         style={{ marginTop: 16 }}
       />
+    </View>
+  );
+
+  const renderLists = () => (
+    <View>
+      <Card>
+        <Text style={s.sectionLabel}>Route & Territory Imports</Text>
+        <Text style={s.sectionHint}>
+          These add matched addresses straight to your Prospect Queue.
+        </Text>
+        <View style={s.importRow}>
+          <TouchableOpacity style={s.importBtn} onPress={handleImportRoute}>
+            <Text style={s.importIcon}>🗺️</Text>
+            <Text style={s.importLabel}>Import Addresses for Route</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.importBtn} onPress={handleImportOpportunities}>
+            <Text style={s.importIcon}>🎯</Text>
+            <Text style={s.importLabel}>Import Territory Opportunities</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[s.sectionLabel, { marginTop: 18 }]}>Named Address Lists</Text>
+        <Text style={s.sectionHint}>
+          Import a list (e.g. "CVS") to view as a toggleable layer on the Territory Map. Nothing is added to your queue automatically -- add individual addresses from the map as needed.
+        </Text>
+        <View style={s.importRow}>
+          <TouchableOpacity style={s.importBtn} onPress={handleImportAddressList}>
+            <Text style={s.importIcon}>🏬</Text>
+            <Text style={s.importLabel}>Import Address List (e.g. CVS)</Text>
+          </TouchableOpacity>
+        </View>
+      </Card>
+
+      {/* Name-this-list prompt -- a plain absolute-positioned overlay, NOT React
+          Native's Modal component (project-wide rule: no Modal anywhere in the app,
+          see TerritoryMapScreen's TargetLens selector for the same pattern). */}
+      {!!pendingListEntries && (
+        <View style={s.namePromptOverlay} pointerEvents="box-none">
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            activeOpacity={1}
+            onPress={() => setPendingListEntries(null)}
+          />
+          <View style={s.namePromptCard}>
+            <Text style={s.namePromptTitle}>Name this list</Text>
+            <Text style={s.namePromptSubtitle}>
+              {pendingListEntries.length} address{pendingListEntries.length !== 1 ? 'es' : ''} found. This name is how you'll toggle it on the map later.
+            </Text>
+            <TextInput
+              style={s.namePromptInput}
+              value={listNameInput}
+              onChangeText={setListNameInput}
+              placeholder='e.g. "CVS"'
+              placeholderTextColor={COLORS.muted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleConfirmListImport}
+            />
+            <View style={s.namePromptActions}>
+              <TouchableOpacity style={s.namePromptCancelBtn} onPress={() => setPendingListEntries(null)}>
+                <Text style={s.namePromptCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.namePromptConfirmBtn} onPress={handleConfirmListImport}>
+                <Text style={s.namePromptConfirmText}>Import</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 
@@ -1007,6 +1272,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         {activeTab === 'Heat Map' && renderHeatMap()}
         {activeTab === 'My ZIPs' && renderMyZips()}
+        {activeTab === 'Lists' && renderLists()}
         {activeTab === 'Leads' && renderLeads()}
         {activeTab === 'Team' && renderTeam()}
       </ScrollView>
@@ -1100,6 +1366,18 @@ const s = StyleSheet.create({
   },
   importIcon: { fontSize: 22 },
   importLabel: { color: COLORS.muted, fontSize: 11, textAlign: 'center' },
+  sectionLabel: { color: COLORS.textDim, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  sectionHint: { color: COLORS.muted, fontSize: 11, marginBottom: 10, lineHeight: 15 },
+  namePromptOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 300, elevation: 300, padding: 24 },
+  namePromptCard: { width: '100%', maxWidth: 400, backgroundColor: COLORS.surface, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: COLORS.borderLit },
+  namePromptTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  namePromptSubtitle: { color: COLORS.muted, fontSize: 12, marginBottom: 14 },
+  namePromptInput: { backgroundColor: COLORS.surface2, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 14, paddingVertical: 12, color: COLORS.text, fontSize: 15, marginBottom: 16 },
+  namePromptActions: { flexDirection: 'row', gap: 10 },
+  namePromptCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border },
+  namePromptCancelText: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+  namePromptConfirmBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: COLORS.accent },
+  namePromptConfirmText: { color: '#000', fontSize: 14, fontWeight: '800' },
 
   zipCount: { color: COLORS.muted, fontSize: 11, marginTop: 14, marginBottom: 6, letterSpacing: 0.5 },
   zipRow: {

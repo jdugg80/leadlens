@@ -251,13 +251,13 @@ function normalizeGoogleLegacyPlace(place) {
   };
 }
 
-async function searchGooglePlacesLegacy({ center, radiusMeters, label = 'legacy', apiKey: keyOverride }) {
+async function searchGooglePlacesLegacy({ center, radiusMeters, label = 'legacy', apiKey: keyOverride, type = 'establishment' }) {
   const apiKey = getGoogleMapsKey(keyOverride);
   if (!apiKey) return [];
 
   try {
     const endpoint = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
-    const url = `${endpoint}?location=${center.latitude},${center.longitude}&radius=${radiusMeters}&type=establishment&key=${apiKey}`;
+    const url = `${endpoint}?location=${center.latitude},${center.longitude}&radius=${radiusMeters}&type=${encodeURIComponent(type)}&key=${apiKey}`;
 
     console.log(`[NearbySearch] [${label}] API request to legacy endpoint.`);
 
@@ -285,7 +285,9 @@ async function searchGooglePlacesNew({ center, radiusMeters, includedTypes = [],
 
   try {
     const body = {
-      maxResultCount: 100,
+      // Google's Nearby Search (New) only accepts 1-20 here; the old value of 100
+      // was invalid and Google would have rejected or silently clamped it.
+      maxResultCount: 20,
     };
 
     body.locationRestriction = {
@@ -301,9 +303,13 @@ async function searchGooglePlacesNew({ center, radiusMeters, includedTypes = [],
     if (includedTypes.length > 0) {
       body.includedTypes = includedTypes;
       body.rankPreference = 'DISTANCE';
-    } else {
-      body.includedTypes = ['establishment'];
     }
+    // else: deliberately omit includedTypes. 'establishment' (used here previously)
+    // is a legacy Places API pseudo-type with no equivalent in Places API (New) --
+    // sending it causes a 400 "Unsupported types" error on every call. Google's own
+    // docs are explicit: "If this parameter is omitted, places of all types are
+    // returned," which is exactly the "everything nearby" behavior this needs when
+    // no specific vertical is requested.
 
     const endpoint = 'https://places.googleapis.com/v1/places:searchNearby';
 
@@ -369,7 +375,15 @@ export async function searchGooglePlacesByText({ query, center, radiusMeters = 5
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': apiKey,
         'X-Goog-FieldMask':
-          'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.types,places.businessStatus,places.primaryType,places.googleMapsUri,places.websiteUri,places.internationalPhoneNumber,places.rating,places.userRatingCount,places.regularOpeningHours,places.addressComponents',
+          // Enterprise-tier fields (rating, userRatingCount, regularOpeningHours,
+          // internationalPhoneNumber, websiteUri) were removed on purpose: they bumped
+          // this whole call from the $32/1,000 Pro tier to the $35/1,000 Enterprise
+          // tier, for data nothing reads at this stage -- fetchPlaceDetails() already
+          // fetches those same fields on-demand, per-place, when a rep actually taps
+          // into a specific business. Bulk-fetching them for all ~100 candidates was
+          // pure waste. Re-add a field here only if something starts reading it
+          // directly off the bulk search results (check normalizeGoogleNewPlace).
+          'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.location,places.types,places.businessStatus,places.primaryType,places.googleMapsUri,places.addressComponents',
       },
       body: JSON.stringify(body),
     });
@@ -527,6 +541,7 @@ export async function searchNearbyBusinesses({
   center,
   userLocation,
   radiusMeters = 1500,
+  includedTypes = [],
   apiKey: keyOverride,
 } = {}) {
   const searchCenter = getCenter(userLocation || { latitude, longitude, region, center });
@@ -553,23 +568,17 @@ export async function searchNearbyBusinesses({
   for (const radius of radii) {
     console.log(`[NearbySearch] Attempting discovery at ${radius}m...`);
 
-    // 1. Try Google Text Search (Highest Success Rate with restricted keys)
-    const textResults = [];
-    for (const query of TEXT_QUERIES) {
-       const batch = await searchGooglePlacesByText({ query, center: searchCenter, radiusMeters: radius, apiKey: keyOverride });
-       if (batch) textResults.push(...batch);
-       if (textResults.length >= 100) break;
-    }
-    if (textResults.length > 0) {
-      finalResults = deduplicatePlaces(textResults);
-      console.log(`[NearbySearch] Found ${finalResults.length} via Google Text Search.`);
-      break;
-    }
-
-    // 2. Try Google Places New
+    // Nearby Search tried FIRST: one call, natively covers "everything nearby" via
+    // includedTypes=['establishment'] with no keyword approximation needed, and was
+    // already requesting a cheaper field set than Text Search. A prior version of this
+    // function made Text Search primary, noting better reliability "with restricted
+    // keys" -- if that's still true for this key, this falls through to Text Search
+    // automatically below exactly as before; nothing about that fallback changed.
+    // 1. Try Google Places New (Nearby Search)
     const newResults = await searchGooglePlacesNew({
       center: searchCenter,
       radiusMeters: radius,
+      includedTypes,
       label: 'new-api',
       apiKey: keyOverride,
     });
@@ -580,12 +589,32 @@ export async function searchNearbyBusinesses({
       break;
     }
 
-    // 3. Try Google Places Legacy
+    // 2. Fall back to Google Text Search -- but ONLY when no specific vertical was
+    // requested. Text Search is keyword-based, not type-based, so it has no way to
+    // honor includedTypes -- falling through to it with a vertical selected would
+    // silently return generic results instead of respecting the rep's choice.
+    if (includedTypes.length === 0) {
+      const textResults = [];
+      for (const query of TEXT_QUERIES) {
+         const batch = await searchGooglePlacesByText({ query, center: searchCenter, radiusMeters: radius, apiKey: keyOverride });
+         if (batch) textResults.push(...batch);
+         if (textResults.length >= 100) break;
+      }
+      if (textResults.length > 0) {
+        finalResults = deduplicatePlaces(textResults);
+        console.log(`[NearbySearch] Found ${finalResults.length} via Google Text Search.`);
+        break;
+      }
+    }
+
+    // 3. Try Google Places Legacy -- honors the first requested type if a vertical
+    // was specified (the legacy API only supports a single `type` param, not a list)
     const legacyResults = await searchGooglePlacesLegacy({
       center: searchCenter,
       radiusMeters: radius,
       label: 'legacy-api',
       apiKey: keyOverride,
+      type: includedTypes[0] || 'establishment',
     });
     if (legacyResults && legacyResults.length > 0) {
       finalResults = deduplicatePlaces(legacyResults);
@@ -593,7 +622,9 @@ export async function searchNearbyBusinesses({
       break;
     }
 
-    // 4. Try OSM at this radius before giving up on Google completely
+    // 4. Try OSM at this radius before giving up on Google completely -- note this
+    // tier has no type-filtering ability at all, so if a vertical was requested and
+    // discovery falls all the way here, results may not match the requested vertical.
     const osmAtRadius = await searchOpenStreetMapOverpass({ center: searchCenter, radiusMeters: radius });
     if (osmAtRadius.length > 0) {
       finalResults = osmAtRadius;

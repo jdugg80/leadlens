@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ActivityIndicator,
-  TouchableOpacity, ScrollView, Linking, Modal, AppState, TextInput,
+  TouchableOpacity, ScrollView, Linking, AppState, TextInput,
 } from 'react-native';
 import MapView, { Polygon, Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -76,6 +76,10 @@ const _toNormalizedZipEntry = (entry, defaults = {}) => {
 };
 
 import { loadTerritoryZipMarkersFallback } from '../utils/territoryZipLoader';
+import { loadBranchLayer } from '../utils/branchTerritories';
+import { loadImportedListSummaries, loadImportedListItems, markImportedItemQueued } from '../utils/importedLists';
+import { PROSPECT_VERTICALS, getProspectVerticalById } from '../config/prospectVerticals';
+import { scoreProspectResults, buildExistingProspectKeys, dedupeAgainstExisting } from '../utils/prospectAroundScoring';
 import { subscribeProspects } from '../utils/prospectRealtimeSubscription';
 import { useFocusEffect } from '@react-navigation/native';
 import { storageBridge as AsyncStorage } from '../utils/storage';
@@ -138,6 +142,11 @@ import BetaTracker from '../../utils/betaTracker';
 
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 const MAP_SAFE_MODE = true;
+// Read-only layer showing ZIPs assigned to other reps in the same branch. Set false to disable entirely.
+const ENABLE_BRANCH_LAYER = true;
+// Branch ZIP colors. Darker slate so it stays visible on the light Google map; tweak here.
+const BRANCH_ZIP_STROKE = '#5B6478';
+const BRANCH_ZIP_FILL = '#5B647845';
 
 export default function TerritoryMapScreen({ navigation, route }) {
   const { isProcessing: globalProcessing } = useProcessing();
@@ -163,7 +172,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [selectedNearbyIds, setSelectedNearbyIds] = useState([]);
   const getNearbyPlaceId = (p) => p?.placeId || p?.place_id || p?.id;
-  const addSelectedNearbyToQueue = () => showThemedAlert("Coming Soon", "Batch adding from map will be available shortly.");
+  // addSelectedNearbyToQueue's real implementation is defined further down (function-
+  // hoisted, like refreshBranchLayer/toggleImportedList) since it needs state and
+  // helpers (nearbyPlaces, leads, writeLeadsToQueue) declared later in this component.
   const [searchingNearby, setSearchingNearby] = useState(false);
   const [showNearby, setShowNearby] = useState(false);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
@@ -335,6 +346,21 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [lensSignalRecords, setLensSignalRecords] = useState([]);
   const [loadingLensSignal, setLoadingLensSignal] = useState(false);
   const [selectedLensSignalRecord, setSelectedLensSignalRecord] = useState(null);
+  const [importedLists, setImportedLists] = useState([]); // [{id,name,color,itemCount}]
+  const [activeImportedListIds, setActiveImportedListIds] = useState(() => new Set());
+  const [importedListItemsByListId, setImportedListItemsByListId] = useState({}); // listId -> items[]
+  const [selectedImportedItem, setSelectedImportedItem] = useState(null); // { item, list }
+
+  // ── Prospect Around ──────────────────────────────────────────────────────────
+  const [prospectAroundTarget, setProspectAroundTarget] = useState(null); // { latitude, longitude, label }
+  const [prospectAroundCount, setProspectAroundCount] = useState(15);
+  const [prospectAroundVerticalId, setProspectAroundVerticalId] = useState('any');
+  const [prospectAroundRadiusMiles, setProspectAroundRadiusMiles] = useState(5);
+  const [prospectAroundExcludeProspected, setProspectAroundExcludeProspected] = useState(true);
+  const [prospectAroundResults, setProspectAroundResults] = useState([]);
+  const [prospectAroundSelectedIds, setProspectAroundSelectedIds] = useState(() => new Set());
+  const [prospectAroundLoading, setProspectAroundLoading] = useState(false);
+  const [prospectAroundSearched, setProspectAroundSearched] = useState(false); // distinguishes "never run" from "ran, found 0"
   const [leads, setLeads] = useState([]);
   const [leadMarkers, setLeadMarkers] = useState([]);
   const [subscribedProspects, setSubscribedProspects] = useState([]);
@@ -346,8 +372,18 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [searchMarker, setSearchMarker] = useState(null);
   const autocompleteTimerRef = useRef(null);
   const lastFetchedCoordsRef = useRef({ lat: 0, lng: 0 });
+  // Tracks the center actually used for the last nearby-places search -- NOT the live
+  // `region` state. The map's `moveMapTo` animation and `region` updating from
+  // `onRegionChangeComplete` can lag behind (or simply not have fired yet) when a
+  // Places search resolves, which was causing every result to be measured against a
+  // stale map center and filtered out as "too far away" even when Google had already
+  // scoped the search correctly around the real target.
+  const lastNearbySearchCenterRef = useRef(null);
   const initialLocationAppliedRef = useRef(false);
   const [clusters, setClusters] = useState([]);
+  const [branchMarkers, setBranchMarkers] = useState([]);
+  const [showBranchZips, setShowBranchZips] = useState(true);
+  const myZipSetRef = useRef(new Set());
 
   useEffect(() => { BetaTracker.screen('TerritoryMapScreen'); }, []);
 
@@ -581,6 +617,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         }
       } else if (!cancelled) {
         await refreshLeadData();
+        refreshBranchLayer();
       }
     })();
 
@@ -589,24 +626,21 @@ export default function TerritoryMapScreen({ navigation, route }) {
     };
   }, [refreshLeadData]));
 
+  // LensSignal is ZIP-scoped, not region-scoped -- panning the map no longer changes
+  // what should be fetched, only WHICH ZIPs the rep is assigned changes that. Refetch
+  // whenever that set changes (add/remove a ZIP in Territory Manager), debounced a
+  // little so rapid successive ZIP edits don't each fire their own request.
   useEffect(() => {
-    if (isAppActive && !loading && region?.latitude && Math.abs(region.latitude) > 0.1) {
-      const dist = getDistanceBetweenMeters({ latitude: region.latitude, longitude: region.longitude }, { latitude: lastFetchedCoordsRef.current.lat, longitude: lastFetchedCoordsRef.current.lng });
-      if (lastFetchedCoordsRef.current.lat === 0) {
-        lastFetchedCoordsRef.current = { lat: region.latitude, lng: region.longitude };
-        fetchLensSignals(region.latitude, region.longitude);
-      } else if (dist && dist > 1800) {
-        if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current);
-        signalFetchTimerRef.current = setTimeout(() => {
-          if (!loadingRef.current && isAppActive) {
-            lastFetchedCoordsRef.current = { lat: region.latitude, lng: region.longitude };
-            fetchLensSignals(region.latitude, region.longitude);
-          }
-        }, 2000);
-      }
+    if (!isAppActive || territoryZipCodes.length === 0) {
+      if (territoryZipCodes.length === 0) setLensSignalRecords([]);
+      return;
     }
+    if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current);
+    signalFetchTimerRef.current = setTimeout(() => {
+      if (isAppActive) fetchLensSignals(territoryZipCodes);
+    }, 400);
     return () => { if (signalFetchTimerRef.current) clearTimeout(signalFetchTimerRef.current); };
-  }, [loading, region.latitude, region.longitude, isAppActive]);
+  }, [isAppActive, JSON.stringify(territoryZipCodes)]);
 
   useEffect(() => {
     (async () => {
@@ -844,6 +878,11 @@ export default function TerritoryMapScreen({ navigation, route }) {
         console.warn('[TerritoryMap] WARNING:', zipEntriesToRender.length, 'ZIPs loaded but 0 rendered - getZipBounds may be failing');
       }
       setZipMarkers(finalZipMarkers);
+      myZipSetRef.current = new Set(
+        [...uniqueMyZips.map((z) => z.zip), ...finalZipMarkers.map((m) => m.zip)].filter(Boolean)
+      );
+      refreshBranchLayer({ force: true });
+      refreshImportedListSummaries({ force: true });
       if (finalZipMarkers.length > 0 && !silent) {
         fitMapToZipMarkers(finalZipMarkers);
       }
@@ -853,13 +892,221 @@ export default function TerritoryMapScreen({ navigation, route }) {
       if (!silent) setLoading(false);
       loadingRef.current = false;
       const safeFetchRegion = regionRef.current || region || DEFAULT_TERRITORY_REGION;
-      if (isAppActive && lastFetchedCoordsRef.current.lat === 0 && safeFetchRegion?.latitude && Math.abs(safeFetchRegion.latitude) > 0.1) {
-        console.log('[TerritoryMap] loadMap complete; performing initial lens signal fetch', { region: safeFetchRegion });
-        lastFetchedCoordsRef.current = { lat: safeFetchRegion.latitude, lng: safeFetchRegion.longitude };
-        fetchLensSignals(safeFetchRegion.latitude, safeFetchRegion.longitude);
-      }
+      // LensSignal fetch is handled by the territoryZipCodes-driven effect now, not
+      // here -- it fires correctly whether territoryZipCodes populates before or after
+      // loadMap finishes, and calling both risked a duplicate fetch.
     }
     return false;
+  }
+
+  // Read-only same-branch ZIP layer. Best-effort: any failure leaves the layer empty.
+  async function refreshBranchLayer({ force = false } = {}) {
+    if (!ENABLE_BRANCH_LAYER) return;
+    try {
+      const result = await loadBranchLayer({
+        supabase,
+        user,
+        myZips: Array.from(myZipSetRef.current),
+        force,
+      });
+      if (result?.ok) {
+        setBranchMarkers(result.markers || []);
+        console.log('[TerritoryMap] Branch layer:', (result.markers || []).length, 'of', result.total, 'ZIPs', result.truncated ? '(truncated)' : '');
+      } else if (result?.reason) {
+        console.log('[TerritoryMap] Branch layer unavailable:', result.reason);
+        setBranchMarkers([]);
+      }
+    } catch (err) {
+      console.warn('[TerritoryMap] Branch layer refresh failed:', err?.message || String(err));
+    }
+  }
+
+  async function refreshImportedListSummaries({ force = false } = {}) {
+    try {
+      const result = await loadImportedListSummaries(supabase, { force });
+      if (result?.ok) {
+        setImportedLists(result.lists || []);
+      } else if (result?.reason) {
+        console.log('[TerritoryMap] Imported lists unavailable:', result.reason);
+      }
+    } catch (err) {
+      console.warn('[TerritoryMap] Imported lists refresh failed:', err?.message || String(err));
+    }
+  }
+
+  // Toggling a chip ON lazy-loads that list's items (only fetched once per list,
+  // cached after); toggling OFF just hides them, no need to re-fetch on re-enable.
+  async function toggleImportedList(listId) {
+    setActiveImportedListIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(listId)) next.delete(listId);
+      else next.add(listId);
+      return next;
+    });
+
+    const alreadyLoaded = !!importedListItemsByListId[listId];
+    if (!alreadyLoaded) {
+      const result = await loadImportedListItems(supabase, listId);
+      if (result?.ok) {
+        setImportedListItemsByListId((prev) => ({ ...prev, [listId]: result.items || [] }));
+      } else {
+        console.warn('[TerritoryMap] Could not load list items:', listId, result?.reason);
+      }
+    }
+  }
+
+  // ── Shared queue-write helper ────────────────────────────────────────────────
+  // Used by both addSelectedNearbyToQueue (bulk, generic discovery) and Prospect
+  // Around's bulk add -- one implementation, matching the same storageBridge
+  // read/append/write pattern LeadLockCameraScreen's handleAddToQueue already uses.
+  async function writeLeadsToQueue(newLeads) {
+    if (!newLeads || !newLeads.length) return { count: 0 };
+    let currentQueue = [];
+    try {
+      const raw = AsyncStorage.getSync(LEADS_STORAGE_KEY);
+      if (raw) currentQueue = JSON.parse(raw);
+      if (!Array.isArray(currentQueue)) currentQueue = [];
+    } catch (e) {
+      console.warn('[TerritoryMap] Queue read error, starting fresh:', e?.message || String(e));
+      currentQueue = [];
+    }
+    const updatedQueue = [...currentQueue, ...newLeads];
+    await AsyncStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updatedQueue));
+    return { count: newLeads.length };
+  }
+
+  // Shapes a raw Nearby Search / Prospect Around result into a queue-ready lead,
+  // reusing parseBusinessAddress the same way the single-item LensSignal add does.
+  function buildLeadFromNearbyPlace(p, { captureMethod = 'NearbySearch', source = 'Google Places' } = {}) {
+    const addressSource = p.address || p.fullAddress || '';
+    const parsedAddress = parseBusinessAddress(addressSource);
+    const matchedSignal = p._matchedSignal || p.lensSignal || null;
+    return {
+      businessName: p.name || p.businessName || 'Nearby Business',
+      streetNumber: parsedAddress.streetNumber || '',
+      streetName: parsedAddress.streetName || addressSource,
+      addressLine2: parsedAddress.addressLine2 || '',
+      city: parsedAddress.city || '',
+      state: parsedAddress.state || '',
+      zip: parsedAddress.zip || '',
+      latitude: p.coordinate?.latitude ?? p.coords?.latitude ?? null,
+      longitude: p.coordinate?.longitude ?? p.coords?.longitude ?? null,
+      status: 'New',
+      vertical: 'Other',
+      captureMethod,
+      source,
+      propertyType: 'Commercial',
+      googlePlaceId: p.placeId || p.place_id || '',
+      phone: p.phone || '',
+      website: p.website || '',
+      lens_signal_id: matchedSignal?.id || undefined,
+      lensSignal: matchedSignal || undefined,
+    };
+  }
+
+  // Real implementation of the generic "discovered businesses" bulk add -- this was
+  // a "Coming Soon" stub before; Prospect Around needed the same capability, so both
+  // now share writeLeadsToQueue/buildLeadFromNearbyPlace instead of each getting a
+  // separate implementation.
+  async function addSelectedNearbyToQueue() {
+    const selected = nearbyPlaces.filter((p) => selectedNearbyIds.includes(getNearbyPlaceId(p)));
+    if (!selected.length) return;
+    try {
+      const newLeads = selected.map((p) => buildLeadFromNearbyPlace(p, { captureMethod: 'NearbySearch', source: 'Google Places' }));
+      const { count } = await writeLeadsToQueue(newLeads);
+      setSelectedNearbyIds([]);
+      BetaTracker.track('feature_use', { feature: 'TerritoryMap', action: 'nearby_batch_add_to_queue', screen: 'TerritoryMapScreen' });
+      showThemedAlert('Added to Queue', `${count} prospect${count !== 1 ? 's' : ''} added to your queue.`);
+    } catch (e) {
+      console.warn('[TerritoryMap] addSelectedNearbyToQueue failed:', e?.message || String(e));
+      showThemedAlert('Error', 'Could not add the selected businesses to the queue.');
+    }
+  }
+
+  // ── Prospect Around ──────────────────────────────────────────────────────────
+  // target: { latitude, longitude, label } -- the lead or imported-list address the
+  // rep is prospecting around. Opened from a detail card's "Prospect Around" button.
+  function handleOpenProspectAround(target) {
+    setProspectAroundTarget(target);
+    setProspectAroundCount(15);
+    setProspectAroundVerticalId('any');
+    setProspectAroundRadiusMiles(5);
+    setProspectAroundExcludeProspected(true);
+    setProspectAroundResults([]);
+    setProspectAroundSelectedIds(new Set());
+    setProspectAroundSearched(false);
+  }
+
+  function handleCloseProspectAround() {
+    setProspectAroundTarget(null);
+  }
+
+  async function handleRunProspectAround() {
+    if (!prospectAroundTarget) return;
+    setProspectAroundLoading(true);
+    setProspectAroundSearched(true);
+    try {
+      const vertical = getProspectVerticalById(prospectAroundVerticalId);
+      const radiusMeters = Math.min(prospectAroundRadiusMiles * 1609.34, 50000);
+      const origin = { latitude: prospectAroundTarget.latitude, longitude: prospectAroundTarget.longitude };
+
+      const raw = await searchNearbyBusinesses({
+        center: origin,
+        radiusMeters,
+        includedTypes: vertical.includedTypes,
+        apiKey: GOOGLE_MAPS_API_KEY,
+      });
+      const withCoordinate = (raw || []).map((p) => ({ ...p, coordinate: p.coordinate || p.coords }));
+
+      let candidates = withCoordinate;
+      if (prospectAroundExcludeProspected) {
+        const existingKeys = buildExistingProspectKeys([...(leads || []), ...(subscribedProspects || [])]);
+        candidates = dedupeAgainstExisting(candidates, existingKeys);
+      }
+
+      const scored = scoreProspectResults(candidates, {
+        origin,
+        radiusMiles: prospectAroundRadiusMiles,
+        lensSignalRecords,
+      });
+
+      const limited = scored.slice(0, Math.max(1, prospectAroundCount));
+      setProspectAroundResults(limited);
+      setProspectAroundSelectedIds(new Set(limited.map((p) => getNearbyPlaceId(p))));
+      BetaTracker.track('feature_use', { feature: 'TerritoryMap', action: 'prospect_around_search', screen: 'TerritoryMapScreen' });
+    } catch (e) {
+      console.warn('[TerritoryMap] Prospect Around search failed:', e?.message || String(e));
+      showThemedAlert('Search failed', 'Could not search this area. Please try again.');
+    } finally {
+      setProspectAroundLoading(false);
+    }
+  }
+
+  function toggleProspectAroundResult(id) {
+    setProspectAroundSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleAddProspectAroundSelectedToQueue() {
+    const selected = prospectAroundResults.filter((p) => prospectAroundSelectedIds.has(getNearbyPlaceId(p)));
+    if (!selected.length) return;
+    try {
+      const newLeads = selected.map((p) => buildLeadFromNearbyPlace(p, {
+        captureMethod: 'ProspectAround',
+        source: `Prospect Around: ${prospectAroundTarget?.label || 'Lead'}`,
+      }));
+      const { count } = await writeLeadsToQueue(newLeads);
+      BetaTracker.track('feature_use', { feature: 'TerritoryMap', action: 'prospect_around_add_to_queue', screen: 'TerritoryMapScreen' });
+      showThemedAlert('Added to Queue', `${count} prospect${count !== 1 ? 's' : ''} added to your queue.`);
+      setProspectAroundTarget(null);
+    } catch (e) {
+      console.warn('[TerritoryMap] Prospect Around add to queue failed:', e?.message || String(e));
+      showThemedAlert('Error', 'Could not add the selected prospects to the queue.');
+    }
   }
 
   // Refetch ZIP boundaries when the territory mode changes so the polygon layer is rebuilt fresh
@@ -900,17 +1147,25 @@ export default function TerritoryMapScreen({ navigation, route }) {
     return unsubscribe;
   }, [mode, user?.id, JSON.stringify(territoryZipCodes), JSON.stringify(filters.prospectStatus), JSON.stringify(filters.leadSource), JSON.stringify(filters.serviceType)]);
 
-  const fetchLensSignals = async (lat, lng) => {
+  // Territory-scoped: only ZIPs the rep is actually assigned to, never a nearby
+  // signal that happens to fall within some radius of wherever the map is centered.
+  const fetchLensSignals = async (zips) => {
     if (!isAppActive) {
       console.log('[TerritoryMap] fetchLensSignals skipped because app is not active');
       return;
     }
+    const zipList = Array.isArray(zips) ? zips.filter(Boolean) : [];
+    if (zipList.length === 0) {
+      console.log('[TerritoryMap] fetchLensSignals skipped: no assigned ZIPs yet');
+      setLensSignalRecords([]);
+      return;
+    }
     setLoadingLensSignal(true);
     try {
-      console.log('[TerritoryMap] Fetching signals near', { lat, lng, radius: '25mi' });
-      const rpcName = 'get_lenssignal_nearby';
+      console.log('[TerritoryMap] Fetching signals for', zipList.length, 'assigned ZIPs');
+      const rpcName = 'get_lenssignal_by_zips';
       console.log('[TerritoryMap] Calling RPC:', rpcName);
-      const { data, error } = await supabase.rpc(rpcName, { p_latitude: lat, p_longitude: lng, p_radius_miles: 25 });
+      const { data, error } = await supabase.rpc(rpcName, { p_zips: zipList });
       const records = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
       console.log('[TerritoryMap] RPC response type:', typeof data, 'records length:', records.length);
       if (error) {
@@ -1115,30 +1370,66 @@ export default function TerritoryMapScreen({ navigation, route }) {
         signals: { lensSignal: !!sig, contactSignal: !!p.contactSignal, pest: !!sig?.pest_indicator, opening: (sig?.signal_layer || sig?.signal_type) === 'Opening Signal', priority: sig?.alert_level === 'Priority Review' },
         matchScore,
       };
-    }).filter(p => {
-      if (!p || !p.coordinate || !filters) return false;
+    }).filter((p, idx) => {
+      // TEMP DIAGNOSTIC (idx === 0 only, so this doesn't spam 20+ log lines per
+      // computation) -- shows exactly which check drops the first place, since
+      // "rawNearby: N, safeNearby: 0" has persisted even with a confirmed-correct
+      // search origin. Remove once the real cause is found and fixed.
+      const trace = idx === 0;
+      if (trace) {
+        const origin = lastNearbySearchCenterRef.current || (region?.latitude && region?.longitude ? region : null);
+        const dist = origin ? distanceInMiles(origin.latitude, origin.longitude, p?.coordinate?.latitude, p?.coordinate?.longitude) : null;
+        console.log('[TerritoryMap][TRACE] first place:', {
+          name: p?.name || p?.establishment_name,
+          coordinate: p?.coordinate,
+          origin,
+          distanceMiles: dist,
+          radiusMiles: filters?.radiusMiles,
+          businessType: p?.businessType,
+          filterBusinessType: filters?.businessType,
+          statuses: filters?.statuses,
+          pStatus: p?.status,
+          rating: parseFloat(p?.rating || p?.google_rating || p?.user_rating_total),
+          minRating: filters?.minRating,
+          signals: p?.signals,
+          filterSignals: filters?.signals,
+          signalsOnly: filters?.signalsOnly,
+          matchScore: p?.matchScore,
+          matchStrength: filters?.matchStrength,
+          contactCompleteness: filters?.contactCompleteness,
+          activityWindow: filters?.activityWindow,
+        });
+      }
+      if (!p || !p.coordinate || !filters) { if (trace) console.log('[TerritoryMap][TRACE] rejected: no p / no coordinate / no filters'); return false; }
       const statuses = Array.isArray(filters.statuses) ? filters.statuses : ['All'];
       if (!statuses.includes('All')) {
         const pStatus = (p.status || 'Suspect').toString();
-        if (!statuses.includes(pStatus)) return false;
+        if (!statuses.includes(pStatus)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: status', pStatus, 'not in', statuses); return false; }
       }
-      if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) return false;
-      if (filters.radiusMiles && filters.radiusMiles > 0 && region?.latitude && region?.longitude) {
-        const d = distanceInMiles(region.latitude, region.longitude, p.coordinate.latitude, p.coordinate.longitude);
-        if (d > filters.radiusMiles) return false;
+      if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) { if (trace) console.log('[TerritoryMap][TRACE] rejected: businessType', p.businessType, '!=', filters.businessType); return false; }
+      if (filters.radiusMiles && filters.radiusMiles > 0) {
+        // Prefer the real search center over `region`, which can lag behind an
+        // animated map move and cause every result to look "too far away" right
+        // after a fresh search -- see lastNearbySearchCenterRef above.
+        const origin = lastNearbySearchCenterRef.current || (region?.latitude && region?.longitude ? region : null);
+        if (origin) {
+          const d = distanceInMiles(origin.latitude, origin.longitude, p.coordinate.latitude, p.coordinate.longitude);
+          if (d > filters.radiusMiles) { if (trace) console.log('[TerritoryMap][TRACE] rejected: distance', d, '>', filters.radiusMiles); return false; }
+        }
       }
       const rating = parseFloat(p.rating || p.google_rating || p.user_rating_total);
-      if (filters.minRating && rating < filters.minRating) return false;
-      if (!matchesContactCompleteness(p, filters.contactCompleteness)) return false;
-      if (!matchesActivityWindow(p, filters.activityWindow)) return false;
+      if (filters.minRating && rating < filters.minRating) { if (trace) console.log('[TerritoryMap][TRACE] rejected: rating', rating, '<', filters.minRating); return false; }
+      if (!matchesContactCompleteness(p, filters.contactCompleteness)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: contactCompleteness', filters.contactCompleteness); return false; }
+      if (!matchesActivityWindow(p, filters.activityWindow)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: activityWindow', filters.activityWindow); return false; }
       if (filters.newSinceLastScan && lastScanTimeRef.current) {
         const t = new Date(p.created_at || p.updated_at || p.scanned_at).getTime();
-        if (!isFinite(t) || t <= lastScanTimeRef.current) return false;
+        if (!isFinite(t) || t <= lastScanTimeRef.current) { if (trace) console.log('[TerritoryMap][TRACE] rejected: newSinceLastScan'); return false; }
       }
       if (filters.signalsOnly || Object.values(filters.signals || {}).some(v => !v)) {
-        if (!matchesSignals(p.signals, filters.signals)) return false;
+        if (!matchesSignals(p.signals, filters.signals)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: signals', p.signals, 'vs filter', filters.signals); return false; }
       }
-      if (!matchesMatchStrength(p.matchScore, filters.matchStrength)) return false;
+      if (!matchesMatchStrength(p.matchScore, filters.matchStrength)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: matchStrength', p.matchScore, 'vs', filters.matchStrength); return false; }
+      if (trace) console.log('[TerritoryMap][TRACE] PASSED all checks');
       return true;
     });
   }, [nearbyPlaces, lensSignalRecords, filters, activeProfile, region]);
@@ -1165,23 +1456,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const points = [];
       filteredLeadMarkers.forEach(l => { if (l?.coords && isFinite(l.coords.longitude) && isFinite(l.coords.latitude)) points.push({ type: 'Feature', properties: { cluster: false, lead: l, isLead: true }, geometry: { type: 'Point', coordinates: [l.coords.longitude, l.coords.latitude] } }); });
       if (showNearby) safeNearbyPlaces.forEach(p => { if (p?.coordinate && isFinite(p.coordinate.longitude) && isFinite(p.coordinate.latitude)) points.push({ type: 'Feature', properties: { cluster: false, place: p, isNearby: true }, geometry: { type: 'Point', coordinates: [p.coordinate.longitude, p.coordinate.latitude] } }); });
-      if (filters.signals?.lensSignal && Array.isArray(lensSignalRecords)) {
-        const beforeFilter = lensSignalRecords.length;
-        const filteredAll = lensSignalRecords.filter(s => !['apartment', 'condo', 'residential'].some(k => (s.establishment_name || '').toLowerCase().includes(k)));
-        const filtered = (MAP_SAFE_MODE && (region?.latitudeDelta || 0) > 0.12)
-          ? filteredAll.slice(0, 120)
-          : filteredAll;
-        const afterFilter = filtered.length;
-        if (lastLensCountRef.current !== beforeFilter) {
-          console.log('[TerritoryMap] LensSignals: before filter:', beforeFilter, 'after filter:', afterFilter);
-          lastLensCountRef.current = beforeFilter;
-        }
-        filtered.forEach(s => {
-          if (isFinite(s.longitude) && isFinite(s.latitude)) {
-            points.push({ type: 'Feature', properties: { cluster: false, signal: s, isLensSignal: true }, geometry: { type: 'Point', coordinates: [Number(s.longitude), Number(s.latitude)] } });
-          }
-        });
-      }
+      // LensSignal points are deliberately NOT added to this supercluster instance.
+      // Supercluster merges any points within its pixel radius regardless of type, which
+      // was absorbing compliance/health-score signals into plain lead cluster bubbles and
+      // hiding them. They render separately via lensSignalDirectFallback instead.
 
       if (points.length === 0) {
         setClusters([]);
@@ -1363,6 +1641,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         setSearchMarker({ coordinate: coord, label: suggestion.description });
         moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
+        lastNearbySearchCenterRef.current = coord;
         const results = await searchNearbyBusinesses({ center: coord, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
         if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
       }
@@ -1386,6 +1665,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         setSearchMarker({ coordinate: coord, label: addressQuery });
         moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
+        lastNearbySearchCenterRef.current = coord;
         const results = await searchNearbyBusinesses({ center: coord, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
         if (results?.length) { setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords }))); setShowNearby(true); }
         else showThemedAlert('No results', 'No businesses found at that location.');
@@ -1430,6 +1710,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
       }
 
       const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
+      lastNearbySearchCenterRef.current = current;
       const results = await searchNearbyBusinesses({ center: current, radiusMeters, apiKey: GOOGLE_MAPS_API_KEY });
       if (results && Array.isArray(results) && results.length > 0) {
         setNearbyPlaces(results.map(r => ({ ...r, coordinate: r.coords })));
@@ -1459,10 +1740,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
       };
     });
 
-    if (isAppActive && isFinite(region?.latitude) && isFinite(region?.longitude)) {
-      fetchLensSignals(region.latitude, region.longitude);
+    if (isAppActive && territoryZipCodes.length > 0) {
+      fetchLensSignals(territoryZipCodes);
     }
-  }, [isAppActive, region?.latitude, region?.longitude]);
+  }, [isAppActive, territoryZipCodes]);
 
   const mode = filters?.targetLensMode || 'business';
 
@@ -1523,6 +1804,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
                   strokeColor="#00C9FFCC"
                   fillColor="#00C9FF2A"
                   strokeWidth={selectedZip === zip ? 3.5 : 2.2}
+                  tappable
                   onPress={() => setSelectedZip(zip)}
                 />
               );
@@ -1566,11 +1848,61 @@ export default function TerritoryMapScreen({ navigation, route }) {
     }).filter(Boolean);
   }, [zipMarkers, selectedZip, isZoomedOut, mode]);
 
+  const branchBoundaryOverlays = useMemo(() => {
+    if (!ENABLE_BRANCH_LAYER || !showBranchZips || lowMemoryMode) return [];
+    if (!Array.isArray(branchMarkers) || branchMarkers.length === 0) return [];
+
+    return branchMarkers.flatMap((m) => {
+      try {
+        const items = [];
+        const rings = Array.isArray(m.allRings) ? m.allRings : [];
+        let hasPolygon = false;
+        for (let rIdx = 0; rIdx < rings.length; rIdx++) {
+          const ring = rings[rIdx];
+          if (!Array.isArray(ring) || ring.length < 3) continue;
+          const safeRing = ring.map((pt) => makeSafeCoordinate(pt)).filter(Boolean);
+          if (safeRing.length < 3) continue;
+          hasPolygon = true;
+          items.push(
+            <Polygon
+              key={`branch-poly-${m.zip}-${rIdx}`}
+              coordinates={safeRing}
+              strokeColor={BRANCH_ZIP_STROKE}
+              fillColor={BRANCH_ZIP_FILL}
+              strokeWidth={selectedZip === m.zip ? 3.5 : 2.4}
+              tappable
+              onPress={() => setSelectedZip(m.zip)}
+            />
+          );
+        }
+        const lat = Number(m.coords?.latitude);
+        const lng = Number(m.coords?.longitude);
+        if (!hasPolygon && isFinite(lat) && isFinite(lng)) {
+          items.push(
+            <Circle
+              key={`branch-circle-${m.zip}`}
+              center={{ latitude: lat, longitude: lng }}
+              radius={3500}
+              strokeColor={BRANCH_ZIP_STROKE}
+              fillColor={BRANCH_ZIP_FILL}
+              strokeWidth={2.4}
+              tappable
+              onPress={() => setSelectedZip(m.zip)}
+            />
+          );
+        }
+        return items;
+      } catch (err) {
+        console.warn('[TerritoryMap] Branch polygon render error:', m?.zip, err);
+        return [];
+      }
+    });
+  }, [branchMarkers, showBranchZips, lowMemoryMode, selectedZip]);
+
   const lensSignalDirectFallback = useMemo(() => {
     if (!MAP_SAFE_MODE) return [];
     if (!filters?.signals?.lensSignal) return [];
     if (!Array.isArray(lensSignalRecords) || lensSignalRecords.length === 0) return [];
-    if (Array.isArray(clusters) && clusters.length > 0) return [];
 
     const safeDeltaX = Math.max(region?.longitudeDelta || 0.05, 0.01);
     const safeDeltaY = Math.max(region?.latitudeDelta || 0.05, 0.01);
@@ -1588,7 +1920,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
       })
       .slice(0, 80);
-  }, [clusters, filters?.signals?.lensSignal, lensSignalRecords, region]);
+  }, [filters?.signals?.lensSignal, lensSignalRecords, region]);
 
   const showMapActionButtons = !selectedLead && !selectedPlace && !selectedLensSignalRecord;
 
@@ -1648,6 +1980,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
           {/* ZIP Boundary Polygons — rendered in both business and homeowner modes */}
           {console.log('[TerritoryMap] Boundary layer render check. mode:', filters?.targetLensMode, 'show:', !lowMemoryMode, 'overlays:', zipBoundaryOverlays.length)}
           {!lowMemoryMode && zipBoundaryOverlays}
+          {branchBoundaryOverlays}
           {filters?.targetLensMode === 'business' && (clusters && Array.isArray(clusters)) ? clusters.map((c, i) => {
             if (!c?.geometry?.coordinates) return null;
             const [lng, lat] = c.geometry.coordinates;
@@ -1687,6 +2020,28 @@ export default function TerritoryMapScreen({ navigation, route }) {
             />
           ))}
           {filters?.targetLensMode === 'business' && (!lowMemoryMode && !MAP_SAFE_MODE && filters?.signals?.lensSignal && Array.isArray(lensSignalRecords)) ? lensSignalRecords.filter(s => s.polygon_json && (s.signal_layer || s.signal_type) === 'Compliance Signal').map((s, idx) => <Polygon key={`compliance-poly-${s.id || idx}`} coordinates={makeSafePolygonCoordinates(s.polygon_json)} fillColor="rgba(204,16,64,0.12)" strokeColor="rgba(204,16,64,0.5)" strokeWidth={2} />).filter(Boolean) : []}
+
+          {/* Imported Address List pins (e.g. "CVS") -- only for toggled-on lists,
+              plain Markers deliberately NOT fed into the supercluster instance, same
+              reasoning as LensSignal: getting absorbed into a generic lead cluster
+              bubble would hide them exactly like it did before that fix. */}
+          {filters?.targetLensMode === 'business' && Array.from(activeImportedListIds).flatMap((listId) => {
+            const list = importedLists.find((l) => l.id === listId);
+            const items = importedListItemsByListId[listId] || [];
+            if (!list) return [];
+            return items.map((item) => (
+              <Marker
+                key={`imported-${item.id}`}
+                coordinate={{ latitude: item.latitude, longitude: item.longitude }}
+                onPress={() => setSelectedImportedItem({ item, list })}
+                tracksViewChanges={false}
+              >
+                <View style={[s.importedPin, { borderColor: list.color, backgroundColor: item.inQueue ? list.color : COLORS.surface }]}>
+                  <Text style={[s.importedPinIcon, item.inQueue && { color: '#000' }]}>🏬</Text>
+                </View>
+              </Marker>
+            ));
+          })}
 
           {/* Search result marker */}
           {searchMarker && (
@@ -1734,6 +2089,97 @@ export default function TerritoryMapScreen({ navigation, route }) {
             })
           }
         </MapView>
+        {ENABLE_BRANCH_LAYER && (
+          <View style={s.layerChips} pointerEvents="box-none">
+            <View style={s.layerChip}>
+              <View style={[s.layerSwatch, { backgroundColor: '#00C9FF' }]} />
+              <Text style={s.layerChipText}>MY ZIPS {totalLoadedZips || 0}</Text>
+            </View>
+            <TouchableOpacity
+              style={[s.layerChip, showBranchZips && s.layerChipOn]}
+              onPress={() => setShowBranchZips((prev) => !prev)}
+              activeOpacity={0.75}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Toggle branch ZIPs"
+            >
+              <View style={[s.layerSwatch, { backgroundColor: BRANCH_ZIP_STROKE }]} />
+              <Text style={s.layerChipText}>BRANCH {branchMarkers.length}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {importedLists.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={s.importedChipsRow}
+            contentContainerStyle={{ gap: 8, paddingHorizontal: 12 }}
+            pointerEvents="box-none"
+          >
+            {importedLists.map((list) => {
+              const isOn = activeImportedListIds.has(list.id);
+              return (
+                <TouchableOpacity
+                  key={list.id}
+                  style={[s.layerChip, isOn && { borderColor: list.color }]}
+                  onPress={() => toggleImportedList(list.id)}
+                  activeOpacity={0.75}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={`Toggle ${list.name} list`}
+                >
+                  <View style={[s.layerSwatch, { backgroundColor: list.color }]} />
+                  <Text style={s.layerChipText} numberOfLines={1}>{list.name.toUpperCase()} {list.itemCount}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+        {showMapActionButtons && !!selectedZip && (() => {
+          const mineMarker = (zipMarkers || []).find((m) => m.zip === selectedZip);
+          const branchMarker = mineMarker ? null : (branchMarkers || []).find((m) => m.zip === selectedZip);
+          const target = mineMarker || branchMarker;
+          if (!target) return null;
+          const isMine = !!mineMarker;
+          const act = mineMarker?.activity || null;
+          const repNames = branchMarker?.repNames || [];
+          return (
+            <View style={[s.leadCard, s.zipCard, { bottom: insets.bottom + 12 }]}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle} numberOfLines={1}>ZIP {selectedZip}</Text>
+                <TouchableOpacity onPress={() => setSelectedZip(null)}>
+                  <Text style={s.closeX}>{ICON_CROSS}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={s.chipRow}>
+                <View style={s.chip}>
+                  <Text style={s.chipText}>{isMine ? 'YOUR TERRITORY' : 'READ-ONLY'}</Text>
+                </View>
+                {isMine && (
+                  <View style={s.chip}>
+                    <Text style={s.chipText}>{getHeatLabel(mineMarker.level)}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={s.cardDetail}>
+                {isMine
+                  ? `${act?.prospectCount90d ?? 0} prospects in the last 90 days`
+                  : `Assigned to ${repNames.length ? repNames.join(', ') : 'another rep in your branch'}`}
+              </Text>
+              <View style={s.actionRow}>
+                <TouchableOpacity
+                  style={s.cardBtn}
+                  onPress={() => {
+                    if (target?.coords) moveMapTo({ ...target.coords, latitudeDelta: 0.08, longitudeDelta: 0.08 }, 600);
+                  }}
+                >
+                  <Text style={s.cardBtnText}>Zoom</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.cardBtn} onPress={() => setSelectedZip(null)}>
+                  <Text style={s.cardBtnText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })()}
         {activeProfile && activeProfile.category !== 'Pest Control' && (
           <View style={[s.activeProfileBadge, { top: insets.top + 16 }]}>
             <Text style={s.activeProfileLabel}>ACTIVE PROFILE</Text>
@@ -1945,15 +2391,74 @@ export default function TerritoryMapScreen({ navigation, route }) {
           );
         })()}
         {showNearby && !!nearbyPlaces.length && !selectedPlace && (
-          <View style={[s.nearbyBatchCard, { bottom: insets.bottom + 12 }]}><Text style={s.cardDetail}>{nearbyPlaces.length} discovered businesses</Text><View style={s.actionRow}><TouchableOpacity style={s.cardBtn} onPress={() => setSelectedNearbyIds(nearbyPlaces.map(p => getNearbyPlaceId(p)))} disabled={globalProcessing}><Text style={s.cardBtnText}>Select All</Text></TouchableOpacity><TouchableOpacity style={s.cardBtn} onPress={() => { setShowNearby(false); setNearbyPlaces([]); }} disabled={globalProcessing}><Text style={s.cardBtnText}>Clear</Text></TouchableOpacity><TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent }]} onPress={() => addSelectedNearbyToQueue()} disabled={!selectedNearbyIds.length || globalProcessing}><Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text></TouchableOpacity></View></View>
+          <View style={[s.nearbyBatchCard, { bottom: insets.bottom + 12 }]}>
+            {safeNearbyPlaces.length === 0 && (
+              <View style={s.filterWarningRow}>
+                <Text style={s.filterWarningText}>
+                  {nearbyPlaces.length} found, but your filters are hiding all of them on the map.
+                </Text>
+                <TouchableOpacity
+                  style={s.filterWarningBtn}
+                  onPress={() => {
+                    setFilters(DEFAULT_FILTERS);
+                    BetaTracker.track('feature_use', { feature: 'TerritoryMap', action: 'reset_filters_from_warning', screen: 'TerritoryMapScreen' });
+                  }}
+                >
+                  <Text style={s.filterWarningBtnText}>Reset Filters</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <Text style={s.cardDetail}>{nearbyPlaces.length} discovered businesses</Text>
+            <View style={s.actionRow}>
+              <TouchableOpacity style={s.cardBtn} onPress={() => setSelectedNearbyIds(nearbyPlaces.map(p => getNearbyPlaceId(p)))} disabled={globalProcessing}>
+                <Text style={s.cardBtnText}>Select All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.cardBtn} onPress={() => { setShowNearby(false); setNearbyPlaces([]); }} disabled={globalProcessing}>
+                <Text style={s.cardBtnText}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent }]} onPress={() => addSelectedNearbyToQueue()} disabled={!selectedNearbyIds.length || globalProcessing}>
+                <Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
-        <Modal visible={targetLensVisible} transparent animationType="slide" onRequestClose={() => setTargetLensVisible(false)}><View style={s.modal}><View style={s.modalContent}><TargetLensProfileSelector onProfileChange={(p, m) => { setActiveProfile(p); setSearchMode(m); setTargetLensVisible(false); }} /><TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}><Text style={s.closeBtnText}>Close</Text></TouchableOpacity></View></View></Modal>
+        {targetLensVisible && (
+          <View style={s.modal} pointerEvents="box-none">
+            <TouchableOpacity
+              style={StyleSheet.absoluteFillObject}
+              activeOpacity={1}
+              onPress={() => setTargetLensVisible(false)}
+            />
+            <View style={s.modalContent}>
+              <TargetLensProfileSelector
+                onProfileChange={(p, m) => {
+                  setActiveProfile(p);
+                  setSearchMode(m);
+                  setTargetLensVisible(false);
+                }}
+              />
+              <TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}>
+                <Text style={s.closeBtnText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
         <LeadFiltersBottomSheet visible={filtersVisible} onClose={() => setFiltersVisible(false)} filters={filters || DEFAULT_FILTERS} onApply={f => setFilters(f)} onReset={() => setFilters(DEFAULT_FILTERS)} />
         {!!selectedLensSignalRecord && (
           <View style={{ position: 'absolute', zIndex: 180, top: 0, bottom: 0, left: 0, right: 0, pointerEvents: 'box-none' }}>
             <LensSignalDetailsCard
               signal={selectedLensSignalRecord}
               onClose={() => setSelectedLensSignalRecord(null)}
+              onProspectAround={(sig) => {
+                const lat = Number(sig.latitude);
+                const lng = Number(sig.longitude);
+                if (!isFinite(lat) || !isFinite(lng)) {
+                  showThemedAlert('No location', 'This signal has no usable coordinates to prospect around.');
+                  return;
+                }
+                handleOpenProspectAround({ latitude: lat, longitude: lng, label: sig.establishment_name || sig.business_name || 'Lead' });
+                setSelectedLensSignalRecord(null);
+              }}
               onAddToQueue={(sig) => {
                 try {
                   const enrichment = buildEnrichmentBundle(sig);
@@ -1989,6 +2494,193 @@ export default function TerritoryMapScreen({ navigation, route }) {
                 }
               }}
             />
+          </View>
+        )}
+
+        {!!selectedImportedItem && (() => {
+          const { item, list } = selectedImportedItem;
+          return (
+            <View style={[s.leadCard, s.zipCard, { bottom: insets.bottom + 12 }]}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle} numberOfLines={1}>{item.businessName || list.name}</Text>
+                <TouchableOpacity onPress={() => setSelectedImportedItem(null)}>
+                  <Text style={s.closeX}>{ICON_CROSS}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={s.chipRow}>
+                <View style={[s.chip, { borderColor: list.color }]}>
+                  <Text style={s.chipText}>{list.name.toUpperCase()}</Text>
+                </View>
+                {item.inQueue && (
+                  <View style={s.chip}>
+                    <Text style={s.chipText}>ALREADY IN QUEUE</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={s.cardDetail}>
+                {[item.address, item.city, item.state, item.zip].filter(Boolean).join(', ') || 'No address on file'}
+              </Text>
+              <View style={s.actionRow}>
+                <TouchableOpacity
+                  style={s.cardBtn}
+                  onPress={() => moveMapTo({ latitude: item.latitude, longitude: item.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 500)}
+                >
+                  <Text style={s.cardBtnText}>Zoom</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.cardBtn, { backgroundColor: COLORS.accent }]}
+                  onPress={() => {
+                    try {
+                      const lead = {
+                        businessName: item.businessName || list.name,
+                        streetNumber: '',
+                        streetName: item.address || '',
+                        city: item.city || '',
+                        state: item.state || '',
+                        zip: item.zip || '',
+                        latitude: item.latitude,
+                        longitude: item.longitude,
+                        status: 'New',
+                        captureMethod: 'ImportedList',
+                        source: `Imported List: ${list.name}`,
+                        propertyType: 'Commercial',
+                        importedListId: list.id,
+                        importedItemId: item.id,
+                      };
+                      navigation.navigate('Review', { user, lead, editIdx: null });
+                      setSelectedImportedItem(null);
+                      // Best-effort -- doesn't block the queue add if it fails, just
+                      // means the pin won't visually show as queued until next refresh.
+                      markImportedItemQueued(supabase, item.id);
+                      setImportedListItemsByListId((prev) => {
+                        const items = prev[list.id];
+                        if (!items) return prev;
+                        return {
+                          ...prev,
+                          [list.id]: items.map((i) => (i.id === item.id ? { ...i, inQueue: true } : i)),
+                        };
+                      });
+                    } catch (e) {
+                      console.warn('[TerritoryMapScreen] Imported item addToQueue failed:', e);
+                    }
+                  }}
+                >
+                  <Text style={[s.cardBtnText, { color: '#000' }]}>Add to Queue</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={[s.cardBtn, { marginTop: 8, borderColor: '#7B3FBE' }]}
+                onPress={() => {
+                  handleOpenProspectAround({ latitude: item.latitude, longitude: item.longitude, label: item.businessName || list.name });
+                  setSelectedImportedItem(null);
+                }}
+              >
+                <Text style={[s.cardBtnText, { color: '#7B3FBE' }]}>🎯 Prospect Around</Text>
+              </TouchableOpacity>
+            </View>
+          );
+        })()}
+
+        {!!prospectAroundTarget && (
+          <View style={s.modal} pointerEvents="box-none">
+            <TouchableOpacity
+              style={StyleSheet.absoluteFillObject}
+              activeOpacity={1}
+              onPress={handleCloseProspectAround}
+            />
+            <View style={[s.modalContent, { maxHeight: '80%' }]}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle} numberOfLines={1}>🎯 Prospect Around {prospectAroundTarget.label}</Text>
+                <TouchableOpacity onPress={handleCloseProspectAround}>
+                  <Text style={s.closeX}>{ICON_CROSS}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+                <Text style={s.sectionLabel}>How many prospects?</Text>
+                <View style={s.paChipRow}>
+                  {[5, 10, 15, 25, 50].map((n) => (
+                    <TouchableOpacity key={n} style={[s.paChip, prospectAroundCount === n && s.paChipOn]} onPress={() => setProspectAroundCount(n)}>
+                      <Text style={[s.paChipText, prospectAroundCount === n && s.paChipTextOn]}>{n}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={s.sectionLabel}>Industry vertical</Text>
+                <View style={s.paChipRow}>
+                  {PROSPECT_VERTICALS.map((v) => (
+                    <TouchableOpacity key={v.id} style={[s.paChip, prospectAroundVerticalId === v.id && s.paChipOn]} onPress={() => setProspectAroundVerticalId(v.id)}>
+                      <Text style={[s.paChipText, prospectAroundVerticalId === v.id && s.paChipTextOn]} numberOfLines={1}>{v.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={s.sectionLabel}>Distance</Text>
+                <View style={s.paChipRow}>
+                  {[1, 5, 10].map((mi) => (
+                    <TouchableOpacity key={mi} style={[s.paChip, prospectAroundRadiusMiles === mi && s.paChipOn]} onPress={() => setProspectAroundRadiusMiles(mi)}>
+                      <Text style={[s.paChipText, prospectAroundRadiusMiles === mi && s.paChipTextOn]}>{mi} mi</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity style={s.paToggleRow} onPress={() => setProspectAroundExcludeProspected((v) => !v)}>
+                  <View style={[s.paCheckbox, prospectAroundExcludeProspected && s.paCheckboxOn]}>
+                    {prospectAroundExcludeProspected && <Text style={s.paCheckmark}>{'\u2713'}</Text>}
+                  </View>
+                  <Text style={s.paToggleLabel}>Exclude already-prospected businesses</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[s.cardBtn, { backgroundColor: COLORS.accent, marginTop: 14 }]} onPress={handleRunProspectAround} disabled={prospectAroundLoading}>
+                  {prospectAroundLoading ? <ActivityIndicator color="#000" /> : <Text style={[s.cardBtnText, { color: '#000' }]}>Search</Text>}
+                </TouchableOpacity>
+
+                {prospectAroundSearched && !prospectAroundLoading && (
+                  <View style={{ marginTop: 16 }}>
+                    {prospectAroundResults.length === 0 ? (
+                      <Text style={s.empty}>No matching businesses found nearby. Try a wider radius or a different vertical.</Text>
+                    ) : (
+                      <>
+                        <View style={s.paResultsHeader}>
+                          <Text style={s.sectionLabel}>{prospectAroundResults.length} results, strongest first</Text>
+                          <TouchableOpacity onPress={() => setProspectAroundSelectedIds(new Set(prospectAroundResults.map((p) => getNearbyPlaceId(p))))}>
+                            <Text style={s.paSelectAllText}>Select All</Text>
+                          </TouchableOpacity>
+                        </View>
+                        {prospectAroundResults.map((p) => {
+                          const id = getNearbyPlaceId(p);
+                          const isSelected = prospectAroundSelectedIds.has(id);
+                          return (
+                            <TouchableOpacity key={id} style={s.paResultRow} onPress={() => toggleProspectAroundResult(id)}>
+                              <View style={[s.paCheckbox, isSelected && s.paCheckboxOn]}>
+                                {isSelected && <Text style={s.paCheckmark}>{'\u2713'}</Text>}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={s.paResultName} numberOfLines={1}>{p.name || p.businessName}</Text>
+                                <Text style={s.paResultMeta}>
+                                  {p._distanceMiles != null ? `${p._distanceMiles.toFixed(1)} mi` : ''}
+                                  {p._matchedSignal ? ` \u00b7 ${p._matchedSignal.alert_level}` : ''}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </>
+                    )}
+                  </View>
+                )}
+              </ScrollView>
+
+              {prospectAroundResults.length > 0 && (
+                <TouchableOpacity
+                  style={[s.cardBtn, { backgroundColor: COLORS.accent, marginTop: 12 }]}
+                  onPress={handleAddProspectAroundSelectedToQueue}
+                  disabled={!prospectAroundSelectedIds.size}
+                >
+                  <Text style={[s.cardBtnText, { color: '#000' }]}>Add {prospectAroundSelectedIds.size} Selected to Queue</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         )}
 
@@ -2064,6 +2756,27 @@ const s = StyleSheet.create({
   mapHintText: { color: '#fff', fontSize: 10, textAlign: 'center' },
   leadCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 50 },
   nearbyBatchCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 40 },
+  filterWarningRow: { backgroundColor: 'rgba(204,16,64,0.12)', borderRadius: 8, borderWidth: 1, borderColor: '#CC1040', padding: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filterWarningText: { color: COLORS.text, fontSize: 11, flex: 1, lineHeight: 15 },
+  sectionLabel: { color: COLORS.textDim, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  empty: { color: COLORS.muted, fontSize: 13, fontStyle: 'italic', textAlign: 'center', paddingVertical: 12 },
+  filterWarningBtn: { backgroundColor: '#CC1040', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
+  filterWarningBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  paChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  paChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface2 },
+  paChipOn: { borderColor: COLORS.accent, backgroundColor: 'rgba(0,201,255,0.15)' },
+  paChipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  paChipTextOn: { color: COLORS.accent },
+  paToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  paCheckbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  paCheckboxOn: { borderColor: COLORS.accent, backgroundColor: COLORS.accent },
+  paCheckmark: { color: '#000', fontSize: 13, fontWeight: '900' },
+  paToggleLabel: { color: COLORS.text, fontSize: 13, flex: 1 },
+  paResultsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  paSelectAllText: { color: COLORS.accent, fontSize: 12, fontWeight: '700' },
+  paResultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  paResultName: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  paResultMeta: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800', flex: 1 },
   closeX: { color: COLORS.muted, fontSize: 18, padding: 4 },
@@ -2074,10 +2787,16 @@ const s = StyleSheet.create({
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   cardBtn: { flex: 1, backgroundColor: COLORS.surface2, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   cardBtnText: { color: COLORS.accent, fontSize: 12, fontWeight: '700' },
-  modal: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 200, elevation: 200 },
   modalContent: { backgroundColor: COLORS.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '80%' },
   closeBtn: { marginTop: 20, padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2, borderRadius: 10 },
   closeBtnText: { color: COLORS.text, fontWeight: '700' },
+  layerChips: { position: 'absolute', top: 8, left: 12, flexDirection: 'row', gap: 8, zIndex: 20 },
+  layerChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.borderLit, paddingHorizontal: 10, paddingVertical: 6, elevation: 6 },
+  layerChipOn: { borderColor: BRANCH_ZIP_STROKE },
+  layerSwatch: { width: 10, height: 10, borderRadius: 5 },
+  layerChipText: { color: COLORS.text, fontSize: 10, fontWeight: '800' },
+  zipCard: { right: 72 },
   smallBadge: { position: 'absolute', top: -4, right: -4 },
   profileSwitcher: {
     flexDirection: 'row',
@@ -2112,6 +2831,15 @@ const s = StyleSheet.create({
     shadowOpacity: 0.4, shadowRadius: 3,
   },
   homeownerPinEmoji: { fontSize: 16 },
+  importedPin: {
+    width: 32, height: 32, borderRadius: 16,
+    borderWidth: 2, alignItems: 'center', justifyContent: 'center',
+    elevation: 4, shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35, shadowRadius: 3,
+  },
+  importedPinIcon: { fontSize: 14 },
+  importedChipsRow: { position: 'absolute', top: 44, left: 0, right: 0, maxHeight: 34, zIndex: 19 },
   searchMarkerPin: {
     width: 30, height: 30, borderRadius: 15,
     backgroundColor: '#00C9FF', alignItems: 'center', justifyContent: 'center',

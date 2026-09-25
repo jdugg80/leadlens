@@ -217,9 +217,12 @@ async function queryTableForZips(supabaseClient, tableName, userId) {
     console.log('[queryTableForZips] Found rep_name:', repName, '- querying', tableName);
 
     // Query territory_zips by rep_name
+    // territory_zips stores the column as zip_code (see syncTerritoryToSupabase in
+    // territoryUtils.js). 'zip' is also requested for older/alternate tables in
+    // TERRITORY_TABLE_CANDIDATES that may use that name instead.
     const { data, error } = await supabaseClient
       .from(tableName)
-      .select('zip')
+      .select('zip_code, zip')
       .eq('rep_name', repName)
       .limit(100);
 
@@ -228,12 +231,12 @@ async function queryTableForZips(supabaseClient, tableName, userId) {
     if (!Array.isArray(data)) return [];
     const zips = [];
     for (const row of data) {
+      if (row.zip_code) zips.push(row.zip_code);
       if (row.zip) zips.push(row.zip);
       if (row.zips) {
         if (Array.isArray(row.zips)) zips.push(...row.zips);
         else if (typeof row.zips === 'string') zips.push(...row.zips.split(','));
       }
-      if (row.zip) zips.push(row.zip);
     }
     return zips;
   } catch (error) {

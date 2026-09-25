@@ -1,4 +1,5 @@
 import { storageBridge as AsyncStorage, mergeWithFreshUserProfile } from './storage';
+import { clearBranchLayerCache } from './branchTerritories';
 
 export { GOALS_STORAGE_KEY } from '../constants';
 
@@ -558,4 +559,84 @@ export async function fetchMyTerritoryFromSupabase(supabase, user) {
 export async function fetchSharedTerritories(supabase, user) {
   // Team territory sharing is not enabled for private beta.
   return { ok: true, data: [], note: 'Team territory sharing is disabled.' };
+}
+
+// ─── Supabase: Delete specific ZIPs from MY territory ─────────────────────────
+// syncTerritoryToSupabase only upserts, so a ZIP removed on the device stays on the
+// server (and would keep showing to same-branch reps). This deletes ONLY the ZIPs the
+// user explicitly removed. It never prunes based on the current local list, so a fresh
+// install with an empty local list cannot wipe the server copy.
+
+export async function deleteTerritoryZipsFromSupabase(supabase, zips = []) {
+  try {
+    if (!supabase) return { ok: false, reason: 'no-client' };
+    const clean = [...new Set(
+      (zips || [])
+        .map((z) => String(z?.zip ?? z ?? '').replace(/\D/g, '').slice(0, 5))
+        .filter((z) => z.length === 5)
+    )];
+    if (!clean.length) return { ok: true };
+
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) return { ok: false, reason: 'unauthorized' };
+
+    const { error } = await supabase
+      .from('territory_zips')
+      .delete()
+      .eq('user_id', authUser.id)
+      .in('zip_code', clean);
+
+    if (error) {
+      console.warn('[deleteTerritoryZipsFromSupabase] Delete failed:', error.message);
+      return { ok: false, reason: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.warn('[deleteTerritoryZipsFromSupabase] Unexpected error:', err?.message);
+    return { ok: false, reason: err?.message };
+  }
+}
+
+// ─── Supabase: Publish a full branch roster (all reps' ZIPs) ──────────────────
+// Lets same-branch reps see the whole branch on the Territory Map without every rep
+// needing the app. Replaces the roster previously published for this branch.
+// Entries come from parseZipRosterAOA: [{ zip, repName }].
+
+export async function publishBranchRoster(supabase, user, entries = []) {
+  try {
+    if (!supabase) return { ok: false, reason: 'no-client' };
+
+    const freshUser = mergeWithFreshUserProfile(user);
+    const branchNum = String(freshUser?.branchNum || user?.branchNum || '').trim();
+    if (!branchNum) return { ok: false, reason: 'no-branch' };
+
+    const seen = new Set();
+    const rows = [];
+    for (const entry of (entries || [])) {
+      const zip = String(entry?.zip ?? '').replace(/\D/g, '').slice(0, 5);
+      if (zip.length !== 5) continue;
+      const repName = String(entry?.repName ?? '').trim();
+      const key = `${zip}|${repName.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({ zip, rep_name: repName });
+    }
+    if (!rows.length) return { ok: false, reason: 'no-rows' };
+    if (rows.length > 2000) return { ok: false, reason: 'too-many-rows' };
+
+    const { data, error } = await supabase.rpc('publish_branch_roster', {
+      p_branch_num: branchNum,
+      p_rows: rows,
+    });
+    if (error) {
+      console.warn('[publishBranchRoster] RPC failed:', error.message);
+      return { ok: false, reason: error.message };
+    }
+
+    clearBranchLayerCache();
+    return { ok: true, count: Number(data) || rows.length };
+  } catch (err) {
+    console.warn('[publishBranchRoster] Unexpected error:', err?.message);
+    return { ok: false, reason: err?.message };
+  }
 }

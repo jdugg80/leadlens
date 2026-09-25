@@ -19,9 +19,10 @@ interface Props {
   signal: LensSignalRecord;
   onClose: () => void;
   onAddToQueue: (signal: LensSignalRecord) => void;
+  onProspectAround?: (signal: LensSignalRecord) => void;
 }
 
-export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) => {
+export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue, onProspectAround }: Props) => {
   const insets = useSafeAreaInsets();
   const alertColor = getAlertColor(signal.alert_level);
   const layer = signal.signal_layer || signal.signal_type || (signal as any).opening_type || 'Standard Discovery';
@@ -217,6 +218,15 @@ export const LensSignalDetailsCard = ({ signal, onClose, onAddToQueue }: Props) 
           <Text style={styles.primaryBtnText}>Add to Queue</Text>
         </TouchableOpacity>
 
+        {!!onProspectAround && (
+          <TouchableOpacity
+            style={styles.prospectAroundBtn}
+            onPress={() => onProspectAround(signal)}
+          >
+            <Text style={styles.prospectAroundBtnText}>🎯 Prospect Around</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.secondaryBtnFull} onPress={onClose}>
           <Text style={styles.secondaryBtnText}>Dismiss</Text>
         </TouchableOpacity>
@@ -322,6 +332,20 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: '#000',
     fontSize: 16,
+    fontWeight: '800',
+  },
+  prospectAroundBtn: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: '#7B3FBE',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  prospectAroundBtnText: {
+    color: '#7B3FBE',
+    fontSize: 15,
     fontWeight: '800',
   },
   secondaryBtnFull: {
