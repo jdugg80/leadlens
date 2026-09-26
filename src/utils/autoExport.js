@@ -1,4 +1,5 @@
 import { storageBridge as AsyncStorage, mergeWithFreshUserProfile } from './storage';
+import { recordUserActivityEvent } from './userLearning';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
 import * as BackgroundFetch from 'expo-background-fetch';
@@ -162,6 +163,15 @@ export async function maybeRunAutoExport(user, options = {}) {
       UTI: 'com.microsoft.excel.xlsx',
     });
   }
+
+    sendable.forEach((lead) => {
+    recordUserActivityEvent('prospect_exported', {
+      prospectId: lead.id,
+      zip: lead.zip,
+      businessType: lead.vertical || lead.industry || lead.businessType,
+      sourceType: 'scheduled_local',
+    }).catch(() => {});
+  });
 
   let nextLeads = leads;
   if (settings.clearAfterSend) {

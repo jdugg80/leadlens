@@ -594,7 +594,32 @@ Deno.serve(async (req) => {
           throw new Error(`Resend error: ${emailError}`);
         }
 
-        const emailResult = await emailResponse.json();
+                const emailResult = await emailResponse.json();
+
+        // Record one activity event per exported prospect — this feeds
+        // Territory Manager's "true" 90-day export count, independent of
+        // whether the local device queue ever gets cleared/archived.
+        try {
+          const activityRows = leadRows.map((l) => ({
+            user_id: userId,
+            event_type: 'prospect_exported',
+            prospect_id: (l.id as string) || null,
+            zip_code: (l.zip as string) || (l.zip_code as string) || null,
+            business_type: (l.vertical as string) || (l.industry as string) || (l.business_type as string) || null,
+            source_type: 'scheduled_server',
+            created_at: now.toISOString(),
+          }));
+          if (activityRows.length) {
+            const { error: activityError } = await supabase
+              .from('user_activity_events')
+              .insert(activityRows);
+            if (activityError) {
+              console.error(`Failed to record export activity events for ${userId}:`, activityError.message);
+            }
+          }
+        } catch (activityErr) {
+          console.error(`Unexpected error recording export activity events for ${userId}:`, activityErr instanceof Error ? activityErr.message : String(activityErr));
+        }
 
         // Mark exported_at if clear_after_send or archive_after_send is true
         if (settings.clear_after_send || settings.archive_after_send) {

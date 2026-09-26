@@ -21,7 +21,7 @@ import {
   buildZipEntry, validateZipBatch, buildZipActivity, getHeatLevel, getHeatColor,
   GOALS_STORAGE_KEY,
   matchLeadsToTerritory, syncTerritoryToSupabase, fetchSharedTerritories,
-  fetchMyTerritoryFromSupabase,
+  fetchMyTerritoryFromSupabase, fetchExportActivityForZips,
   normalizeZipEntry, isValidZip, getHeatLabel,
   deleteTerritoryZipsFromSupabase, publishBranchRoster,
 } from '../utils/territoryUtils';
@@ -114,6 +114,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
   const [sharedTerritories, setSharedTerritories] = useState([]);
   const [leads, setLeads] = useState([]);
   const [zipActivity, setZipActivity] = useState([]);
+  const [exportActivityEntries, setExportActivityEntries] = useState(null);
   const [matchedLeads, setMatchedLeads] = useState([]);
   const [dailyGoal, setDailyGoal] = useState(10);
   const matchedProspects = matchedLeads; // alias for UI references
@@ -141,8 +142,31 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       setDailyGoal(goal);
       setMyZips(zips);
       setSharedTerritories(shared);
-      setLeads(rawLeads);
-      setZipActivity(buildZipActivity(zips, rawLeads));
+            setLeads(rawLeads);
+
+      // Heat Map / My ZIPs stats should reflect prospects that were
+      // actually exported (the true number), not just whatever's
+      // currently sitting in the local queue — fetch from
+      // user_activity_events and fall back to the local-queue
+      // calculation if that fails (offline, not logged in, etc.).
+      try {
+        const rawSupa = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
+        const supaSettings = rawSupa ? JSON.parse(rawSupa) : null;
+        const supabase = createSupabaseClient(supaSettings);
+        const activityResult = await fetchExportActivityForZips(supabase);
+        if (activityResult.ok) {
+          setExportActivityEntries(activityResult.entries);
+          setZipActivity(buildZipActivity(zips, activityResult.entries));
+        } else {
+          setExportActivityEntries(null);
+          setZipActivity(buildZipActivity(zips, rawLeads));
+        }
+      } catch (err) {
+        console.warn('[TerritoryManager] Export activity fetch failed, falling back to local queue:', err?.message || String(err));
+        setExportActivityEntries(null);
+        setZipActivity(buildZipActivity(zips, rawLeads));
+      }
+
       setMatchedLeads(matchLeadsToTerritory(rawLeads, zips));
 
       if (profileVal) {
@@ -163,9 +187,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     })();
   }, []));
 
-  const refreshData = async (zips, rawLeads = leads, removedZips = []) => {
+    const refreshData = async (zips, rawLeads = leads, removedZips = []) => {
     setMyZips(zips);
-    setZipActivity(buildZipActivity(zips, rawLeads));
+    setZipActivity(buildZipActivity(zips, exportActivityEntries || rawLeads));
     setMatchedLeads(matchLeadsToTerritory(rawLeads, zips));
 
     // Auto-sync territory to Supabase

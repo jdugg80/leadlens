@@ -522,6 +522,43 @@ export async function syncTerritoryToSupabase(supabase, user, myZips) {
   }
 }
 
+export async function fetchExportActivityForZips(supabase) {
+  try {
+    if (!supabase) return { ok: false, reason: 'no-client', entries: [] };
+
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) {
+      console.error('[fetchExportActivityForZips] Auth failed:', authError?.message);
+      return { ok: false, reason: 'unauthorized', entries: [] };
+    }
+
+    const ninetyDaysAgo = new Date(Date.now() - NINETY_DAYS_MS).toISOString();
+
+    const { data, error } = await supabase
+      .from('user_activity_events')
+      .select('zip_code, created_at')
+      .eq('user_id', authUser.id)
+      .in('event_type', ['prospect_exported', 'export_sent'])
+      .gte('created_at', ninetyDaysAgo);
+
+    if (error) {
+      console.error('[fetchExportActivityForZips] Query failed:', error.message);
+      return { ok: false, reason: error.message, entries: [] };
+    }
+
+    // Map into lead-shaped entries so buildZipActivity() can be reused
+    // unchanged — it already knows how to bucket by zip + capture time.
+    const entries = (data || [])
+      .filter((row) => row.zip_code)
+      .map((row) => ({ zip: row.zip_code, capturedAt: row.created_at }));
+
+    return { ok: true, entries };
+  } catch (err) {
+    console.error('[fetchExportActivityForZips] Unexpected error:', err?.message || String(err));
+    return { ok: false, reason: err?.message, entries: [] };
+  }
+}
+
 // ─── Supabase: Pull MY ZIPs down ──────────────────────────────────────────────
 
 export async function fetchMyTerritoryFromSupabase(supabase, user) {
