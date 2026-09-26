@@ -482,9 +482,39 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
     type: "local",
   });
 
-  // 2. Google Places Details (Phone, Website, address components)
+    // 2. Google Places Details (Phone, Website, address components)
   let placeId = business.placeId || business.place_id || business.place_id;
   const businessName = business.businessName || business.establishment_name || business.business_name || business.name || "";
+
+  // Kick off the fully-independent lookups now, in parallel with the
+  // entire Places/Comptroller/Contact-Enrichment chain below — none of
+  // them depend on anything that chain finds, and nothing downstream
+  // depends on exactly when they resolve, so there's no reason to make
+  // them wait their turn. Errors are swallowed here the same way the
+  // original sequential try/catch blocks did.
+  const addressStrForLookup = [
+    business.streetNumber, business.streetName,
+    business.city, business.state, business.zip
+  ].filter(Boolean).join(' ') || business.address || business.streetAddress || '';
+
+  const pocLookupPromise = enrichMissingPOC(business).catch((e) => {
+    console.warn("[PublicEnrichment] ContactSignal lookup failed:", e.message);
+    return null;
+  });
+  const healthLookupPromise = searchHealthViolations(
+    businessName,
+    business.city || 'Houston',
+    business.propertyType || business.businessType || ''
+  ).catch((e) => {
+    console.warn("[PublicEnrichment] Health assessment failed:", e.message);
+    return null;
+  });
+  const propertyLookupPromise = addressStrForLookup.length > 5
+    ? getPropertyRecord(addressStrForLookup).catch((e) => {
+        console.warn("[PublicEnrichment] Property lookup failed:", e.message);
+        return null;
+      })
+    : Promise.resolve(null);
 
   // If no placeId, attempt to find it via text search
   if (!placeId && businessName.length > 2) {
@@ -748,55 +778,36 @@ export async function enrichBusinessWithPublicSources(business, enrichContext = 
     }
   }
 
-  // 4. LensSignal / Website POC lookup
-  try {
-    const pocResult = await enrichMissingPOC(business);
-    if (pocResult && pocResult.found) {
-      if (Array.isArray(pocResult.candidates)) {
-        pocResult.candidates.forEach(c => {
-           sources.push({
-             ...c,
-             source: c.source || "ContactSignal",
-             type: "enrichment_candidate"
-           });
-        });
-      } else if (pocResult.poc) {
+    // 4-6. Await the independent lookups kicked off earlier — they've been
+  // running concurrently with the entire Places/Comptroller/Contact
+  // Enrichment chain above instead of waiting for it to finish first.
+  const [pocSettled, healthSettled, propertySettled] = await Promise.allSettled([
+    pocLookupPromise,
+    healthLookupPromise,
+    propertyLookupPromise,
+  ]);
+
+  if (pocSettled.status === 'fulfilled' && pocSettled.value?.found) {
+    const pocData = pocSettled.value;
+    if (Array.isArray(pocData.candidates)) {
+      pocData.candidates.forEach(c => {
         sources.push({
-          ...pocResult.poc,
-          source: pocResult.poc.source || "ContactSignal",
+          ...c,
+          source: c.source || "ContactSignal",
           type: "enrichment_candidate"
         });
-      }
-    }
-  } catch (e) {
-    console.warn("[PublicEnrichment] ContactSignal lookup failed:", e.message);
-  }
-
-  // 5. Health violation / pest risk assessment
-  let healthData = null;
-  try {
-    healthData = await searchHealthViolations(
-      businessName,
-      business.city || 'Houston',
-      business.propertyType || business.businessType || ''
-    );
-  } catch (e) {
-    console.warn("[PublicEnrichment] Health assessment failed:", e.message);
-  }
-
-  // 6. Property record / structural risk
-  let propertyData = null;
-  const addressStr = [
-    business.streetNumber, business.streetName,
-    business.city, business.state, business.zip
-  ].filter(Boolean).join(' ') || business.address || business.streetAddress || '';
-  if (addressStr.length > 5) {
-    try {
-      propertyData = await getPropertyRecord(addressStr);
-    } catch (e) {
-      console.warn("[PublicEnrichment] Property lookup failed:", e.message);
+      });
+    } else if (pocData.poc) {
+      sources.push({
+        ...pocData.poc,
+        source: pocData.poc.source || "ContactSignal",
+        type: "enrichment_candidate"
+      });
     }
   }
+
+  const healthData = healthSettled.status === 'fulfilled' ? healthSettled.value : null;
+  const propertyData = propertySettled.status === 'fulfilled' ? propertySettled.value : null;
 
   const enrichmentBundle = buildEnrichmentBundle(sources);
 

@@ -13,6 +13,12 @@ import Constants from 'expo-constants';
 import { AppRegistry } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 
+// Tracks screen transitions as Sentry breadcrumbs, so a crash report shows
+// exactly which screens were visited leading up to it — added specifically
+// to help localize the intermittent native "disabled" prop crash, which
+// has been confirmed via Sentry but never pinned to a specific screen.
+const routingInstrumentation = new Sentry.ReactNavigationInstrumentation();
+
 if (!__DEV__) {
   Sentry.init({
     dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
@@ -20,6 +26,11 @@ if (!__DEV__) {
     dist: String(Constants.expoConfig?.android?.versionCode || 'unknown'),
     enableAutoSessionTracking: true,
     sessionTrackingIntervalMillis: 30000,
+    integrations: [
+      new Sentry.ReactNativeTracing({
+        routingInstrumentation,
+      }),
+    ],
   });
 }
 
@@ -488,9 +499,10 @@ export default function App() {
     <SafeAreaProvider>
       <ToastProvider>
       <ProcessingProvider>
-      <NavigationContainer
+                  <NavigationContainer
         ref={navRef}
         onReady={() => {
+          routingInstrumentation.registerNavigationContainer(navRef);
           const routeName = navRef.current?.getCurrentRoute?.()?.name;
           if (routeName) recordLastActiveRoute(routeName);
           recordLastActiveAt();
