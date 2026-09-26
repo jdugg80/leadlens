@@ -1,4 +1,5 @@
 import { storage as AsyncStorage, mergeWithFreshUserProfile } from './storage';
+import { supabase as sharedSupabase } from '../lib/supabase';
 import {
   AUTOMATION_SETTINGS_KEY,
   LEADS_STORAGE_KEY,
@@ -130,7 +131,19 @@ export async function deleteProspect(leadId, supabaseSettings = {}) {
     const supabase = createSupabaseClient(supabaseSettings);
     if (!supabase) return { ok: false, reason: 'missing-config' };
 
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    console.log('[syncAutoExportSettingsToSupabase] getSession result:', {
+      hasSession: !!sessionData?.session,
+      sessionUserId: sessionData?.session?.user?.id || null,
+      sessionError: sessionError?.message || null,
+    });
+
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    console.log('[syncAutoExportSettingsToSupabase] getUser result:', {
+      hasUser: !!authUser,
+      userId: authUser?.id || null,
+      authError: authError?.message || null,
+    });
     if (authError || !authUser) return { ok: false, reason: 'unauthorized' };
 
     const { error } = await supabase
@@ -528,13 +541,19 @@ export async function syncAllDataFromSupabase(supabaseSettings = {}) {
 
 export async function syncAutoExportSettingsToSupabase(settings = {}, user = {}, supabaseSettings = {}) {
   try {
-    const supabase = createSupabaseClient(supabaseSettings);
+    // Use the app's already-authenticated singleton client (alive since
+    // app startup) instead of creating a fresh one via createSupabaseClient
+    // here — a freshly-created client's session hydration from storage
+    // appears to race with an immediate getSession()/getUser() call the
+    // first time this specific code path runs in a session, silently
+    // reporting "no session" even though the user is genuinely logged in.
+    const supabase = sharedSupabase;
     if (!supabase) return { ok: false, reason: 'missing-config' };
 
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
     if (authError || !authUser) return { ok: false, reason: 'unauthorized' };
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('auto_export_settings')
       .upsert({
         user_id: authUser.id,
@@ -555,11 +574,22 @@ export async function syncAutoExportSettingsToSupabase(settings = {}, user = {},
         last_status: settings.lastStatus || '',
         last_run_date: settings.lastRunDate || null,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      }, { onConflict: 'user_id' })
+      .select();
 
     if (error) {
       console.error('[syncAutoExportSettingsToSupabase] Supabase error:', error.message);
       throw error;
+    }
+    // upsert() without .select() reports success even when Row-Level
+    // Security silently blocks the write (0 rows affected, no error) —
+    // this is exactly what happened here. Requesting the row back and
+    // checking it's actually there turns that silent failure into a
+    // real, visible one.
+    if (!data || data.length === 0) {
+      const msg = 'Upsert reported success but returned no row — likely blocked by a Row-Level Security policy';
+      console.error('[syncAutoExportSettingsToSupabase]', msg);
+      throw new Error(msg);
     }
     return { ok: true };
   } catch (err) {

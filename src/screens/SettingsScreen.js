@@ -497,7 +497,7 @@ export default function SettingsScreen({ navigation, route }) {
       const firstName = String(user.firstName || '').trim();
       const lastName = String(user.lastName || '').trim();
       const repName = String(user.repName || `${firstName} ${lastName}`).trim();
-      console.log("[Settings] Saving profile for:", repName);
+            console.log("[Settings] Saving profile for:", repName, "user.id:", user?.id || '(MISSING)');
       const savedUser = {
         ...user,
         firstName,
@@ -539,15 +539,27 @@ export default function SettingsScreen({ navigation, route }) {
         }
       }
 
-      // Sync auto-export settings to Supabase (server-side scheduled export needs them)
+      // Sync auto-export settings to Supabase (server-side scheduled export
+      // needs them). syncAutoExportSettingsToSupabase does its own real
+      // auth.getUser() lookup internally and never actually uses the local
+      // `user` object's id — gating this on user?.id was blocking a call
+      // that would otherwise always succeed on its own.
+      console.log('[Settings] autoExport.templateId at save time:', autoExport.templateId, '| templateName:', autoExport.templateName);
+      console.log('[Settings] supabaseSettings at save time:', JSON.stringify(supabaseSettings));
       try {
-        if (user?.id) {
-          await syncAutoExportSettingsToSupabase(
-            { ...autoExport, time: normalizedAutoExportTime, timezone: deviceTimeZone },
-            user,
-            supabaseSettings
-          );
+        const syncResult = await syncAutoExportSettingsToSupabase(
+          { ...autoExport, time: normalizedAutoExportTime, timezone: deviceTimeZone },
+          user,
+          supabaseSettings
+        );
+        // syncAutoExportSettingsToSupabase can fail "quietly" — returning
+        // { ok: false, reason } instead of throwing — so checking only for
+        // a thrown error let real failures (like being unauthenticated)
+        // through as a false "success" log with nothing actually written.
+        if (syncResult?.ok) {
           console.log('[Settings] Auto-export settings synced to Supabase');
+        } else {
+          console.warn('[Settings] Auto-export settings sync did not complete:', syncResult?.reason);
         }
       } catch (syncErr) {
         console.warn('[Settings] Auto-export settings Supabase sync failed:', syncErr?.message);
@@ -1398,7 +1410,12 @@ export default function SettingsScreen({ navigation, route }) {
                   style={[s.modeBtn, autoExport.exportFormat === 'custom_template' && autoExport.templateName === profile.name && s.modeBtnActive]}
                   onPress={() => {
                     updateAutoExport('exportFormat', 'custom_template');
-                    updateAutoExport('templateId', profile.id || profile.name);
+                    // export_templates' real unique key is (user_id, name),
+                    // not id — no round-trip ever writes a real Supabase
+                    // UUID back into this local profile object, so sending
+                    // profile.id (or falling back to its name) as templateId
+                    // breaks the server's UUID lookup. Always go by name.
+                    updateAutoExport('templateId', null);
                     updateAutoExport('templateName', profile.name);
                   }}
                 >
