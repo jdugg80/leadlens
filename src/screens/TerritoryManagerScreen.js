@@ -716,7 +716,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       setLoading(true);
       setStatusText('Reading file...');
 
-      let entries;
+            let entries;
       try {
         entries = await parseAddressSourceFile(result.assets[0]);
       } catch (parseErr) {
@@ -729,7 +729,10 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         return;
       }
 
+      console.log('[TerritoryManager] Parsed entries from source file:', JSON.stringify(entries, null, 2));
+
       const { matched, unmatched } = filterEntriesByTerritory(entries, myZips);
+      console.log('[TerritoryManager] Filter result — matched:', matched.length, 'unmatched:', unmatched.length, JSON.stringify(unmatched.slice(0, 5), null, 2));
       if (!matched.length) {
         const noZipCount = unmatched.filter((e) => !e.zip).length;
         showThemedAlert(
@@ -754,10 +757,14 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       const currentQueue = AsyncStorage.getJSONSync(LEADS_STORAGE_KEY, []);
       await AsyncStorage.setJSON(LEADS_STORAGE_KEY, [...currentQueue, ...newLeads]);
 
-      setStatusText('Finding your location...');
+            setStatusText('Finding your location...');
+      // getCurrentCoords() tries a fresh GPS fix first (no internal
+      // timeout of its own) before falling back to last-known-position —
+      // 5s was cutting that off before it had a real chance to complete,
+      // especially indoors or with a weak signal.
       const coords = await Promise.race([
         getCurrentCoords(),
-        new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+        new Promise((resolve) => setTimeout(() => resolve(null), 15000)),
       ]).catch(() => null);
 
       setLoading(false);
@@ -796,7 +803,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
   // calls on addresses that will be discarded. Matched addresses are
   // added to the queue, then routing (via RoutePreviewScreen) is offered.
 
-  const handleImportOpportunities = async () => {
+    const handleImportOpportunities = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
       if (result.canceled) return;
@@ -817,7 +824,10 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         return;
       }
 
+      console.log('[TerritoryManager][Opportunities] Parsed entries from source file:', JSON.stringify(entries, null, 2));
+
       const { matched, unmatched } = filterEntriesByTerritory(entries, myZips);
+      console.log('[TerritoryManager][Opportunities] Filter result — matched:', matched.length, 'unmatched:', unmatched.length, JSON.stringify(unmatched.slice(0, 5), null, 2));
       if (!matched.length) {
         const noZipCount = unmatched.filter((e) => !e.zip).length;
         showThemedAlert(
@@ -851,11 +861,14 @@ export default function TerritoryManagerScreen({ navigation, route }) {
             text: 'Route Them',
             onPress: async () => {
               setLoading(true);
-              setStatusText('Finding your location...');
-              const coords = await Promise.race([
+                            setStatusText('Finding your location...');
+              // Same reasoning as handleImportRoute — getCurrentCoords()
+              // needs real time to try a fresh GPS fix before falling
+              // back, and 5s was cutting it off too early.
+                            const coords = await Promise.race([
                 getCurrentCoords(),
-                new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
-              ]).catch(() => null);
+                new Promise((resolve) => setTimeout(() => resolve(null), 15000)),
+                            ]).catch(() => null);
               setLoading(false);
               setStatusText('');
 

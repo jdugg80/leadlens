@@ -34,7 +34,7 @@ function haversineMeters(a, b) {
  */
 export async function getCurrentCoords() {
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
 
     // Attempt 1: Balanced accuracy (faster, works better indoors)
@@ -52,7 +52,7 @@ export async function getCurrentCoords() {
           speed: loc.coords.speed ?? null,
         };
       }
-    } catch (e) {
+            } catch (e) {
       console.log('[GeoEnrich] Balanced accuracy failed, trying last known...');
     }
 

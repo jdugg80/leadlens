@@ -282,8 +282,12 @@ export function parseAddressHeuristic(fullAddress) {
 
   // Use the last 5-digit sequence as the ZIP (avoids picking up a street number
   // like "12345" at the start of the string).
-  const zipMatches = fullAddress.match(/\b(\d{5})(?:-\d{4})?\b/g);
-  const zip = zipMatches ? zipMatches[zipMatches.length - 1] : '';
+    const zipMatches = fullAddress.match(/\b(\d{5})(?:-\d{4})?\b/g);
+  // .match() with the global flag returns the full matched substring, not
+  // the capture group — so a ZIP+4 like "77566-5248" was coming through
+  // whole instead of being trimmed to just "77566", silently failing to
+  // match against plain 5-digit territory ZIPs everywhere this is used.
+  const zip = zipMatches ? zipMatches[zipMatches.length - 1].slice(0, 5) : '';
 
   let working = fullAddress;
   if (zip) {
