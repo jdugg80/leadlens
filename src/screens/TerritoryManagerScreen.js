@@ -31,7 +31,7 @@ import BetaTracker from '../../utils/betaTracker';
 import { parseZipRosterAOA, matchRepZips, getDistinctRepNames } from '../utils/zipRosterImport';
 import {
   parseAddressListAOA, geocodeAddressEntries, buildLeadFromGeocodedEntry,
-  filterEntriesByTerritory,
+  filterEntriesByTerritory, orderRouteNearestNeighbor,
 } from '../utils/addressListImport';
 import { getCurrentCoords } from '../utils/geoEnrich';
 
@@ -196,13 +196,21 @@ export default function TerritoryManagerScreen({ navigation, route }) {
     try {
       const raw = await AsyncStorage.getItem(SUPABASE_SETTINGS_KEY);
       const settings = raw ? JSON.parse(raw) : null;
-      const supabase = createSupabaseClient(settings);
+            const supabase = createSupabaseClient(settings);
       if (supabase) {
-        await syncTerritoryToSupabase(supabase, user, zips);
+        const syncResult = await syncTerritoryToSupabase(supabase, user, zips);
+        let removeResult = { ok: true };
         if (removedZips.length) {
-          await deleteTerritoryZipsFromSupabase(supabase, removedZips);
+          removeResult = await deleteTerritoryZipsFromSupabase(supabase, removedZips);
         }
-        console.log('[Territory] Auto-sync successful');
+        if (syncResult?.ok && removeResult?.ok) {
+          console.log('[Territory] Auto-sync successful');
+        } else {
+          console.warn('[Territory] Auto-sync did not fully complete:', {
+            syncReason: syncResult?.reason,
+            removeReason: removeResult?.reason,
+          });
+        }
       }
     } catch (err) {
       console.warn('[Territory] Auto-sync failed:', err.message);
@@ -782,8 +790,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         return;
       }
 
+            const { ordered: orderedStops } = orderRouteNearestNeighbor(coords, successful);
       navigation.navigate('RoutePreview', {
-        stops: successful,
+        stops: orderedStops,
         startCoords: coords,
         sourceLabel: `Route Import — ${successful.length} stop${successful.length !== 1 ? 's' : ''}`,
       });
@@ -877,8 +886,9 @@ export default function TerritoryManagerScreen({ navigation, route }) {
                 return;
               }
 
+                            const { ordered: orderedStops } = orderRouteNearestNeighbor(coords, successful);
               navigation.navigate('RoutePreview', {
-                stops: successful,
+                stops: orderedStops,
                 startCoords: coords,
                 sourceLabel: `Opportunity Route — ${successful.length} stop${successful.length !== 1 ? 's' : ''}`,
               });

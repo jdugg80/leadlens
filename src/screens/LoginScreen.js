@@ -452,13 +452,19 @@ export default function LoginScreen({ navigation }) {
         }
       }
 
-      if (!localLeads.length) {
+            if (!localLeads.length) {
         console.log('[Login] Local queue empty — pulling from Supabase');
-        await syncProspectsFromSupabase(supabaseSettings);
+        const pullResult = await syncProspectsFromSupabase(supabaseSettings);
+        if (!pullResult?.ok) {
+          console.warn('[Login] Prospect pull-sync did not complete:', pullResult?.reason);
+        }
       } else {
         console.log(`[Login] Local queue has ${localLeads.length} prospects — skipping pull sync`);
       }
-      await syncUserSettingsFromSupabase(supabaseSettings);
+      const settingsPullResult = await syncUserSettingsFromSupabase(supabaseSettings);
+      if (!settingsPullResult?.ok) {
+        console.warn('[Login] Settings pull-sync did not complete:', settingsPullResult?.reason);
+      }
     } catch (err) {
       console.warn('[Login] Pull sync failed:', err.message);
     }

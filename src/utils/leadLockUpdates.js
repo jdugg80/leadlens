@@ -70,9 +70,13 @@ export async function applyAddressCandidateToProspect(prospectId, addressCandida
       console.log("[LeadLock] Supabase update started");
       // Since upsertProspect typically takes (lead, user, supabaseSettings)
       // we do our best here. The UI will pass user if possible.
-      if (options.user) {
-         await upsertProspect(updatedProspect, options.user);
-         console.log("[LeadLock] Supabase update success");
+            if (options.user) {
+         const upsertResult = await upsertProspect(updatedProspect, options.user);
+         if (upsertResult?.ok) {
+           console.log("[LeadLock] Supabase update success");
+         } else {
+           console.warn("[LeadLock] Supabase update did not complete:", upsertResult?.reason);
+         }
       } else {
          console.log("[LeadLock] Supabase update skipped because no user context provided to options");
       }
