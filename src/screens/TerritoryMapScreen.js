@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ActivityIndicator,
-  TouchableOpacity, ScrollView, Linking, AppState, TextInput,
+  TouchableOpacity, ScrollView, Linking, AppState, TextInput, Animated,
 } from 'react-native';
 import MapView, { Polygon, Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 import {
   makeSafeRegion,
   makeSafeCoordinate,
@@ -29,6 +30,7 @@ const ICON_TARGET = "\uD83C\uDFAF";
 const ICON_GEAR = "\u2699\uFE0F";
 const ICON_RELOAD = "\u21BB";
 const ICON_SIGNAL = "\uD83D\uDCE1";
+const ICON_LAYERS = "\uD83D\uDDC2\uFE0F";
 
 const _makeSafeCoordinate = (coord) => {
   if (!coord) return null;
@@ -383,6 +385,25 @@ export default function TerritoryMapScreen({ navigation, route }) {
   const [clusters, setClusters] = useState([]);
   const [branchMarkers, setBranchMarkers] = useState([]);
   const [showBranchZips, setShowBranchZips] = useState(true);
+    const [layersMenuOpen, setLayersMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const fanAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleMoreMenu = () => {
+    const next = !moreMenuOpen;
+    setMoreMenuOpen(next);
+    Animated.spring(fanAnim, {
+      toValue: next ? 1 : 0,
+      useNativeDriver: true,
+      tension: 60,
+      friction: 8,
+    }).start();
+  };
+
+  const closeMoreMenu = () => {
+    setMoreMenuOpen(false);
+    Animated.spring(fanAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 8 }).start();
+  };
   const myZipSetRef = useRef(new Set());
 
   useEffect(() => { BetaTracker.screen('TerritoryMapScreen'); }, []);
@@ -2089,49 +2110,51 @@ export default function TerritoryMapScreen({ navigation, route }) {
             })
           }
         </MapView>
-        {ENABLE_BRANCH_LAYER && (
-          <View style={s.layerChips} pointerEvents="box-none">
-            <View style={s.layerChip}>
-              <View style={[s.layerSwatch, { backgroundColor: '#00C9FF' }]} />
-              <Text style={s.layerChipText}>MY ZIPS {totalLoadedZips || 0}</Text>
-            </View>
+                                {(ENABLE_BRANCH_LAYER || importedLists.length > 0) && layersMenuOpen && (
+          <>
             <TouchableOpacity
-              style={[s.layerChip, showBranchZips && s.layerChipOn]}
-              onPress={() => setShowBranchZips((prev) => !prev)}
-              activeOpacity={0.75}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityLabel="Toggle branch ZIPs"
-            >
-              <View style={[s.layerSwatch, { backgroundColor: BRANCH_ZIP_STROKE }]} />
-              <Text style={s.layerChipText}>BRANCH {branchMarkers.length}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        {importedLists.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={s.importedChipsRow}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 12 }}
-            pointerEvents="box-none"
-          >
+              style={s.layersMenuBackdrop}
+              activeOpacity={1}
+              onPress={() => setLayersMenuOpen(false)}
+            />
+            <View style={s.layersMenu} pointerEvents="box-none">
+            <View style={s.layersMenuRow}>
+              <View style={[s.layerSwatch, { backgroundColor: '#00C9FF' }]} />
+              <Text style={s.layersMenuText}>My ZIPs</Text>
+              <Text style={s.layersMenuCount}>{totalLoadedZips || 0}</Text>
+            </View>
+            {ENABLE_BRANCH_LAYER && (
+              <TouchableOpacity
+                style={s.layersMenuRow}
+                onPress={() => setShowBranchZips((prev) => !prev)}
+                activeOpacity={0.75}
+                accessibilityLabel="Toggle branch ZIPs"
+              >
+                <View style={[s.layerSwatch, { backgroundColor: BRANCH_ZIP_STROKE }]} />
+                <Text style={s.layersMenuText}>Branch</Text>
+                <Text style={s.layersMenuCount}>{branchMarkers.length}</Text>
+                <Text style={s.layersMenuCheck}>{showBranchZips ? '✓' : ''}</Text>
+              </TouchableOpacity>
+            )}
             {importedLists.map((list) => {
               const isOn = activeImportedListIds.has(list.id);
               return (
                 <TouchableOpacity
                   key={list.id}
-                  style={[s.layerChip, isOn && { borderColor: list.color }]}
+                  style={s.layersMenuRow}
                   onPress={() => toggleImportedList(list.id)}
                   activeOpacity={0.75}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   accessibilityLabel={`Toggle ${list.name} list`}
                 >
                   <View style={[s.layerSwatch, { backgroundColor: list.color }]} />
-                  <Text style={s.layerChipText} numberOfLines={1}>{list.name.toUpperCase()} {list.itemCount}</Text>
+                  <Text style={s.layersMenuText} numberOfLines={1}>{list.name}</Text>
+                  <Text style={s.layersMenuCount}>{list.itemCount}</Text>
+                  <Text style={s.layersMenuCheck}>{isOn ? '✓' : ''}</Text>
                 </TouchableOpacity>
-              );
+                            );
             })}
-          </ScrollView>
+          </View>
+          </>
         )}
         {showMapActionButtons && !!selectedZip && (() => {
           const mineMarker = (zipMarkers || []).find((m) => m.zip === selectedZip);
@@ -2186,7 +2209,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             <Text style={s.activeProfileValue}>{activeProfile.label}</Text>
           </View>
         )}
-        {showMapActionButtons && (
+                {showMapActionButtons && (
           <View style={[s.bottomActions, { bottom: insets.bottom + 16 }]}>
             <TouchableOpacity style={s.actionBtn} onPress={searchNearby}><Text style={s.actionBtnIcon}>{ICON_SEARCH}</Text></TouchableOpacity>
             <TouchableOpacity
@@ -2196,21 +2219,87 @@ export default function TerritoryMapScreen({ navigation, route }) {
             >
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.actionBtn, activeFilterCount > 0 && s.actionBtnActive]}
-              onPress={() => setFiltersVisible(true)}
-              activeOpacity={0.75}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityLabel="Prospect filters"
+
+            <Animated.View
+              pointerEvents={moreMenuOpen ? 'auto' : 'none'}
+              style={[s.fanBtn, {
+                opacity: fanAnim,
+                transform: [
+                  { translateX: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -70] }) },
+                  { translateY: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) },
+                  { scale: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) },
+                ],
+              }]}
             >
-              <Text style={s.actionBtnIcon}>{ICON_GEAR}</Text>
-              {activeFilterCount > 0 && (
-                <View style={s.filterBadge}>
-                  <Text style={s.filterBadgeText}>{activeFilterCount}</Text>
-                </View>
-              )}
+              <TouchableOpacity
+                style={[s.actionBtn, activeFilterCount > 0 && s.actionBtnActive]}
+                onPress={() => { setFiltersVisible(true); closeMoreMenu(); }}
+                activeOpacity={0.75}
+                accessibilityLabel="Prospect filters"
+              >
+                <Text style={s.actionBtnIcon}>{ICON_GEAR}</Text>
+                {activeFilterCount > 0 && (
+                  <View style={s.filterBadge}>
+                    <Text style={s.filterBadgeText}>{activeFilterCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+
+            <Animated.View
+              pointerEvents={moreMenuOpen ? 'auto' : 'none'}
+              style={[s.fanBtn, {
+                opacity: fanAnim,
+                transform: [
+                  { translateX: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -55] }) },
+                  { translateY: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -55] }) },
+                  { scale: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) },
+                ],
+              }]}
+            >
+              <TouchableOpacity style={s.actionBtn} onPress={() => { loadMap(); closeMoreMenu(); }}>
+                <Ionicons name="reload" size={20} color={COLORS.text} />
+              </TouchableOpacity>
+            </Animated.View>
+
+            {(ENABLE_BRANCH_LAYER || importedLists.length > 0) && (
+              <Animated.View
+                pointerEvents={moreMenuOpen ? 'auto' : 'none'}
+                style={[s.fanBtn, {
+                  opacity: fanAnim,
+                  transform: [
+                    { translateX: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) },
+                    { translateY: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -70] }) },
+                    { scale: fanAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) },
+                  ],
+                }]}
+              >
+                                                <TouchableOpacity
+                  style={[s.actionBtn, layersMenuOpen && s.actionBtnActive]}
+                  onPress={() => { setLayersMenuOpen((prev) => !prev); closeMoreMenu(); }}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Map layers"
+                >
+                  <Text style={s.actionBtnIcon}>{ICON_LAYERS}</Text>
+                  {((showBranchZips ? 1 : 0) + activeImportedListIds.size) > 0 && (
+                    <View style={s.filterBadge}>
+                      <Text style={s.filterBadgeText}>{(showBranchZips ? 1 : 0) + activeImportedListIds.size}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </Animated.View>
+            )}
+
+            <TouchableOpacity style={s.hubBtn} onPress={toggleMoreMenu} activeOpacity={0.8} accessibilityLabel="More options">
+              <Animated.Text
+                style={[
+                  s.hubBtnIcon,
+                  { transform: [{ rotate: fanAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '135deg'] }) }] },
+                ]}
+              >
+                +
+              </Animated.Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.actionBtn} onPress={loadMap}><Text style={s.actionBtnIcon}>{ICON_RELOAD}</Text></TouchableOpacity>
           </View>
         )}
         {!!selectedLead && (() => {
@@ -2728,16 +2817,23 @@ const s = StyleSheet.create({
   poiPinSignal: { backgroundColor: COLORS.purple, width: 28, height: 28, borderRadius: 14 },
   poiPinText: { color: '#fff', fontSize: 14, fontWeight: '900' },
   placePin: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FF6B2B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
-  bottomActions: { position: 'absolute', right: 16, bottom: 0, gap: 10, zIndex: 10000, elevation: 34 },
+    bottomActions: { position: 'absolute', right: 16, bottom: 0, gap: 10, zIndex: 10000, elevation: 34 },
   actionBtn: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(20,24,32,0.75)', alignItems: 'center', justifyContent: 'center',
     elevation: 12, borderWidth: 1, borderColor: COLORS.borderLit,
   },
   actionBtnActive: {
     backgroundColor: 'rgba(0,201,255,0.15)',
     borderColor: COLORS.accent,
   },
+  hubBtn: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center',
+    elevation: 14, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.25)',
+  },
+    hubBtnIcon: { fontSize: 26, fontWeight: '700', color: '#08131a', lineHeight: 28 },
+  fanBtn: { position: 'absolute', bottom: 0, right: 0 },
 
   searchBar: { flexDirection: 'row', backgroundColor: COLORS.surface || '#111318', borderRadius: 12, borderWidth: 1, borderColor: COLORS.borderLit || '#2a3038', overflow: 'hidden' },
   searchInput: { flex: 1, paddingHorizontal: 14, paddingVertical: 10, color: COLORS.text || '#fff', fontSize: 13 },
@@ -2791,11 +2887,19 @@ const s = StyleSheet.create({
   modalContent: { backgroundColor: COLORS.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '80%' },
   closeBtn: { marginTop: 20, padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2, borderRadius: 10 },
   closeBtnText: { color: COLORS.text, fontWeight: '700' },
-  layerChips: { position: 'absolute', top: 8, left: 12, flexDirection: 'row', gap: 8, zIndex: 20 },
-  layerChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.borderLit, paddingHorizontal: 10, paddingVertical: 6, elevation: 6 },
-  layerChipOn: { borderColor: BRANCH_ZIP_STROKE },
-  layerSwatch: { width: 10, height: 10, borderRadius: 5 },
-  layerChipText: { color: COLORS.text, fontSize: 10, fontWeight: '800' },
+    layerSwatch: { width: 10, height: 10, borderRadius: 5 },
+    layersMenuBackdrop: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000,
+  },
+  layersMenu: {
+    position: 'absolute', right: 72, bottom: 16, minWidth: 180, maxWidth: 220,
+    backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.borderLit,
+    paddingVertical: 6, elevation: 20, zIndex: 10001,
+  },
+  layersMenuRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9 },
+  layersMenuText: { flex: 1, color: COLORS.text, fontSize: 12, fontWeight: '700' },
+  layersMenuCount: { color: COLORS.label, fontSize: 11, fontWeight: '600' },
+  layersMenuCheck: { color: COLORS.accent, fontSize: 13, fontWeight: '900', width: 16, textAlign: 'center' },
   zipCard: { right: 72 },
   smallBadge: { position: 'absolute', top: -4, right: -4 },
   profileSwitcher: {

@@ -705,7 +705,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         showThemedAlert('Not signed in', 'Could not verify your session. Please sign in again and retry.');
         return;
       }
-      if (!settings?.url) {
+            if (!settings?.supabaseUrl) {
         showThemedAlert('Import failed', 'Supabase URL not found in settings.');
         return;
       }
@@ -722,7 +722,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         const chunk = rows.slice(i, i + MAX_ROWS_PER_CALL);
         setStatusText(`Importing "${name}"... ${i + chunk.length} of ${rows.length}`);
 
-        const res = await fetch(`${settings.url}/functions/v1/import-address-list`, {
+                const res = await fetch(`${settings.supabaseUrl}/functions/v1/import-address-list`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${accessToken}`,

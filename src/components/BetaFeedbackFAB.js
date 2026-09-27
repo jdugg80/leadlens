@@ -14,19 +14,38 @@
  *   />
  */
 
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import {
-  TouchableOpacity, StyleSheet, Animated, Text,
+  TouchableOpacity, StyleSheet, Animated, Text, Dimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants';
 import useFeedbackButtonPosition from '../hooks/useFeedbackButtonPosition';
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 export default function BetaFeedbackFAB({ testerEmail = '', testerName = '', inviteCode = '', appVersion = '' }) {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const { position, panHandlers, isDragging } = useFeedbackButtonPosition();
+  // useFeedbackButtonPosition already has a real "avoid protected zones"
+  // system built in, but nothing was ever actually passed to it — so it
+  // always defaulted to the bottom-right corner, which is exactly where
+  // most screens' floating action-button stacks (search, filters, reload,
+  // layers, etc.) live. Covering that general area keeps the FAB from
+  // landing on top of them by default, on any screen.
+  const protectedZones = useMemo(() => [
+    {
+      x: SCREEN_WIDTH - 90,
+      y: SCREEN_HEIGHT - insets.bottom - 340,
+      width: 90,
+      height: 340,
+    },
+  ], [insets.bottom]);
+
+  const { position, panHandlers, isDragging } = useFeedbackButtonPosition({ protectedZones });
 
   function handlePress() {
     if (isDragging) return;
