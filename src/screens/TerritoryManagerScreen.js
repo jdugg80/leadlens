@@ -34,6 +34,7 @@ import {
   filterEntriesByTerritory, orderRouteNearestNeighbor,
 } from '../utils/addressListImport';
 import { getCurrentCoords } from '../utils/geoEnrich';
+import { loadSavedRoutes, deleteSavedRoute } from '../utils/savedRoutes';
 
 const TABS = ['Heat Map', 'My ZIPs', 'Lists', 'Leads', 'Team'];
 
@@ -581,6 +582,57 @@ export default function TerritoryManagerScreen({ navigation, route }) {
       // fall through to the error below
     }
     throw new Error('Unrecognized file type. Please upload an Excel/CSV file, a PDF, or a photo/screenshot.');
+  };
+
+    // ─── View / manage Saved Routes ─────────────────────────────────────────
+  // Routes saved via RoutePreviewScreen's "Save for Later" button. Tapping
+  // one offers to open it (navigating back into RoutePreviewScreen) or
+  // delete it — this delete path never existed even in the original build.
+
+  const handleViewSavedRoutes = async () => {
+    const routes = await loadSavedRoutes();
+    if (!routes.length) {
+      showThemedAlert('No saved routes', 'Routes you save from the route preview screen ("Save for Later") will show up here.');
+      return;
+    }
+
+    showThemedAlert(
+      'Saved Routes',
+      `${routes.length} saved route${routes.length !== 1 ? 's' : ''}. Tap one to open or delete it.`,
+      [
+        ...routes.slice(0, 10).map((r) => ({
+          text: `${r.name} (${r.stops.length} stops)`,
+          onPress: () => {
+            showThemedAlert(
+              r.name,
+              `${r.stops.length} stop${r.stops.length !== 1 ? 's' : ''} · saved ${new Date(r.createdAt).toLocaleDateString()}`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    await deleteSavedRoute(r.id);
+                    showThemedAlert('Route deleted', `"${r.name}" has been removed.`);
+                  },
+                },
+                {
+                  text: 'Open',
+                  onPress: () => {
+                    navigation.navigate('RoutePreview', {
+                      stops: r.stops,
+                      startCoords: r.startCoords,
+                      sourceLabel: r.name,
+                    });
+                  },
+                },
+              ]
+            );
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   // ─── Import Address List (map-only, private "CVS"-style lists) ─────────
@@ -1202,9 +1254,15 @@ export default function TerritoryManagerScreen({ navigation, route }) {
             <Text style={s.importIcon}>🗺️</Text>
             <Text style={s.importLabel}>Import Addresses for Route</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.importBtn} onPress={handleImportOpportunities}>
+                    <TouchableOpacity style={s.importBtn} onPress={handleImportOpportunities}>
             <Text style={s.importIcon}>🎯</Text>
             <Text style={s.importLabel}>Import Territory Opportunities</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={s.importRow}>
+          <TouchableOpacity style={s.importBtn} onPress={handleViewSavedRoutes}>
+            <Text style={s.importIcon}>📌</Text>
+            <Text style={s.importLabel}>Saved Routes</Text>
           </TouchableOpacity>
         </View>
 

@@ -510,11 +510,11 @@ export default function App() {
         onStateChange={onStateChange}
       >
         <StatusBar style="light" backgroundColor="#0D0F14" />
-        <Stack.Navigator
+                <Stack.Navigator
           initialRouteName="Splash"
           screenOptions={{
             headerShown: false,
-            animation: 'none',
+                        animation: 'fade',
             contentStyle: { backgroundColor: '#0D0F14' },
           }}
         >
