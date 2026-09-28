@@ -1,3 +1,28 @@
+﻿## BETA-71 | 2026-09-28
+
+> Released via Project Scarlett
+
+### 🚀 New Features
+- Named Address Lists Manager: Territory Manager's Lists tab now shows every list you've imported, with an address count, a way to preview what's in it, and a delete button
+- Beta Feedback Alerts: feedback submitted from the app now emails you the moment it arrives, instead of sitting unread in a database
+
+### 🔧 Core App
+- Business Type Overhaul: the map's Business Type filter, search result classification, and Prospect Around's search verticals now share one list of 16 categories built from Google's real place data — roughly half of the old filter's categories weren't valid Google types and were causing hospitals, supermarkets, and other businesses to land in the wrong bucket
+- Map Filters: trimmed down to the ones that actually change what you see (Status, Business Type, Search Radius, Signals, Contact Info); several others were quietly comparing against fields your leads don't have and never did anything
+
+### 🐛 Bug Fixes
+- Status Filter: picking a status, or tapping "All," no longer hides every saved lead on the map
+- Search Result Pin: tapping the pin the map drops for a searched address or business now opens its details (phone, contacts, Capture Lead) — previously it did nothing
+- Truck Stops: now classify as Automotive instead of Logistics
+
+### 🏗️ Infrastructure
+- Removed temporary search-filter diagnostic logging and an orphaned duplicate screen file left over from debugging
+- New notify-feedback Edge Function (Project Scarlett) emails you on new beta feedback; pinned to always deploy without JWT verification so a future redeploy can't silently disable it
+
+### ⚠️ Known Issues
+- The intermittent Android "disabled cannot be cast" crash is still untraced
+- Anyone holding the Project Scarlett API key can currently read all submitted feedback, including tester name and email — tightening this is planned but not yet done
+- Newly captured leads' Industry Vertical label (Review screen) hasn't been moved onto the new 16-category list yet — still uses the old HVAC/Security/Solar-first list
 ## BETA-70 | 2026-09-28
 
 > Released via Project Scarlett
@@ -577,3 +602,4 @@
 - Business Card Recognition: AI-powered OCR for business card scanning via Claude API
 - Location Tracking: GPS-based prospect capture with address lookup
 - Push Notifications: Expo Push integration for beta event notifications
+
