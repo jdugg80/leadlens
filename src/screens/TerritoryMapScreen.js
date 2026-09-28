@@ -1418,39 +1418,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
         signals: { lensSignal: !!sig, contactSignal: !!p.contactSignal, pest: !!sig?.pest_indicator, opening: (sig?.signal_layer || sig?.signal_type) === 'Opening Signal', priority: sig?.alert_level === 'Priority Review' },
         matchScore,
       };
-    }).filter((p, idx) => {
-      // TEMP DIAGNOSTIC (idx === 0 only, so this doesn't spam 20+ log lines per
-      // computation) -- shows exactly which check drops the first place, since
-      // "rawNearby: N, safeNearby: 0" has persisted even with a confirmed-correct
-      // search origin. Remove once the real cause is found and fixed.
-      const trace = idx === 0;
-      if (trace) {
-        const origin = lastNearbySearchCenterRef.current || (region?.latitude && region?.longitude ? region : null);
-        const dist = origin ? distanceInMiles(origin.latitude, origin.longitude, p?.coordinate?.latitude, p?.coordinate?.longitude) : null;
-        console.log('[TerritoryMap][TRACE] first place:', {
-          name: p?.name || p?.establishment_name,
-          coordinate: p?.coordinate,
-          origin,
-          distanceMiles: dist,
-          radiusMiles: filters?.radiusMiles,
-          businessType: p?.businessType,
-          filterBusinessType: filters?.businessType,
-          statuses: filters?.statuses,
-          pStatus: p?.status,
-          rating: parseFloat(p?.rating || p?.google_rating || p?.user_rating_total),
-          minRating: filters?.minRating,
-          signals: p?.signals,
-          filterSignals: filters?.signals,
-          signalsOnly: filters?.signalsOnly,
-          matchScore: p?.matchScore,
-          matchStrength: filters?.matchStrength,
-          contactCompleteness: filters?.contactCompleteness,
-          activityWindow: filters?.activityWindow,
-        });
-      }
-      if (!p || !p.coordinate || !filters) { if (trace) console.log('[TerritoryMap][TRACE] rejected: no p / no coordinate / no filters'); return false; }
+    }).filter((p) => {
+      if (!p || !p.coordinate || !filters) return false;
       // Status applies to saved leads only; discovered businesses have no status.
-      if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) { if (trace) console.log('[TerritoryMap][TRACE] rejected: businessType', p.businessType, '!=', filters.businessType); return false; }
+      if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) return false;
       if (filters.radiusMiles && filters.radiusMiles > 0) {
         // Prefer the real search center over `region`, which can lag behind an
         // animated map move and cause every result to look "too far away" right
@@ -1458,22 +1429,21 @@ export default function TerritoryMapScreen({ navigation, route }) {
         const origin = lastNearbySearchCenterRef.current || (region?.latitude && region?.longitude ? region : null);
         if (origin) {
           const d = distanceInMiles(origin.latitude, origin.longitude, p.coordinate.latitude, p.coordinate.longitude);
-          if (d > filters.radiusMiles) { if (trace) console.log('[TerritoryMap][TRACE] rejected: distance', d, '>', filters.radiusMiles); return false; }
+          if (d > filters.radiusMiles) return false;
         }
       }
       const rating = parseFloat(p.rating || p.google_rating || p.user_rating_total);
-      if (filters.minRating && rating < filters.minRating) { if (trace) console.log('[TerritoryMap][TRACE] rejected: rating', rating, '<', filters.minRating); return false; }
+      if (filters.minRating && rating < filters.minRating) return false;
       // Contact Info applies to saved leads only -- search results are requested without phone/website (Enterprise-tier fields, dropped on purpose for cost).
-      if (!matchesActivityWindow(p, filters.activityWindow)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: activityWindow', filters.activityWindow); return false; }
+      if (!matchesActivityWindow(p, filters.activityWindow)) return false;
       if (filters.newSinceLastScan && lastScanTimeRef.current) {
         const t = new Date(p.created_at || p.updated_at || p.scanned_at).getTime();
-        if (!isFinite(t) || t <= lastScanTimeRef.current) { if (trace) console.log('[TerritoryMap][TRACE] rejected: newSinceLastScan'); return false; }
+        if (!isFinite(t) || t <= lastScanTimeRef.current) return false;
       }
       if (filters.signalsOnly || Object.values(filters.signals || {}).some(v => !v)) {
-        if (!matchesSignals(p.signals, filters.signals)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: signals', p.signals, 'vs filter', filters.signals); return false; }
+        if (!matchesSignals(p.signals, filters.signals)) return false;
       }
-      if (!matchesMatchStrength(p.matchScore, filters.matchStrength)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: matchStrength', p.matchScore, 'vs', filters.matchStrength); return false; }
-      if (trace) console.log('[TerritoryMap][TRACE] PASSED all checks');
+      if (!matchesMatchStrength(p.matchScore, filters.matchStrength)) return false;
       return true;
     });
   }, [nearbyPlaces, lensSignalRecords, filters, activeProfile, region]);
@@ -1484,51 +1454,6 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const safe = Array.isArray(safeNearbyPlaces) ? safeNearbyPlaces.length : 'not array';
       console.log('[TerritoryMap] nearbyPlaces update:', { rawNearby: raw, safeNearby: safe });
       if (raw !== 0 && safe === 0) console.log('[TerritoryMap] WARNING: nearbyPlaces present but safeNearbyPlaces filtered to 0');
-      if (Array.isArray(nearbyPlaces) && nearbyPlaces.length > 0) {
-        // SEARCH PROBE -- what Nearby Search actually returned, which fields it carries, and what the filters dropped.
-        const safeIds = new Set((safeNearbyPlaces || []).map((p) => getNearbyPlaceId(p)));
-        const origin = lastNearbySearchCenterRef.current;
-        const miFrom = (p) => {
-          const c = p.coordinate || p.coords;
-          return origin && c ? Number(distanceInMiles(origin.latitude, origin.longitude, c.latitude, c.longitude).toFixed(2)) : null;
-        };
-        const droppedBy = { noCoordinate: 0, businessType: 0, radius: 0, other: 0 };
-        const byType = {};
-        nearbyPlaces.forEach((p) => {
-          const t = classifyGooglePlace(p);
-          byType[t] = (byType[t] || 0) + 1;
-          if (safeIds.has(getNearbyPlaceId(p))) return;
-          const mi = miFrom(p);
-          if (!p.coordinate) droppedBy.noCoordinate += 1;
-          else if (filters.businessType !== 'All Businesses' && t !== filters.businessType) droppedBy.businessType += 1;
-          else if (mi != null && filters.radiusMiles > 0 && mi > filters.radiusMiles) droppedBy.radius += 1;
-          else droppedBy.other += 1;
-        });
-        const has = (fn) => nearbyPlaces.filter(fn).length;
-        console.log('[TerritoryMap][SearchProbe]', JSON.stringify({
-          total: nearbyPlaces.length,
-          shown: safeIds.size,
-          droppedBy,
-          byType,
-          fieldCoverage: {
-            phone: has((p) => !!(p.phone || p.nationalPhoneNumber)),
-            website: has((p) => !!(p.website || p.websiteUri)),
-            rating: has((p) => p.rating != null),
-            address: has((p) => !!(p.address || p.formatted_address)),
-            businessStatus: has((p) => !!(p.businessStatus || p.business_status)),
-          },
-          firstKeys: Object.keys(nearbyPlaces[0] || {}),
-          top: nearbyPlaces.slice(0, 12).map((p) => ({
-            name: p.name || p.businessName || null,
-            type: classifyGooglePlace(p),
-            primary: p.primaryType || null,
-            types: Array.isArray(p.types) ? p.types.slice(0, 6) : null,
-            mi: miFrom(p),
-            status: p.businessStatus || p.business_status || null,
-            rating: p.rating != null ? p.rating : null,
-          })),
-        }));
-      }
     } catch (e) {
       console.warn('[TerritoryMap] nearbyPlaces debug logging failed:', e?.message || String(e));
     }

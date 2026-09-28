@@ -886,10 +886,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
         return;
       }
 
-      console.log('[TerritoryManager][Opportunities] Parsed entries from source file:', JSON.stringify(entries, null, 2));
-
       const { matched, unmatched } = filterEntriesByTerritory(entries, myZips);
-      console.log('[TerritoryManager][Opportunities] Filter result — matched:', matched.length, 'unmatched:', unmatched.length, JSON.stringify(unmatched.slice(0, 5), null, 2));
       if (!matched.length) {
         const noZipCount = unmatched.filter((e) => !e.zip).length;
         showThemedAlert(
