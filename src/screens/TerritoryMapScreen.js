@@ -16,6 +16,7 @@ import {
 } from '../utils/mapSafety';
 import { screenHeight } from '../utils/responsive';
 import { classifyVertical } from '../utils/leadProcessing';
+import { classifyPlace, classifyLead, isValidFilterType } from '../config/businessVerticals';
 import { useProcessing } from '../context/ProcessingContext';
 import { useModalVisibility } from '../context/ModalVisibilityContext';
 
@@ -160,6 +161,7 @@ const BRANCH_ZIP_FILL = '#5B647845';
 const sanitizeFilters = (f) => ({
   ...f,
   statuses: (Array.isArray(f?.statuses) && f.statuses.length > 0 && !f.statuses.includes('all')) ? f.statuses : ['All'],
+  businessType: isValidFilterType(f?.businessType) ? f.businessType : 'All Businesses',
   minRating: 0,
   activityWindow: 'all',
   signalsOnly: false,
@@ -1036,6 +1038,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
       longitude: p.coordinate?.longitude ?? p.coords?.longitude ?? null,
       status: 'New',
       vertical: 'Other',
+      businessVertical: classifyPlace(p),
+      primaryType: p.primaryType || '',
+      googleTypes: Array.isArray(p.types) ? p.types.slice(0, 12) : [],
       captureMethod,
       source,
       propertyType: 'Commercial',
@@ -1310,7 +1315,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
     // Search radius scopes Nearby Search only; saved leads are never hidden by where the map is panned.
 
     if (isBusinessMode) {
-      const type = classifyGooglePlace(lead);
+      const type = classifyLead(lead);
       if (filters.businessType !== 'All Businesses' && type !== filters.businessType) return false;
       const rating = parseFloat(lead.rating || lead.google_rating || lead.user_rating_total);
       if (filters.minRating && rating < filters.minRating) return false;
@@ -1516,6 +1521,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
           top: nearbyPlaces.slice(0, 12).map((p) => ({
             name: p.name || p.businessName || null,
             type: classifyGooglePlace(p),
+            primary: p.primaryType || null,
+            types: Array.isArray(p.types) ? p.types.slice(0, 6) : null,
             mi: miFrom(p),
             status: p.businessStatus || p.business_status || null,
             rating: p.rating != null ? p.rating : null,
@@ -1647,6 +1654,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
       source: selectedPlace.source || "map",
       placeId: selectedPlace.place_id || selectedPlace.placeId || "",
       website: selectedPlace.website || "",
+      businessVertical: classifyPlace(selectedPlace),
+      primaryType: selectedPlace.primaryType || '',
+      googleTypes: Array.isArray(selectedPlace.types) ? selectedPlace.types.slice(0, 12) : [],
       captureMethod: 'Nearby Search',
       propertyType: 'Commercial',
       status: 'New'
@@ -1720,7 +1730,21 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const loc = data.location;
       if (loc) {
         const coord = { latitude: loc.latitude, longitude: loc.longitude };
-        setSearchMarker({ coordinate: coord, label: suggestion.description });
+        setSearchMarker({
+          coordinate: coord,
+          label: suggestion.description,
+          // Everything the place card needs, so tapping the pin can open it. placeId lets the
+          // enrichment pull phone / contacts, same as tapping any nearby business.
+          place: {
+            placeId: suggestion.place_id,
+            name: data.displayName?.text || suggestion.structured_formatting?.main_text || suggestion.description,
+            address: data.formattedAddress || suggestion.description,
+            fullAddress: data.formattedAddress || suggestion.description,
+            coords: coord,
+            coordinate: coord,
+            source: 'address_search',
+          },
+        });
         moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
         lastNearbySearchCenterRef.current = coord;
@@ -1744,7 +1768,18 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const loc = data.results?.[0]?.geometry?.location;
       if (loc) {
         const coord = { latitude: loc.lat, longitude: loc.lng };
-        setSearchMarker({ coordinate: coord, label: addressQuery });
+        setSearchMarker({
+          coordinate: coord,
+          label: addressQuery,
+          place: {
+            name: addressQuery,
+            address: data.results?.[0]?.formatted_address || addressQuery,
+            fullAddress: data.results?.[0]?.formatted_address || addressQuery,
+            coords: coord,
+            coordinate: coord,
+            source: 'address_search',
+          },
+        });
         moveMapTo({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
         const radiusMeters = Math.min((filters.radiusMiles || 5) * 1609.34, 50000);
         lastNearbySearchCenterRef.current = coord;
@@ -2131,6 +2166,12 @@ export default function TerritoryMapScreen({ navigation, route }) {
             <Marker
               key="search-result-marker"
               coordinate={searchMarker.coordinate}
+              onPress={() => {
+                const pl = searchMarker.place;
+                if (!pl) return;
+                if (pl.placeId) handlePlaceTap(pl); // a real place: same enrichment as any nearby business
+                else setSelectedPlace({ ...pl, loading: false }); // a plain address: nothing to enrich
+              }}
               anchor={{ x: 0.5, y: 1 }}
               tracksViewChanges={false}
             >
