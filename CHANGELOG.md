@@ -1,3 +1,39 @@
+## BETA-70 | 2026-09-27
+
+> Released via Project Scarlett
+
+### 🚀 New Features
+- Map Action Menu: Search and TargetLens stay one tap away; Filters, Reload, and Layers now tuck behind a "+" hub button and fan out when you open it, instead of a permanent column of buttons over the map
+- Map Layers Panel: My ZIPs, Branch, and any imported address lists now toggle from one compact Layers button instead of always-on pills across the top of the map — tap anywhere outside the panel to close it
+- Saved Routes: the saved-routes list is in Territory Manager's Lists tab, and you can now delete a saved route as well as open it
+- Screen Transitions: screens now crossfade instead of switching instantly
+
+### 🔧 Core App
+- Real Prospect Counts: Territory Manager's 90-day counts and weekly averages are now based on prospects you've actually exported, so clearing or archiving sent leads no longer erases them — counts start from your first export in this build
+- Enrichment: the contact-signal, health-violation, and property-record lookups now run alongside the rest of the enrichment chain instead of after it
+
+### 🐛 Bug Fixes
+- Scheduled Export: fixed three problems that made every server-side scheduled export fail — a template name sent where an ID was expected, a background sync using the wrong session storage, and a sync that never fired. The settings now reach the server; a full unattended run is still being confirmed
+- ZIP+4 Addresses: addresses written with a ZIP+4 (like 77566-5248) never matched your territory ZIPs during imports — they now match
+- Route From My Location: "Route Them" no longer gives up on finding your location after 5 seconds; it now waits up to 15
+- Route Order: routes are ordered by nearest-neighbor again — a refactor had silently dropped it, leaving stops in the order they were geocoded
+- Import Address List: fixed every import failing with "Supabase URL not found in settings"
+- BETA Feedback Button: no longer parks itself on top of the map's action buttons, and hides while a bottom sheet (Prospect Around, TargetLens) is open
+- Prospect Around: the "Add Selected to Queue" button was squashed to a sliver at the bottom of the sheet — it's full size again, and the map buttons no longer cover it
+- Reload Icon: the map's reload button showed as a blank dot on some devices — it now shows a real reload icon
+- Silent Sync Failures: several background syncs (territory ZIPs, the post-login pull, LeadLock updates) reported success even when they hadn't completed; they now report what actually happened
+
+### 🏗️ Infrastructure
+- Added a per-user export activity log (with row-level security) that both on-device and server-side exports write to
+- The shared Supabase client factory now uses the same session storage and sign-in flow as the main login client
+- Added Sentry screen-transition breadcrumbs so crash reports show which screens led up to a crash
+- Removed roughly 42 stray backup files and ran an unused-export analysis across the codebase
+
+### ⚠️ Known Issues
+- An intermittent Android crash ("Value for disabled cannot be cast from String to Boolean") is confirmed in crash reports but not yet traced to a screen; the new breadcrumbs should identify it the next time it happens
+- The cold-start timing issue listed under BETA-69 may be related to the session-storage fix in this build — needs confirmation in the field
+- Territory Manager's heat map counts read zero until you've exported at least once with this build
+
 ## BETA-69 | 2026-09-25
 
 > Released via Project Scarlett

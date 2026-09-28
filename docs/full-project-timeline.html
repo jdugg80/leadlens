@@ -34,11 +34,11 @@
 <h1>LeadLens — Full Project Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">239</div><div class="label">Commits</div></div>
-  <div class="stat"><div class="num">90</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">93.5</div><div class="label">Hours</div></div>
-  <div class="stat"><div class="num">52</div><div class="label">Active Days</div></div>
-  <div class="stat"><div class="num">23.9</div><div class="label">Weeks</div></div>
+  <div class="stat"><div class="num">250</div><div class="label">Commits</div></div>
+  <div class="stat"><div class="num">96</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">97.2</div><div class="label">Hours</div></div>
+  <div class="stat"><div class="num">54</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">24.2</div><div class="label">Weeks</div></div>
   <div class="stat"><div class="num">1</div><div class="label">Clients Live</div></div>
 </div>
 
@@ -296,6 +296,56 @@
   <div class="entry win"><span class="date">Sep 25</span> <span class="msg">Full Prospect Around panel — count, vertical, distance, exclude-already-prospected toggle, scored results, bulk add to queue</span> <span class="hash">07cc4298</span></div>
   <div class="entry bug"><span class="date">Sep 25</span> <span class="msg">Fixed "Add to Queue" on the general nearby-discovery card, which had been a non-functional placeholder</span> <span class="hash">07cc4298</span></div>
   <div class="entry decision"><span class="date">Sep 25</span> <span class="msg">Cleaned up CHANGELOG.md — removed a leftover test entry, fixed a chronologically misplaced session entry and a stray duplicate header</span> <span class="hash">07cc4298</span></div>
+  <div class="entry decision"><span class="date">Sep 25</span> <span class="msg">BETA-69 — 2026-09-25 release</span> <span class="hash">c1e3c194</span></div>
+</div>
+
+<div class="era-divider">Era 13 — Reliability, Audit &amp; Map UX (Sep 26–27, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 29 · Server-Side Auto-Export Fix</div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Fixed scheduled exports failing on every server run — the custom template's name was being sent to the server as a UUID ("invalid input syntax for type uuid"); the picker now leaves templateId null and sends only the name the server already falls back to</span> <span class="hash">3d912b58</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Fixed the auto-export settings sync being gated on user?.id — a field from a separate local profile object that never carries the real Supabase auth ID — so the server never received the settings</span> <span class="hash">3d912b58</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Fixed a false-success pattern: the sync returns { ok: false, reason: 'unauthorized' } as a value instead of throwing, and the caller only checked for thrown errors, so every failure logged "synced"; also added .select() so an RLS-blocked upsert (0 rows, no error) would surface as a failure</span> <span class="hash">3d912b58</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Fixed createSupabaseClient() building its own session storage adapter and a 'pkce' flow instead of the app's storageBridge and 'implicit' flow, so a freshly built client saw no session</span> <span class="hash">3d912b58</span></div>
+  <div class="entry security"><span class="date">Sep 26</span> <span class="msg">Checked the auto_export_settings RLS policy (auth.uid() = user_id) — it was correct; the fault was a client with no session, found by instrumenting getSession()/getUser(), and a re-login under the corrected client cleared it</span> <span class="hash">3d912b58</span></div>
+  <div class="entry decision"><span class="date">Sep 26</span> <span class="msg">Removed a stray tracked web (2).zip artifact</span> <span class="hash">ab305ada</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 30 · Export History &amp; Enrichment Speed</div>
+  <div class="entry win"><span class="date">Sep 26</span> <span class="msg">Territory Manager's 90-day and weekly prospect counts now come from real export history instead of the local queue, so clearing or archiving sent leads no longer erases them — the count is prospects actually exported</span> <span class="hash">7216454f</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Found that the existing per-prospect export logging (recordUserActivityEvent) had been failing silently all along because its user_activity_events table never existed; created it with per-user insert/select RLS</span> <span class="hash">7216454f</span></div>
+  <div class="entry win"><span class="date">Sep 26</span> <span class="msg">On-device scheduled export (autoExport.js) and the server-side scheduled-export-run function now both record a prospect_exported event per exported prospect</span> <span class="hash">7216454f</span></div>
+  <div class="entry decision"><span class="date">Sep 26</span> <span class="msg">Heat Map and My ZIPs read export history and fall back to the local queue if the fetch fails; the Leads tab deliberately stays on the live queue, which is a different view (not-yet-exported prospects)</span> <span class="hash">7216454f</span></div>
+  <div class="entry win"><span class="date">Sep 26</span> <span class="msg">Enrichment: the POC-signal, health-violation and property-record lookups now run in parallel with the Places → Comptroller → Contact chain instead of after it</span> <span class="hash">240c15ea</span></div>
+  <div class="entry decision"><span class="date">Sep 26</span> <span class="msg">Kept that chain sequential on purpose — Contact Enrichment checks for an already-found POC before spending a paid provider credit, a real dependency a blanket Promise.all would have silently broken</span> <span class="hash">240c15ea</span></div>
+  <div class="entry decision"><span class="date">Sep 26</span> <span class="msg">Wired Sentry's ReactNavigationInstrumentation (5.24.3 class-based API) into the NavigationContainer so the still-unlocalized native 'disabled' prop crash gets a screen breadcrumb trail next time it fires</span> <span class="hash">240c15ea</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 31 · Territory Import Fixes &amp; Codebase Integrity Audit</div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Fixed addresses with a ZIP+4 (e.g. 77566-5248) never matching territory ZIPs — parseAddressHeuristic() returned the whole global-regex match instead of the 5-digit capture; a real 11-address PDF went from 3 of 11 matched to 11 of 11</span> <span class="hash">2e3a76c6</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Extended the 'Route Them' and route-import location wait from 5s to 15s — getCurrentCoords() tries a fresh GPS fix first and was being cut off before it could fall back to the last-known position</span> <span class="hash">2e3a76c6</span></div>
+  <div class="entry decision"><span class="date">Sep 26</span> <span class="msg">Deleted ~42 untracked .bak scratch files across src/, supabase/ and web/</span> <span class="hash">2773d750</span></div>
+  <div class="entry decision"><span class="date">Sep 26</span> <span class="msg">Audited every caller of the { ok: false }-returning backendSync.js and territoryUtils.js functions for unchecked results, and ran ts-prune for real unused-export analysis instead of manual grep</span> <span class="hash">2773d750</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Territory ZIP auto-sync logged "successful" unconditionally after syncTerritoryToSupabase / deleteTerritoryZipsFromSupabase, so a failed sync was indistinguishable from a good one</span> <span class="hash">2773d750</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Login pull-sync (prospects and settings) never captured or checked its result</span> <span class="hash">2773d750</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">LeadLock's Supabase update logged success unconditionally after upsertProspect()</span> <span class="hash">2773d750</span></div>
+  <div class="entry bug"><span class="date">Sep 26</span> <span class="msg">Restored nearest-neighbor route ordering — orderRouteNearestNeighbor() had been dropped when the route flow was refactored onto RoutePreviewScreen, so both route flows passed stops in raw geocode order; ts-prune flagged it as unreferenced</span> <span class="hash">2773d750</span></div>
+  <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Restored the Saved Routes viewer in Territory Manager — handleViewSavedRoutes and its button were lost in a full-file rewrite of the screen while savedRoutes.js and the saved data stayed intact; added Delete, which never existed</span> <span class="hash">a0000d51</span></div>
+  <div class="entry win"><span class="date">Sep 27</span> <span class="msg">Screen transitions re-enabled as a pure crossfade — animation had been 'none' app-wide</span> <span class="hash">a0000d51</span></div>
+  <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Fixed Import Address List always failing with "Supabase URL not found in settings" — handleConfirmListImport read settings.url instead of settings.supabaseUrl in both its guard and its fetch()</span> <span class="hash">6140793a</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 32 · Territory Map UX — Radial Menu, Layers Panel &amp; Modal Handling</div>
+  <div class="entry win"><span class="date">Sep 27</span> <span class="msg">Replaced the always-visible MY ZIPS / BRANCH / imported-list pill rows with a compact Layers button and a dismissable panel (tap outside to close)</span> <span class="hash">6140793a</span></div>
+  <div class="entry win"><span class="date">Sep 27</span> <span class="msg">Rebuilt the map's action buttons as a radial '+' hub: Search and TargetLens stay always visible; Filters, Reload and Layers fan out on open; frosted button backgrounds</span> <span class="hash">6140793a</span></div>
+  <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Reload icon rendered as a blank dot (a plain Unicode glyph with poor Android font coverage); switched to Ionicons</span> <span class="hash">6140793a</span></div>
+  <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Fixed the BETA feedback FAB always landing on the bottom-right button stack — useFeedbackButtonPosition's protected-zones system existed but was never given any zones</span> <span class="hash">6140793a</span></div>
+  <div class="entry win"><span class="date">Sep 27</span> <span class="msg">New ModalVisibilityContext (counter-based, 5-minute safety timeout) so the globally-rendered BETA FAB hides while a screen-local sheet is open; wired into Prospect Around and the TargetLens selector</span> <span class="hash">013b34c8</span></div>
+  <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Fixed Prospect Around's 'Add N Selected to Queue' button collapsing to a sliver — it reused cardBtn (flex: 1), which stretches in a row but squashes in a column</span> <span class="hash">013b34c8</span></div>
+  <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Map action-button stack now hides while Prospect Around or TargetLens is open, and the sheet pads for the system nav bar</span> <span class="hash">013b34c8</span></div>
 </div>
 
 </body>
