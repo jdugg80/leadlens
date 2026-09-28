@@ -9,13 +9,17 @@ import {
   TouchableWithoutFeedback,
   Animated,
 } from 'react-native';
-import {
-  COLORS,
-  PROSPECT_STATUS_OPTIONS,
-  LEAD_SOURCE_OPTIONS,
-  SERVICE_TYPE_OPTIONS,
-} from '../constants';
+import { COLORS } from '../constants';
 import HomeownerFilterPanel from './HomeownerFilterPanel';
+
+// Trimmed filter sheet. Business mode keeps only filters that actually act on
+// something on the map: Status (saved leads), Business Type, Search Radius,
+// Signals, and Contact info. The removed controls (Last Activity, New Since Last
+// Scan, Min Rating, Match Strength, Signals Only, and the second "Prospect
+// Status" / Lead Source / Service Type) either had nothing to act on or compared
+// against fields the data doesn't have. Every control now edits a local draft and
+// applies only when "Apply Filters" is tapped -- previously some chips applied
+// instantly (and dragged unrelated pending edits along with them).
 
 const BUSINESS_TYPES = [
   'All Businesses',
@@ -39,13 +43,6 @@ const LEAD_STATUSES = [
   'Closed',
 ];
 
-const MATCH_STRENGTHS = [
-  'Show All',
-  'Strong Matches',
-  'High Opportunity',
-  'Needs Review',
-];
-
 const RADIUS_PRESETS = [
   { value: 0.5, label: '0.5 mi' },
   { value: 1, label: '1 mi' },
@@ -53,23 +50,6 @@ const RADIUS_PRESETS = [
   { value: 5, label: '5 mi' },
   { value: 10, label: '10 mi' },
   { value: 25, label: '25 mi' },
-];
-
-const RATING_PRESETS = [
-  { value: 0, label: 'Any' },
-  { value: 3, label: '3+' },
-  { value: 3.5, label: '3.5+' },
-  { value: 4, label: '4+' },
-  { value: 4.5, label: '4.5+' },
-];
-
-const ACTIVITY_WINDOWS = [
-  { key: 'all', label: 'Any' },
-  { key: 'never', label: 'Never' },
-  { key: '7d', label: '7 days' },
-  { key: '30d', label: '30 days' },
-  { key: '90d', label: '90 days' },
-  { key: 'stale', label: 'Stale 90+' },
 ];
 
 const HOME_VALUE_PRESETS = [
@@ -110,7 +90,6 @@ const OCCUPANCY_TYPES = [
   { key: 'all', label: 'All' },
   { key: 'owner_occupied', label: 'Owner-Occupied' },
   { key: 'rental', label: 'Rental' },
-  { key: 'leased', label: 'Leased' },
 ];
 
 const RESIDENTIAL_PROPERTY_TYPES = [
@@ -122,11 +101,26 @@ const RESIDENTIAL_PROPERTY_TYPES = [
   { key: 'new_construction', label: 'New Construction' },
 ];
 
+const SIGNAL_TYPES = [
+  { key: 'lensSignal', label: 'LensSignal' },
+  { key: 'contactSignal', label: 'Contact Signal' },
+  { key: 'pest', label: 'Pest Indicator' },
+  { key: 'opening', label: 'Opening Signal' },
+  { key: 'priority', label: 'Priority' },
+];
+
+const CONTACT_OPTIONS = [
+  { key: 'all', label: 'All' },
+  { key: 'enriched', label: 'Enriched' },
+  { key: 'has_phone', label: 'Has Phone' },
+];
+
 function isActive(arr, key) {
   if (!Array.isArray(arr)) return false;
   return arr.includes(key);
 }
 
+// occupancy / property-type lists use lowercase 'all'
 function toggleMulti(arr, key) {
   if (!Array.isArray(arr)) return [key];
   if (key === 'all') return ['all'];
@@ -134,6 +128,20 @@ function toggleMulti(arr, key) {
   if (cleaned.includes(key)) {
     const next = cleaned.filter(k => k !== key);
     return next.length ? next : ['all'];
+  }
+  return [...cleaned, key];
+}
+
+// Status chips use capitalized 'All'. The shared toggleMulti above only knew
+// lowercase 'all', so picking a status left 'All' selected (filter never
+// activated) and tapping 'All' wrote ['all'], which matches nothing and hid
+// every saved lead.
+function toggleStatusList(arr, key) {
+  if (key === 'All') return ['All'];
+  const cleaned = (Array.isArray(arr) ? arr : []).filter(k => k !== 'All');
+  if (cleaned.includes(key)) {
+    const next = cleaned.filter(k => k !== key);
+    return next.length ? next : ['All'];
   }
   return [...cleaned, key];
 }
@@ -162,85 +170,16 @@ export default function LeadFiltersBottomSheet({
     }).start();
   }, [visible, slideAnim]);
 
-  const setMode = (mode) => {
-    setLocalFilters(prev => ({ ...prev, targetLensMode: mode }));
-  };
-
-  const toggleSignal = (key) => {
-    setLocalFilters((prev) => {
-      const next = {
-        ...prev,
-        signals: {
-          ...prev.signals,
-          [key]: !prev.signals[key],
-        },
-      };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
-
-  const toggleStatus = (status) => {
-    setLocalFilters(prev => {
-      const next = { ...prev, statuses: toggleMulti(prev.statuses || ['All'], status) };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
-
-  const toggleOccupancy = (type) => {
-    setLocalFilters(prev => {
-      const next = { ...prev, occupancyTypes: toggleMulti(prev.occupancyTypes || ['all'], type) };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
-
-  const toggleResidentialType = (type) => {
-    setLocalFilters(prev => {
-      const next = { ...prev, residentialPropertyTypes: toggleMulti(prev.residentialPropertyTypes || ['all'], type) };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
-
-  const toggleProspectStatus = (key) => {
-    setLocalFilters(prev => {
-      const next = { ...prev, prospectStatus: toggleMulti(prev.prospectStatus || [], key) };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
-
-  const toggleLeadSource = (key) => {
-    setLocalFilters(prev => {
-      const next = { ...prev, leadSource: toggleMulti(prev.leadSource || [], key) };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
-
-  const toggleServiceType = (key) => {
-    setLocalFilters(prev => {
-      const next = { ...prev, serviceType: toggleMulti(prev.serviceType || [], key) };
-      try { onApply && onApply(next); } catch (err) {
-        console.warn('[LeadFilters] onApply callback failed:', err?.message || String(err));
-      }
-      return next;
-    });
-  };
+  const patch = (partial) => setLocalFilters(prev => ({ ...prev, ...partial }));
+  const setMode = (mode) => patch({ targetLensMode: mode });
+  const toggleSignal = (key) =>
+    setLocalFilters(prev => ({ ...prev, signals: { ...prev.signals, [key]: !prev.signals?.[key] } }));
+  const toggleStatus = (status) =>
+    setLocalFilters(prev => ({ ...prev, statuses: toggleStatusList(prev.statuses, status) }));
+  const toggleOccupancy = (type) =>
+    setLocalFilters(prev => ({ ...prev, occupancyTypes: toggleMulti(prev.occupancyTypes || ['all'], type) }));
+  const toggleResidentialType = (type) =>
+    setLocalFilters(prev => ({ ...prev, residentialPropertyTypes: toggleMulti(prev.residentialPropertyTypes || ['all'], type) }));
 
   const handleApply = () => {
     onApply(localFilters);
@@ -313,47 +252,31 @@ export default function LeadFiltersBottomSheet({
                   </TouchableOpacity>
                 </View>
 
-                {/* ── Universal Filters ─────────────────────────────── */}
-                <Text style={s.sectionTitle}>Prospect Status</Text>
-                <View style={s.chipRow}>
-                  {LEAD_STATUSES.map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      style={[s.chip, isActive(localFilters.statuses, status) && s.chipActive]}
-                      onPress={() => toggleStatus(status)}
-                    >
-                      <Text style={[s.chipText, isActive(localFilters.statuses, status) && s.chipTextActive]}>
-                        {status}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={s.sectionTitle}>Distance / Radius</Text>
-                <View style={s.chipRow}>
-                  {RADIUS_PRESETS.map((preset) => (
-                    <TouchableOpacity
-                      key={preset.value}
-                      style={[s.chip, localFilters.radiusMiles === preset.value && s.chipActive]}
-                      onPress={() => setLocalFilters({ ...localFilters, radiusMiles: preset.value })}
-                    >
-                      <Text style={[s.chipText, localFilters.radiusMiles === preset.value && s.chipTextActive]}>
-                        {preset.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Commercial-only: Business Type + Rating */}
                 {isBusiness && (
                   <>
+                    <Text style={s.sectionTitle}>Status</Text>
+                    <Text style={s.hintText}>Applies to your saved leads.</Text>
+                    <View style={s.chipRow}>
+                      {LEAD_STATUSES.map((status) => (
+                        <TouchableOpacity
+                          key={status}
+                          style={[s.chip, isActive(localFilters.statuses, status) && s.chipActive]}
+                          onPress={() => toggleStatus(status)}
+                        >
+                          <Text style={[s.chipText, isActive(localFilters.statuses, status) && s.chipTextActive]}>
+                            {status}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
                     <Text style={s.sectionTitle}>Business Type</Text>
                     <View style={s.chipRow}>
                       {BUSINESS_TYPES.map((type) => (
                         <TouchableOpacity
                           key={type}
                           style={[s.chip, localFilters.businessType === type && s.chipActive]}
-                          onPress={() => setLocalFilters({ ...localFilters, businessType: type })}
+                          onPress={() => patch({ businessType: type })}
                         >
                           <Text style={[s.chipText, localFilters.businessType === type && s.chipTextActive]}>
                             {type}
@@ -362,184 +285,55 @@ export default function LeadFiltersBottomSheet({
                       ))}
                     </View>
 
-                    <Text style={s.sectionTitle}>Min Business Rating</Text>
+                    <Text style={s.sectionTitle}>Search Radius</Text>
+                    <Text style={s.hintText}>How far Nearby Search looks. It doesn't hide your saved leads.</Text>
                     <View style={s.chipRow}>
-                      {RATING_PRESETS.map((preset) => (
+                      {RADIUS_PRESETS.map((preset) => (
                         <TouchableOpacity
                           key={preset.value}
-                          style={[s.chip, localFilters.minRating === preset.value && s.chipActive]}
-                          onPress={() => setLocalFilters({ ...localFilters, minRating: preset.value })}
+                          style={[s.chip, localFilters.radiusMiles === preset.value && s.chipActive]}
+                          onPress={() => patch({ radiusMiles: preset.value })}
                         >
-                          <Text style={[s.chipText, localFilters.minRating === preset.value && s.chipTextActive]}>
+                          <Text style={[s.chipText, localFilters.radiusMiles === preset.value && s.chipTextActive]}>
                             {preset.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <Text style={s.sectionTitle}>Signals</Text>
+                    <Text style={s.hintText}>All ticked shows everything. Untick a type to show only businesses that have one of the remaining signals.</Text>
+                    <View style={s.chipRow}>
+                      {SIGNAL_TYPES.map((sig) => (
+                        <TouchableOpacity
+                          key={sig.key}
+                          style={[s.chip, localFilters.signals?.[sig.key] && s.chipActive]}
+                          onPress={() => toggleSignal(sig.key)}
+                        >
+                          <Text style={[s.chipText, localFilters.signals?.[sig.key] && s.chipTextActive]}>
+                            {sig.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <Text style={s.sectionTitle}>Contact Info</Text>
+                    <Text style={s.hintText}>Applies to your saved leads. Search results don't carry phone or website until you open one.</Text>
+                    <View style={s.chipRow}>
+                      {CONTACT_OPTIONS.map((opt) => (
+                        <TouchableOpacity
+                          key={opt.key}
+                          style={[s.chip, localFilters.contactCompleteness === opt.key && s.chipActive]}
+                          onPress={() => patch({ contactCompleteness: opt.key })}
+                        >
+                          <Text style={[s.chipText, localFilters.contactCompleteness === opt.key && s.chipTextActive]}>
+                            {opt.label}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   </>
                 )}
-
-                {/* Contact completeness & activity — universal */}
-                <Text style={s.sectionTitle}>Contact Completeness</Text>
-                <View style={s.chipRow}>
-                  {[
-                    { key: 'all', label: 'All' },
-                    { key: 'enriched', label: 'Enriched' },
-                    { key: 'has_phone', label: 'Has Phone' },
-                  ].map((opt) => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[s.chip, localFilters.contactCompleteness === opt.key && s.chipActive]}
-                      onPress={() => setLocalFilters({ ...localFilters, contactCompleteness: opt.key })}
-                    >
-                      <Text style={[s.chipText, localFilters.contactCompleteness === opt.key && s.chipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={s.sectionTitle}>Last Activity</Text>
-                <View style={s.chipRow}>
-                  {ACTIVITY_WINDOWS.map((win) => (
-                    <TouchableOpacity
-                      key={win.key}
-                      style={[s.chip, localFilters.activityWindow === win.key && s.chipActive]}
-                      onPress={() => setLocalFilters({ ...localFilters, activityWindow: win.key })}
-                    >
-                      <Text style={[s.chipText, localFilters.activityWindow === win.key && s.chipTextActive]}>
-                        {win.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* ── Signals Only Mode ────────────────────────────── */}
-                <TouchableOpacity
-                  style={[s.signalsOnlyRow, localFilters.signalsOnly && s.signalsOnlyRowActive]}
-                  onPress={() => setLocalFilters(prev => ({ ...prev, signalsOnly: !prev.signalsOnly }))}
-                  activeOpacity={0.8}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.signalsOnlyLabel, localFilters.signalsOnly && s.signalsOnlyLabelActive]}>
-                      🎯 Signals Only
-                    </Text>
-                    <Text style={s.signalsOnlySub}>
-                      Show only businesses with active signals
-                    </Text>
-                  </View>
-                  <View style={[s.signalsOnlyPill, localFilters.signalsOnly && s.signalsOnlyPillActive]}>
-                    <Text style={[s.signalsOnlyPillText, localFilters.signalsOnly && s.signalsOnlyPillTextActive]}>
-                      {localFilters.signalsOnly ? 'ON' : 'OFF'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* New Since Last Scan toggle */}
-                <TouchableOpacity
-                  style={[s.signalsOnlyRow, localFilters.newSinceLastScan && s.signalsOnlyRowActive]}
-                  onPress={() => setLocalFilters(prev => ({ ...prev, newSinceLastScan: !prev.newSinceLastScan }))}
-                  activeOpacity={0.8}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.signalsOnlyLabel, localFilters.newSinceLastScan && s.signalsOnlyLabelActive]}>
-                      🔄 New Since Last Scan
-                    </Text>
-                    <Text style={s.signalsOnlySub}>
-                      Surfaces businesses new since your last pass
-                    </Text>
-                  </View>
-                  <View style={[s.signalsOnlyPill, localFilters.newSinceLastScan && s.signalsOnlyPillActive]}>
-                    <Text style={[s.signalsOnlyPillText, localFilters.newSinceLastScan && s.signalsOnlyPillTextActive]}>
-                      {localFilters.newSinceLastScan ? 'ON' : 'OFF'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Signals chip list */}
-                <Text style={s.sectionTitle}>Signals</Text>
-                <View style={s.chipRow}>
-                  {[
-                    { key: 'lensSignal', label: 'LensSignal' },
-                    { key: 'contactSignal', label: 'Contact Signal' },
-                    { key: 'pest', label: 'Pest Indicator' },
-                    { key: 'opening', label: 'Opening Signal' },
-                    { key: 'priority', label: 'Priority' },
-                  ].map((sig) => (
-                    <TouchableOpacity
-                      key={sig.key}
-                      style={[s.chip, localFilters.signals[sig.key] && s.chipActive]}
-                      onPress={() => toggleSignal(sig.key)}
-                    >
-                      <Text style={[s.chipText, localFilters.signals[sig.key] && s.chipTextActive]}>
-                        {sig.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* ── Prospect Status (hot/warm/cold/contacted) ───────────────── */}
-                <Text style={s.sectionTitle}>Prospect Status</Text>
-                <View style={s.chipRow}>
-                  {PROSPECT_STATUS_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[s.chip, isActive(localFilters.prospectStatus, opt.key) && s.chipActive]}
-                      onPress={() => toggleProspectStatus(opt.key)}
-                    >
-                      <Text style={[s.chipText, isActive(localFilters.prospectStatus, opt.key) && s.chipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* ── Lead Source (inbound/manual/import) ──────────────────────── */}
-                <Text style={s.sectionTitle}>Lead Source</Text>
-                <View style={s.chipRow}>
-                  {LEAD_SOURCE_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[s.chip, isActive(localFilters.leadSource, opt.key) && s.chipActive]}
-                      onPress={() => toggleLeadSource(opt.key)}
-                    >
-                      <Text style={[s.chipText, isActive(localFilters.leadSource, opt.key) && s.chipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* ── Service Type (termite/rodent/general) ─────────────────────── */}
-                <Text style={s.sectionTitle}>Service Type</Text>
-                <View style={s.chipRow}>
-                  {SERVICE_TYPE_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[s.chip, isActive(localFilters.serviceType, opt.key) && s.chipActive]}
-                      onPress={() => toggleServiceType(opt.key)}
-                    >
-                      <Text style={[s.chipText, isActive(localFilters.serviceType, opt.key) && s.chipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={s.sectionTitle}>Match Strength</Text>
-                <View style={s.chipRow}>
-                  {MATCH_STRENGTHS.map((strength) => (
-                    <TouchableOpacity
-                      key={strength}
-                      style={[s.chip, localFilters.matchStrength === strength && s.chipActive]}
-                      onPress={() => setLocalFilters({ ...localFilters, matchStrength: strength })}
-                    >
-                      <Text style={[s.chipText, localFilters.matchStrength === strength && s.chipTextActive]}>
-                        {strength}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
 
                 {/* Residential-only filters */}
                 {!isBusiness && (
@@ -666,6 +460,7 @@ export default function LeadFiltersBottomSheet({
 }
 
 const s = StyleSheet.create({
+  hintText: { fontSize: 11, color: COLORS.muted, marginTop: -4, marginBottom: 10, lineHeight: 15 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -812,32 +607,6 @@ const s = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.accent,
   },
-  signalsOnlyRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surface2, borderWidth: 1,
-    borderColor: COLORS.border, borderRadius: 14,
-    padding: 14, marginTop: 16, marginBottom: 4,
-  },
-  signalsOnlyRowActive: {
-    backgroundColor: 'rgba(0,201,255,0.08)',
-    borderColor: COLORS.accent,
-  },
-  signalsOnlyLabel: {
-    color: COLORS.textDim, fontWeight: '700', fontSize: 14,
-  },
-  signalsOnlyLabelActive: { color: COLORS.accent },
-  signalsOnlySub: {
-    color: COLORS.muted, fontSize: 11, marginTop: 2,
-  },
-  signalsOnlyPill: {
-    backgroundColor: COLORS.border, borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6,
-  },
-  signalsOnlyPillActive: { backgroundColor: COLORS.accent },
-  signalsOnlyPillText: {
-    color: COLORS.muted, fontWeight: '800', fontSize: 11,
-  },
-  signalsOnlyPillTextActive: { color: '#000' },
   applyBtnText: {
     color: '#000',
     fontWeight: '800',

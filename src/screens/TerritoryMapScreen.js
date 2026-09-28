@@ -151,6 +151,25 @@ const ENABLE_BRANCH_LAYER = true;
 const BRANCH_ZIP_STROKE = '#5B6478';
 const BRANCH_ZIP_FILL = '#5B647845';
 
+// The filter sheet no longer offers Last Activity, New Since Last Scan, Min Rating, Match
+// Strength, Signals Only, or Prospect Status / Lead Source / Service Type -- they had nothing
+// to act on, or compared against fields the data doesn't carry. Filter state saved by earlier
+// builds can still hold non-default values for them, which would keep filtering with no
+// visible control to clear it, so force them neutral wherever filters are loaded or applied.
+// Also repairs statuses saved as lowercase ['all'] by the old Status chip bug (matched nothing).
+const sanitizeFilters = (f) => ({
+  ...f,
+  statuses: (Array.isArray(f?.statuses) && f.statuses.length > 0 && !f.statuses.includes('all')) ? f.statuses : ['All'],
+  minRating: 0,
+  activityWindow: 'all',
+  signalsOnly: false,
+  newSinceLastScan: false,
+  matchStrength: 'Show All',
+  prospectStatus: [],
+  leadSource: [],
+  serviceType: [],
+});
+
 export default function TerritoryMapScreen({ navigation, route }) {
   const { isProcessing: globalProcessing } = useProcessing();
   const { openModal, closeModal } = useModalVisibility();
@@ -263,7 +282,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(PROSPECT_FILTERS_KEY);
+        const raw = null; // these filters were removed from the sheet -- ignore any stored values
         if (raw) {
           const parsed = JSON.parse(raw);
           setFilters((prev) => ({
@@ -741,7 +760,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               ...(storedFilters.signals || {}),
             },
           };
-          setFilters(mergedFilters);
+          setFilters(sanitizeFilters(mergedFilters));
           console.log('[TerritoryMap] loaded stored filters', mergedFilters);
         } else {
           setFilters(DEFAULT_FILTERS);
@@ -1288,10 +1307,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
       if (!statuses.includes(leadStatus)) return false;
     }
 
-    if (filters.radiusMiles && filters.radiusMiles > 0 && region?.latitude && region?.longitude) {
-      const d = distanceInMiles(region.latitude, region.longitude, lead.coords.latitude, lead.coords.longitude);
-      if (d > filters.radiusMiles) return false;
-    }
+    // Search radius scopes Nearby Search only; saved leads are never hidden by where the map is panned.
 
     if (isBusinessMode) {
       const type = classifyGooglePlace(lead);
@@ -1369,7 +1385,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
     const profC = String(activeProfile.category || '').toLowerCase().trim();
     if (profC && profC !== 'pest control' && leadV && leadV !== profC && !leadV.includes(profC) && !profC.includes(leadV)) return false;
     return true;
-  }, [activeProfile, filters, region]);
+  }, [activeProfile, filters]);
 
   const filteredLeadMarkers = useMemo(() => {
     const source = filters?.targetLensMode === 'business' && subscribedProspects.length > 0
@@ -1428,11 +1444,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
         });
       }
       if (!p || !p.coordinate || !filters) { if (trace) console.log('[TerritoryMap][TRACE] rejected: no p / no coordinate / no filters'); return false; }
-      const statuses = Array.isArray(filters.statuses) ? filters.statuses : ['All'];
-      if (!statuses.includes('All')) {
-        const pStatus = (p.status || 'Suspect').toString();
-        if (!statuses.includes(pStatus)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: status', pStatus, 'not in', statuses); return false; }
-      }
+      // Status applies to saved leads only; discovered businesses have no status.
       if (filters.businessType !== 'All Businesses' && p.businessType !== filters.businessType) { if (trace) console.log('[TerritoryMap][TRACE] rejected: businessType', p.businessType, '!=', filters.businessType); return false; }
       if (filters.radiusMiles && filters.radiusMiles > 0) {
         // Prefer the real search center over `region`, which can lag behind an
@@ -1446,7 +1458,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
       }
       const rating = parseFloat(p.rating || p.google_rating || p.user_rating_total);
       if (filters.minRating && rating < filters.minRating) { if (trace) console.log('[TerritoryMap][TRACE] rejected: rating', rating, '<', filters.minRating); return false; }
-      if (!matchesContactCompleteness(p, filters.contactCompleteness)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: contactCompleteness', filters.contactCompleteness); return false; }
+      // Contact Info applies to saved leads only -- search results are requested without phone/website (Enterprise-tier fields, dropped on purpose for cost).
       if (!matchesActivityWindow(p, filters.activityWindow)) { if (trace) console.log('[TerritoryMap][TRACE] rejected: activityWindow', filters.activityWindow); return false; }
       if (filters.newSinceLastScan && lastScanTimeRef.current) {
         const t = new Date(p.created_at || p.updated_at || p.scanned_at).getTime();
@@ -1467,6 +1479,49 @@ export default function TerritoryMapScreen({ navigation, route }) {
       const safe = Array.isArray(safeNearbyPlaces) ? safeNearbyPlaces.length : 'not array';
       console.log('[TerritoryMap] nearbyPlaces update:', { rawNearby: raw, safeNearby: safe });
       if (raw !== 0 && safe === 0) console.log('[TerritoryMap] WARNING: nearbyPlaces present but safeNearbyPlaces filtered to 0');
+      if (Array.isArray(nearbyPlaces) && nearbyPlaces.length > 0) {
+        // SEARCH PROBE -- what Nearby Search actually returned, which fields it carries, and what the filters dropped.
+        const safeIds = new Set((safeNearbyPlaces || []).map((p) => getNearbyPlaceId(p)));
+        const origin = lastNearbySearchCenterRef.current;
+        const miFrom = (p) => {
+          const c = p.coordinate || p.coords;
+          return origin && c ? Number(distanceInMiles(origin.latitude, origin.longitude, c.latitude, c.longitude).toFixed(2)) : null;
+        };
+        const droppedBy = { noCoordinate: 0, businessType: 0, radius: 0, other: 0 };
+        const byType = {};
+        nearbyPlaces.forEach((p) => {
+          const t = classifyGooglePlace(p);
+          byType[t] = (byType[t] || 0) + 1;
+          if (safeIds.has(getNearbyPlaceId(p))) return;
+          const mi = miFrom(p);
+          if (!p.coordinate) droppedBy.noCoordinate += 1;
+          else if (filters.businessType !== 'All Businesses' && t !== filters.businessType) droppedBy.businessType += 1;
+          else if (mi != null && filters.radiusMiles > 0 && mi > filters.radiusMiles) droppedBy.radius += 1;
+          else droppedBy.other += 1;
+        });
+        const has = (fn) => nearbyPlaces.filter(fn).length;
+        console.log('[TerritoryMap][SearchProbe]', JSON.stringify({
+          total: nearbyPlaces.length,
+          shown: safeIds.size,
+          droppedBy,
+          byType,
+          fieldCoverage: {
+            phone: has((p) => !!(p.phone || p.nationalPhoneNumber)),
+            website: has((p) => !!(p.website || p.websiteUri)),
+            rating: has((p) => p.rating != null),
+            address: has((p) => !!(p.address || p.formatted_address)),
+            businessStatus: has((p) => !!(p.businessStatus || p.business_status)),
+          },
+          firstKeys: Object.keys(nearbyPlaces[0] || {}),
+          top: nearbyPlaces.slice(0, 12).map((p) => ({
+            name: p.name || p.businessName || null,
+            type: classifyGooglePlace(p),
+            mi: miFrom(p),
+            status: p.businessStatus || p.business_status || null,
+            rating: p.rating != null ? p.rating : null,
+          })),
+        }));
+      }
     } catch (e) {
       console.warn('[TerritoryMap] nearbyPlaces debug logging failed:', e?.message || String(e));
     }
@@ -1781,18 +1836,20 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (Array.isArray(filters.prospectStatus) && filters.prospectStatus.length > 0) count += 1;
-    if (Array.isArray(filters.leadSource) && filters.leadSource.length > 0) count += 1;
-    if (Array.isArray(filters.serviceType) && filters.serviceType.length > 0) count += 1;
-    if (filters.businessType && filters.businessType !== 'All Businesses') count += 1;
+    if (filters.targetLensMode === 'homeowner') {
+      if (filters.homeownerFilter && filters.homeownerFilter !== 'all') count += 1;
+      if (filters.lookbackWindow && filters.lookbackWindow !== '90d') count += 1;
+      if (filters.minHomeValue > 0 || filters.maxHomeValue < 10000000) count += 1;
+      if (filters.minSqFt > 0 || filters.maxSqFt < 10000) count += 1;
+      if (Array.isArray(filters.occupancyTypes) && !filters.occupancyTypes.includes('all')) count += 1;
+      if (Array.isArray(filters.residentialPropertyTypes) && !filters.residentialPropertyTypes.includes('all')) count += 1;
+      return count;
+    }
     if (Array.isArray(filters.statuses) && filters.statuses.length > 0 && !filters.statuses.includes('All')) count += 1;
-    if (filters.contactCompleteness && filters.contactCompleteness !== 'all') count += 1;
-    if (filters.activityWindow && filters.activityWindow !== 'all') count += 1;
+    if (filters.businessType && filters.businessType !== 'All Businesses') count += 1;
     if (filters.radiusMiles && filters.radiusMiles !== 5) count += 1;
-    if (filters.minRating && filters.minRating > 0) count += 1;
-    if (filters.signalsOnly) count += 1;
-    if (filters.matchStrength && filters.matchStrength !== 'Show All') count += 1;
-    if (filters.homeownerFilter && filters.homeownerFilter !== 'all') count += 1;
+    if (filters.contactCompleteness && filters.contactCompleteness !== 'all') count += 1;
+    if (Object.values(filters.signals || {}).some((v) => !v)) count += 1;
     return count;
   }, [filters]);
 
@@ -2539,7 +2596,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
             </View>
           </View>
         )}
-        <LeadFiltersBottomSheet visible={filtersVisible} onClose={() => setFiltersVisible(false)} filters={filters || DEFAULT_FILTERS} onApply={f => setFilters(f)} onReset={() => setFilters(DEFAULT_FILTERS)} />
+        <LeadFiltersBottomSheet visible={filtersVisible} onClose={() => setFiltersVisible(false)} filters={filters || DEFAULT_FILTERS} onApply={f => setFilters(sanitizeFilters(f))} onReset={() => setFilters(DEFAULT_FILTERS)} />
         {!!selectedLensSignalRecord && (
           <View style={{ position: 'absolute', zIndex: 180, top: 0, bottom: 0, left: 0, right: 0, pointerEvents: 'box-none' }}>
             <LensSignalDetailsCard
