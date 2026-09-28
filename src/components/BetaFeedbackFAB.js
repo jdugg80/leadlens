@@ -5,6 +5,10 @@
  * 2. Avoids overlapping protected UI zones
  * 3. Is draggable by the user
  * 4. Auto-resets to smart default after 3 seconds of inactivity
+ * 5. Hides entirely while a screen-local modal is open (see
+ *    ModalVisibilityContext) -- it has no way to know a modal's exact
+ *    bounds, so this is simpler and more robust than tracking zones
+ *    for every possible modal in the app.
  *
  * Usage in App.js (inside NavigationContainer):
  *   <BetaFeedbackFAB
@@ -22,6 +26,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants';
 import useFeedbackButtonPosition from '../hooks/useFeedbackButtonPosition';
+import { useModalVisibility } from '../context/ModalVisibilityContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -29,9 +34,10 @@ export default function BetaFeedbackFAB({ testerEmail = '', testerName = '', inv
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const { isModalOpen } = useModalVisibility();
 
   // useFeedbackButtonPosition already has a real "avoid protected zones"
-  // system built in, but nothing was ever actually passed to it — so it
+  // system built in, but nothing was ever actually passed to it -- so it
   // always defaulted to the bottom-right corner, which is exactly where
   // most screens' floating action-button stacks (search, filters, reload,
   // layers, etc.) live. Covering that general area keeps the FAB from
@@ -61,6 +67,8 @@ export default function BetaFeedbackFAB({ testerEmail = '', testerName = '', inv
       appVersion,
     });
   }
+
+  if (isModalOpen) return null;
 
   return (
     <Animated.View

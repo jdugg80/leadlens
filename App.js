@@ -36,6 +36,7 @@ if (!__DEV__) {
 
 import { ToastProvider } from './src/context/ToastContext';
 import { ProcessingProvider } from './src/context/ProcessingContext';
+import { ModalVisibilityProvider } from './src/context/ModalVisibilityContext';
 import ProcessingOverlay from './src/components/ProcessingOverlay';
 import { storage as AsyncStorage } from './src/utils/storage';
 import { USER_STORAGE_KEY, AUTO_EXPORT_SETTINGS_KEY, SUPABASE_SETTINGS_KEY, getAppVersionString } from './src/constants';
@@ -498,7 +499,8 @@ export default function App() {
     <AppErrorBoundary>
     <SafeAreaProvider>
       <ToastProvider>
-      <ProcessingProvider>
+            <ProcessingProvider>
+      <ModalVisibilityProvider>
                   <NavigationContainer
         ref={navRef}
         onReady={() => {
@@ -598,8 +600,9 @@ export default function App() {
             </View>
           </View>
         </Modal>
-      </NavigationContainer>
+            </NavigationContainer>
       <ProcessingOverlay />
+      </ModalVisibilityProvider>
       </ProcessingProvider>
       </ToastProvider>
     </SafeAreaProvider>

@@ -17,6 +17,7 @@ import {
 import { screenHeight } from '../utils/responsive';
 import { classifyVertical } from '../utils/leadProcessing';
 import { useProcessing } from '../context/ProcessingContext';
+import { useModalVisibility } from '../context/ModalVisibilityContext';
 
 // Unicode constants for safety
 const ICON_CROSS = "\u2715";
@@ -152,6 +153,8 @@ const BRANCH_ZIP_FILL = '#5B647845';
 
 export default function TerritoryMapScreen({ navigation, route }) {
   const { isProcessing: globalProcessing } = useProcessing();
+  const { openModal, closeModal } = useModalVisibility();
+  const modalCancelRef = useRef({ prospectAround: null, targetLens: null });
   const insets = useSafeAreaInsets();
   const { user, initialZip, initialNearbySearch } = route?.params || {};
   const mapRef = useRef(null);
@@ -1047,7 +1050,8 @@ export default function TerritoryMapScreen({ navigation, route }) {
   // ── Prospect Around ──────────────────────────────────────────────────────────
   // target: { latitude, longitude, label } -- the lead or imported-list address the
   // rep is prospecting around. Opened from a detail card's "Prospect Around" button.
-  function handleOpenProspectAround(target) {
+    function handleOpenProspectAround(target) {
+    modalCancelRef.current.prospectAround = openModal();
     setProspectAroundTarget(target);
     setProspectAroundCount(15);
     setProspectAroundVerticalId('any');
@@ -1058,7 +1062,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
     setProspectAroundSearched(false);
   }
 
-  function handleCloseProspectAround() {
+    function handleCloseProspectAround() {
+    closeModal(modalCancelRef.current.prospectAround);
+    modalCancelRef.current.prospectAround = null;
     setProspectAroundTarget(null);
   }
 
@@ -1943,8 +1949,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
       .slice(0, 80);
   }, [filters?.signals?.lensSignal, lensSignalRecords, region]);
 
-  const showMapActionButtons = !selectedLead && !selectedPlace && !selectedLensSignalRecord;
-
+    const showMapActionButtons = !selectedLead && !selectedPlace && !selectedLensSignalRecord && !prospectAroundTarget && !targetLensVisible;
   return (
     <View style={s.root}>
       <ScreenHeader title="Territory Map" onBack={() => navigation.goBack()} badge={(totalLoadedZips || 0) + " ZIPS"} />
@@ -2212,9 +2217,9 @@ export default function TerritoryMapScreen({ navigation, route }) {
                 {showMapActionButtons && (
           <View style={[s.bottomActions, { bottom: insets.bottom + 16 }]}>
             <TouchableOpacity style={s.actionBtn} onPress={searchNearby}><Text style={s.actionBtnIcon}>{ICON_SEARCH}</Text></TouchableOpacity>
-            <TouchableOpacity
+                        <TouchableOpacity
               style={s.actionBtn}
-              onPress={() => setTargetLensVisible(true)}
+              onPress={() => { modalCancelRef.current.targetLens = openModal(); setTargetLensVisible(true); }}
               onLongPress={handleLensSignalAction}
             >
               <Text style={s.actionBtnIcon}>{ICON_TARGET}</Text>
@@ -2511,22 +2516,24 @@ export default function TerritoryMapScreen({ navigation, route }) {
             </View>
           </View>
         )}
-        {targetLensVisible && (
+                {targetLensVisible && (
           <View style={s.modal} pointerEvents="box-none">
             <TouchableOpacity
               style={StyleSheet.absoluteFillObject}
               activeOpacity={1}
-              onPress={() => setTargetLensVisible(false)}
+              onPress={() => { closeModal(modalCancelRef.current.targetLens); modalCancelRef.current.targetLens = null; setTargetLensVisible(false); }}
             />
             <View style={s.modalContent}>
               <TargetLensProfileSelector
-                onProfileChange={(p, m) => {
+                              onProfileChange={(p, m) => {
                   setActiveProfile(p);
                   setSearchMode(m);
+                  closeModal(modalCancelRef.current.targetLens);
+                  modalCancelRef.current.targetLens = null;
                   setTargetLensVisible(false);
                 }}
               />
-              <TouchableOpacity style={s.closeBtn} onPress={() => setTargetLensVisible(false)}>
+              <TouchableOpacity style={s.closeBtn} onPress={() => { closeModal(modalCancelRef.current.targetLens); modalCancelRef.current.targetLens = null; setTargetLensVisible(false); }}>
                 <Text style={s.closeBtnText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -2677,7 +2684,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
               activeOpacity={1}
               onPress={handleCloseProspectAround}
             />
-            <View style={[s.modalContent, { maxHeight: '80%' }]}>
+                        <View style={[s.modalContent, { maxHeight: '80%', paddingBottom: 20 + insets.bottom }]}>
               <View style={s.cardHeader}>
                 <Text style={s.cardTitle} numberOfLines={1}>🎯 Prospect Around {prospectAroundTarget.label}</Text>
                 <TouchableOpacity onPress={handleCloseProspectAround}>
@@ -2685,7 +2692,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+                            <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
                 <Text style={s.sectionLabel}>How many prospects?</Text>
                 <View style={s.paChipRow}>
                   {[5, 10, 15, 25, 50].map((n) => (
@@ -2762,7 +2769,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
 
               {prospectAroundResults.length > 0 && (
                 <TouchableOpacity
-                  style={[s.cardBtn, { backgroundColor: COLORS.accent, marginTop: 12 }]}
+                                    style={[s.cardBtn, { flex: 0, minHeight: 44, backgroundColor: COLORS.accent, marginTop: 12 }]}
                   onPress={handleAddProspectAroundSelectedToQueue}
                   disabled={!prospectAroundSelectedIds.size}
                 >
@@ -2851,7 +2858,7 @@ const s = StyleSheet.create({
   mapHintBar: { position: 'absolute', left: 16, right: 16, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 4 },
   mapHintText: { color: '#fff', fontSize: 10, textAlign: 'center' },
   leadCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 50 },
-  nearbyBatchCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 10, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 40 },
+    nearbyBatchCard: { position: 'absolute', left: 16, right: 16, backgroundColor: COLORS.surface, borderRadius: 12, padding: 16, elevation: 40, borderWidth: 1, borderColor: COLORS.borderLit, zIndex: 10500 },
   filterWarningRow: { backgroundColor: 'rgba(204,16,64,0.12)', borderRadius: 8, borderWidth: 1, borderColor: '#CC1040', padding: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   filterWarningText: { color: COLORS.text, fontSize: 11, flex: 1, lineHeight: 15 },
   sectionLabel: { color: COLORS.textDim, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
