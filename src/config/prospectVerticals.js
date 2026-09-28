@@ -1,22 +1,16 @@
 // src/config/prospectVerticals.js
 //
-// Vertical options for "Prospect Around" -- each maps to real Google Places API
-// (New) types, sent directly to Nearby Search's `includedTypes` param server-side.
-// Deliberately NOT the classifyGooglePlace/BUSINESS_TYPE_BUCKETS system (used by the
-// general map filter panel) and NOT the TargetLensProfile system (Phase 1, in
-// progress, meant for a future multi-industry pivot -- its categories are for
-// fuzzy/keyword matching across trades, not real Places API type values).
+// Vertical options for "Prospect Around". Now derived from businessVerticals.js -- the same
+// list the filter chips and result classification use -- so a vertical means the same thing
+// everywhere. Each vertical's `types` are real Google Places API (New) Table A types, sent
+// directly to Nearby Search's `includedTypes` (max 50 per request; the largest vertical has 35).
 //
-// The type list itself is grounded in PEST_PLACE_TYPES from signal-ingest's
-// index.ts -- an already-proven, already-vetted set of pest-control-relevant
-// Google types -- just split into named verticals a rep can pick between,
-// instead of one undifferentiated bucket.
-//
-// Filtering happens server-side (the actual API request), not as a client-side
-// post-filter -- this is the deliberate fix for the exact bug class found on
-// 2026-09-25: a client-side filter can silently zero out real results with no
-// visible reason why. A server-side type filter can't do that -- if Google
-// returns zero, that's a real, honest answer.
+// Filtering happens server-side (the actual API request), not as a client-side post-filter --
+// the deliberate fix for the bug class found on 2026-09-25: a client-side filter can silently
+// zero out real results with no visible reason why. A server-side type filter can't do that --
+// if Google returns zero, that's a real, honest answer.
+
+import { BUSINESS_VERTICALS } from './businessVerticals';
 
 export const PROSPECT_VERTICALS = [
   {
@@ -24,31 +18,7 @@ export const PROSPECT_VERTICALS = [
     label: 'Any Business',
     includedTypes: [], // empty = omit `includedTypes` entirely (Google returns all types)
   },
-  {
-    id: 'food_service',
-    label: 'Restaurants & Food Service',
-    includedTypes: ['restaurant', 'food', 'bakery', 'bar', 'cafe', 'meal_delivery', 'meal_takeaway', 'night_club'],
-  },
-  {
-    id: 'hospitality',
-    label: 'Hotels & Lodging',
-    includedTypes: ['lodging'],
-  },
-  {
-    id: 'healthcare',
-    label: 'Healthcare & Pharmacy',
-    includedTypes: ['hospital', 'health', 'pharmacy'],
-  },
-  {
-    id: 'education',
-    label: 'Schools',
-    includedTypes: ['school'],
-  },
-  {
-    id: 'grocery_retail',
-    label: 'Grocery & Convenience',
-    includedTypes: ['grocery_or_supermarket', 'supermarket', 'convenience_store'],
-  },
+  ...BUSINESS_VERTICALS.map((v) => ({ id: v.id, label: v.name, includedTypes: v.types })),
 ];
 
 export function getProspectVerticalById(id) {

@@ -3,6 +3,7 @@
 // Tries Google Places first, then OpenStreetMap Overpass fallback.
 
 import Constants from 'expo-constants';
+import { classifyPlace } from '../config/businessVerticals';
 
 function toNumber(value) {
   const num = typeof value === 'number' ? value : Number(value);
@@ -166,18 +167,10 @@ export const RESIDENTIAL_TYPE_BUCKETS = {
  * Classifies a Google Place into one of the requested business type buckets.
  */
 export function classifyGooglePlace(place) {
-  const types = place?.types || [];
-  const primaryType = place?.primaryType || '';
-
-  const allTypes = [primaryType, ...types].filter(Boolean);
-
-  for (const [bucket, mappedTypes] of Object.entries(BUCKET_MAPPING)) {
-    if (allTypes.some(t => mappedTypes.includes(t))) {
-      return bucket;
-    }
-  }
-
-  return BUSINESS_TYPE_BUCKETS.OTHER;
+  // Delegates to the shared vertical classifier (src/config/businessVerticals.js): primary type
+  // first, generic Google types (food / health / finance / store) never decide, and the names
+  // returned are the new vertical names. BUCKET_MAPPING above is legacy and no longer used here.
+  return classifyPlace(place);
 }
 
 /**

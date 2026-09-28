@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../constants';
 import HomeownerFilterPanel from './HomeownerFilterPanel';
+import { FILTER_TYPE_CHIPS } from '../config/businessVerticals';
 
 // Trimmed filter sheet. Business mode keeps only filters that actually act on
 // something on the map: Status (saved leads), Business Type, Search Radius,
@@ -21,17 +22,7 @@ import HomeownerFilterPanel from './HomeownerFilterPanel';
 // applies only when "Apply Filters" is tapped -- previously some chips applied
 // instantly (and dragged unrelated pending edits along with them).
 
-const BUSINESS_TYPES = [
-  'All Businesses',
-  'Food / Hospitality',
-  'Retail / Consumer',
-  'Industrial / Logistics',
-  'Office / Professional',
-  'Public / Facilities',
-  'Multi-Family / Residential-Adjacent',
-  'Institutional',
-  'Other',
-];
+const BUSINESS_TYPES = FILTER_TYPE_CHIPS; // shared list: src/config/businessVerticals.js
 
 const LEAD_STATUSES = [
   'All',
@@ -271,6 +262,7 @@ export default function LeadFiltersBottomSheet({
                     </View>
 
                     <Text style={s.sectionTitle}>Business Type</Text>
+                    <Text style={s.hintText}>Uses Google's category for the place, or a guess from the name for leads that were scanned.</Text>
                     <View style={s.chipRow}>
                       {BUSINESS_TYPES.map((type) => (
                         <TouchableOpacity
