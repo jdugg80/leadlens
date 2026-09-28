@@ -109,7 +109,7 @@ export const BUSINESS_VERTICALS = [
   },
   {
     id: 'retail',
-    name: 'Retail (non-food)',
+    name: 'Retail',
     types: ['department_store', 'discount_store', 'warehouse_store', 'shopping_mall', 'clothing_store', 'furniture_store',
       'electronics_store', 'hardware_store', 'home_improvement_store', 'home_goods_store', 'garden_center', 'pet_store',
       'book_store', 'jewelry_store', 'liquor_store', 'gift_shop', 'thrift_store', 'sporting_goods_store', 'toy_store',
@@ -124,7 +124,7 @@ export const BUSINESS_VERTICALS = [
     id: 'automotive',
     name: 'Automotive',
     types: ['car_dealer', 'car_rental', 'car_repair', 'car_wash', 'gas_station', 'auto_parts_store', 'tire_shop', 'truck_dealer',
-      'electric_vehicle_charging_station'],
+      'truck_stop', 'electric_vehicle_charging_station'],
     extraClassifyTypes: ['rest_stop'],
     nameKeywords: ['auto', 'automotive', 'tire', 'tires', 'car wash', 'collision', 'dealership', 'motors', 'toyota', 'ford', 'chevrolet',
       'chevy', 'honda', 'nissan', 'jeep', 'dodge', 'kia', 'hyundai', 'subaru', 'mazda', 'bmw', 'mercedes', 'lexus', 'audi',
@@ -135,7 +135,7 @@ export const BUSINESS_VERTICALS = [
     id: 'logistics',
     name: 'Warehousing, Logistics & Transportation',
     types: ['storage', 'moving_company', 'courier_service', 'shipping_service', 'wholesaler', 'supplier', 'building_materials_store',
-      'truck_stop', 'transit_depot', 'transportation_service', 'taxi_service', 'airport', 'international_airport', 'bus_station',
+      'transit_depot', 'transportation_service', 'taxi_service', 'airport', 'international_airport', 'bus_station',
       'train_station', 'subway_station', 'transit_station', 'ferry_terminal'],
     nameKeywords: ['warehouse', 'storage', 'logistics', 'freight', 'distribution', 'moving', 'movers', 'trucking', 'shipping', 'courier',
       'fedex', 'cargo', 'wholesale', 'depot'],
@@ -207,7 +207,7 @@ const TYPE_TO_VERTICAL = (() => {
 const FALLBACK_TO_VERTICAL = (() => {
   const m = new Map();
   BUSINESS_VERTICALS.forEach((v) => (v.fallbackTypes || []).forEach((t) => { if (!m.has(t)) m.set(t, v.name); }));
-  m.set('store', 'Retail (non-food)');
+  m.set('store', BUSINESS_VERTICALS.find((v) => v.id === 'retail').name); // derived, so a rename can't desync it
   return m;
 })();
 
