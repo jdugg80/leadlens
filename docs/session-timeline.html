@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -40,6 +40,22 @@
   <div class="stat"><div class="num">96</div><div class="label">Sessions</div></div>
   <div class="stat"><div class="num">97.2</div><div class="label">Total Hours</div></div>
   <div class="stat"><div class="num">54</div><div class="label">Active Days</div></div>
+</div>
+
+<div class="narrative">
+  <h2>Session — Sep 28, 2026</h2>
+  <p><strong>Map Filter Cleanup, Shared Business-Vertical Taxonomy, Feedback Email Alerts &amp; List Management</strong></p>
+  <p>Continued directly from BETA-70's release the same day. Started as a map-filter audit ("what actually works, what's not, what's wasting space") and grew into a full rebuild of business-type classification, a beta-feedback delivery investigation that turned up a missing notification rather than a broken button, and a new list-management feature.</p>
+  <p><strong>What was done:</strong></p>
+  <ul>
+    <li><strong>Map filter audit &amp; cleanup</strong> — Of 14 filter sections, most either did nothing (comparing against fields leads don't carry) or actively hid results (Status used a stale lowercase 'all' that matched nothing). Trimmed to five working controls; every chip now applies only on "Apply Filters" instead of some applying instantly.</li>
+    <li><strong>Search-result pin</strong> — The pin the map drops for a searched address or business had no tap handler at all; now opens the same place card as any nearby business.</li>
+    <li><strong>Shared business-vertical taxonomy</strong> — The map filter, Prospect Around, and saved-lead classification each kept a separate, disagreeing list of business types. Cross-checked every type against Google's published Places API (New) tables: 124 of 282 entries across the old filter buckets were not real Google types and could never match. Replaced all three with one shared 16-vertical list, classified primary-type-first, with generic response-only types (food, health, finance) never deciding on their own — previously the cause of hospitals landing in "Office" and supermarkets in "Food." Saved leads, which carry no Google types, had been classifying as "Other" across the board, silently hiding from every Business Type filter; they now classify from stored types or a name-based guess.</li>
+    <li><strong>Beta feedback investigation</strong> — The feedback button was reported as "going nowhere." It wasn't broken: submissions were reaching Project Scarlett's feedback_reports table the whole time (confirmed via a live test insert and a device submission), but nothing had ever read the table or notified anyone. Built a notify-feedback Edge Function, triggered by a database trigger via pg_net, that emails on every new row — claims each row before sending so it fires at most once, and a failed alert never blocks the tester's submission. verify_jwt is pinned false in config.toml so a future redeploy can't silently disable it.</li>
+    <li><strong>Named Address Lists manager</strong> — Lists could be imported but never viewed or deleted. Added a "Your lists" section to Territory Manager showing each list's address count, an expandable address preview, and delete (cascades to addresses; queued leads are unaffected). The delete helper checks rows actually removed rather than trusting a silent no-op — the same false-success pattern audited repeatedly in prior sessions. Also fixed list items with failed geocoding being kept as (0,0) instead of excluded.</li>
+    <li><strong>Cleanup &amp; release</strong> — Removed the temporary SearchProbe/TRACE logging added while verifying the classification work, deleted the orphaned unimported duplicate src/utils/TerritoryMapScreen.js (121 KB), and shipped BETA-71.</li>
+  </ul>
+  <p><strong>Known issues carried forward:</strong> Anyone holding the Project Scarlett anon key can currently read every feedback row, including tester name and email — the read policy has not yet been locked down. Newly captured leads' Industry Vertical label (Review screen) still defaults from the old HVAC/Security/Solar-first list, not the new 16-vertical taxonomy — Stage 2 of the taxonomy migration (Review screen, exports, dashboards) has not started. Not yet field-verified: bulk address import (route/opportunity), the Google Drive image picker, and a second PDF territory pass. Five EXPO_PUBLIC_ env vars the app reads (Google/OneDrive OAuth client values, enrichment provider) are not set in .env; an unused EXPO_PUBLIC_ANTHROPIC_API_KEY line should be removed.</p>
 </div>
 
 <div class="narrative">

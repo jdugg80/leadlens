@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -348,5 +348,37 @@
   <div class="entry bug"><span class="date">Sep 27</span> <span class="msg">Map action-button stack now hides while Prospect Around or TargetLens is open, and the sheet pads for the system nav bar</span> <span class="hash">013b34c8</span></div>
 </div>
 
+<div class="era-divider">Era 14 — Search Classification, Feedback Alerts &amp; List Management (Sep 28, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 33 · Map Filter Cleanup &amp; Search-Result Pin</div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Fixed the map's Status filter — picking a status, or tapping "All," had been comparing against a stale lowercase 'all' left over from an earlier bug and hid every saved lead; trimmed the filter sheet down to controls that actually change what's shown (Status, Business Type, Search Radius, Signals, Contact Info) and dropped several that silently compared against fields leads don't carry</span> <span class="hash">544aa205</span></div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Fixed the pin the map drops for a searched address or business — it had no onPress and did nothing when tapped; now opens the same place card as a nearby business</span> <span class="hash">c79cef68</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 34 · Shared Business-Vertical Taxonomy</div>
+  <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">Replaced three disagreeing business-type systems (the map filter's buckets, Prospect Around's vertical list, and the saved-lead keyword classifier) with one shared src/config/businessVerticals.js built only from real Google Places API (New) Table A types — 124 of the 282 entries in the old filter buckets were not valid Google types and could never match anything</span> <span class="hash">8fe39564</span></div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Generic Google response-only types (food, health, finance) had been deciding classification ahead of specific ones, so hospitals landed in "Office" and supermarkets in "Food"; classification is now primary-type-first and ignores generic types</span> <span class="hash">8fe39564</span></div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Saved leads carried no Google place types at all, so every saved lead classified as "Other" and any Business Type filter hid all of them; leads now classify from stored Google types or a name-based guess</span> <span class="hash">8fe39564</span></div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Truck stops (Love's, etc.) were classifying as Logistics via Google's truck_stop type; moved to Automotive alongside gas stations</span> <span class="hash">8a3bf131</span></div>
+  <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">Renamed the "Retail (non-food)" vertical to "Retail"</span> <span class="hash">8a3bf131</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 35 · Beta Feedback Email Alerts</div>
+  <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">Confirmed the BETA feedback button had never been broken — submissions were reaching Project Scarlett's feedback_reports table successfully; nothing had ever read the table or notified anyone, so it looked broken</span> <span class="hash">93aab173</span></div>
+  <div class="entry win"><span class="date">Sep 28</span> <span class="msg">New notify-feedback Edge Function (Project Scarlett only) emails the owner on every new feedback row via a database trigger and pg_net; claims each row before sending so it fires at most once, and never blocks a tester's submission if the alert itself fails</span> <span class="hash">93aab173</span></div>
+  <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">Pinned verify_jwt=false for notify-feedback in supabase/config.toml so a future redeploy can't silently disable the trigger's unauthenticated call</span> <span class="hash">93aab173</span></div>
+</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 36 · Named Address Lists Manager &amp; Cleanup</div>
+  <div class="entry win"><span class="date">Sep 28</span> <span class="msg">New "Your lists" section in Territory Manager's Named Address Lists card — lists every imported list with its address count, expands to preview addresses, and deletes a list (cascades to its addresses; already-queued leads are unaffected)</span> <span class="hash">b8fd4cc3</span></div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">deleteImportedList() now checks that a row was actually removed (.select('id')) instead of trusting a silent no-op delete — the same false-success pattern found repeatedly in earlier sessions</span> <span class="hash">b8fd4cc3</span></div>
+  <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">List items with failed geocoding (null latitude/longitude) had been passing a Number()/isFinite() check and would have mapped at (0,0); now explicitly excluded</span> <span class="hash">b8fd4cc3</span></div>
+  <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">Removed the temporary SearchProbe/TRACE diagnostic logging added while verifying the filter and classification work, and deleted the orphaned, unimported duplicate src/utils/TerritoryMapScreen.js (121 KB)</span> <span class="hash">f3a6b394</span></div>
+  <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">BETA-71 — 2026-09-28 release</span> <span class="hash">59f311f1</span></div>
+</div>
 </body>
 </html>
