@@ -67,7 +67,7 @@ export async function loadImportedListItems(supabase, listId, { force = false } 
     }
 
     const items = (Array.isArray(data) ? data : [])
-      .filter((row) => isFinite(Number(row.latitude)) && isFinite(Number(row.longitude)))
+      .filter((row) => row.latitude != null && row.longitude != null && isFinite(Number(row.latitude)) && isFinite(Number(row.longitude)))
       .map((row) => ({
         id: row.id,
         listId: row.list_id,
@@ -120,9 +120,41 @@ export function clearImportedListsCache() {
   _itemsCache.clear();
 }
 
+/**
+ * Deletes ONE imported list. Its addresses go with it (imported_address_list_items has ON DELETE
+ * CASCADE) and RLS (imported_lists_owner_all) limits this to the caller's own lists. `.select('id')`
+ * makes the database report which rows it really deleted, so a refusal (wrong account, expired
+ * session, policy) comes back as 'not-deleted' instead of a silent success.
+ */
+export async function deleteImportedList(supabase, listId) {
+  try {
+    if (!listId) return { ok: false, reason: 'no-list-id' };
+    if (!supabase || typeof supabase.from !== 'function') return { ok: false, reason: 'no-client' };
+    const { data, error } = await supabase
+      .from('imported_address_lists')
+      .delete()
+      .eq('id', listId)
+      .select('id');
+    if (error) {
+      console.warn('[ImportedLists] delete failed:', error.message);
+      return { ok: false, reason: error.message };
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      console.warn('[ImportedLists] delete removed 0 rows (policy refusal, expired session, or already gone)');
+      return { ok: false, reason: 'not-deleted' };
+    }
+    clearImportedListsCache();
+    return { ok: true };
+  } catch (err) {
+    console.warn('[ImportedLists] deleteImportedList error:', err?.message || String(err));
+    return { ok: false, reason: err?.message || 'error' };
+  }
+}
+
 export default {
   loadImportedListSummaries,
   loadImportedListItems,
   markImportedItemQueued,
+  deleteImportedList,
   clearImportedListsCache,
 };

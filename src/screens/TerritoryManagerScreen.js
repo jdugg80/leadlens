@@ -35,6 +35,7 @@ import {
 } from '../utils/addressListImport';
 import { getCurrentCoords } from '../utils/geoEnrich';
 import { loadSavedRoutes, deleteSavedRoute } from '../utils/savedRoutes';
+import ImportedListsManager from '../components/ImportedListsManager';
 
 const TABS = ['Heat Map', 'My ZIPs', 'Lists', 'Leads', 'Team'];
 
@@ -1276,6 +1277,7 @@ export default function TerritoryManagerScreen({ navigation, route }) {
             <Text style={s.importLabel}>Import Address List (e.g. CVS)</Text>
           </TouchableOpacity>
         </View>
+        <ImportedListsManager busy={loading} />
       </Card>
 
       {/* Name-this-list prompt -- a plain absolute-positioned overlay, NOT React
