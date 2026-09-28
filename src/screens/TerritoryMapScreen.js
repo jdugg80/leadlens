@@ -1037,7 +1037,10 @@ export default function TerritoryMapScreen({ navigation, route }) {
       latitude: p.coordinate?.latitude ?? p.coords?.latitude ?? null,
       longitude: p.coordinate?.longitude ?? p.coords?.longitude ?? null,
       status: 'New',
-      vertical: 'Other',
+      vertical: classifyPlace(p), // was hardcoded 'Other' -- bulk-added leads (Nearby Search batch add,
+      // Prospect Around) never navigate to Review, so Stage 2's upgrade-on-save never runs for them.
+      // classifyPlace(p) already returns 'Other' when nothing matches, so this changes nothing for a
+      // business Google can't classify and fixes it for one it can.
       businessVertical: classifyPlace(p),
       primaryType: p.primaryType || '',
       googleTypes: Array.isArray(p.types) ? p.types.slice(0, 12) : [],
@@ -1579,6 +1582,7 @@ export default function TerritoryMapScreen({ navigation, route }) {
       source: selectedPlace.source || "map",
       placeId: selectedPlace.place_id || selectedPlace.placeId || "",
       website: selectedPlace.website || "",
+      vertical: 'Other', // single-capture parity fix -- matches bulk capture's explicit default, and puts this lead into Stage 2's upgrade path (empty/'Other' only) instead of silently keeping Review's blank-state 'HVAC / Mechanical'
       businessVertical: classifyPlace(selectedPlace),
       primaryType: selectedPlace.primaryType || '',
       googleTypes: Array.isArray(selectedPlace.types) ? selectedPlace.types.slice(0, 12) : [],
