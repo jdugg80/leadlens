@@ -1,4 +1,12 @@
-﻿## BETA-71 | 2026-09-28
+﻿## Post-BETA-71 | 2026-09-28
+
+> Client-side fixes since the BETA-71 build — not yet in a release APK; installed via Metro/dev client for field verification only
+
+### 🐛 Bug Fixes
+- Industry Vertical Classification: a lead whose Industry Vertical is empty or "Other" now tries the shared 16-vertical taxonomy (a stored Google place classification, or a name-based guess) before giving up. Previously it just stayed "Other" with no way to reclassify. A lead already classified any other way is untouched.
+- Map-Captured Leads Defaulting to "HVAC / Mechanical": single-tap "Add to Queue" / "Capture Lead" built its lead with no Industry Vertical field at all, so Review's blank-state default silently applied — the first entry in the old seller-trade list, unrelated to whatever business was actually captured. It now starts at "Other" like every other capture path, so the fix above can act on it.
+- Bulk-Added Leads Never Classified: Prospect Around's "Add N Selected to Queue" and the general Nearby Search batch add both computed the correct business classification and then discarded it, hardcoding "Other" instead — and neither ever opens Review, so the fix above never got a chance to catch them either. Both now use the classification already being computed.
+## BETA-71 | 2026-09-28
 
 > Released via Project Scarlett
 
@@ -602,4 +610,5 @@
 - Business Card Recognition: AI-powered OCR for business card scanning via Claude API
 - Location Tracking: GPS-based prospect capture with address lookup
 - Push Notifications: Expo Push integration for beta event notifications
+
 
