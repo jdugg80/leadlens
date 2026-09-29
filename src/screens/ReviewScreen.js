@@ -38,6 +38,7 @@ import {
   INDUSTRY_VERTICALS,
   AUTO_INTRO_KEY,
 } from '../constants';
+import { VERTICAL_NAMES } from '../config/businessVerticals';
 import {
   ScreenHeader,
   FieldInput,
@@ -306,12 +307,24 @@ export default function ReviewScreen({ navigation, route }) {
   };
 
   const cycleVertical = () => {
-    const currentIndex = INDUSTRY_VERTICALS.indexOf(lead.vertical);
-    const nextIndex =
-      currentIndex === -1 || currentIndex === INDUSTRY_VERTICALS.length - 1
-        ? 0
-        : currentIndex + 1;
-    update('vertical', INDUSTRY_VERTICALS[nextIndex]);
+    // 'Retail' exists in both lists (renamed from 'Retail (non-food)' tonight); checking
+    // the old list first means every lead that has always shown the old list keeps doing
+    // so unchanged. Only the 15 names that exist SOLELY in the new taxonomy switch this
+    // to the new list -- i.e. only a lead Stage 2 actually upgraded.
+    const oldIndex = INDUSTRY_VERTICALS.indexOf(lead.vertical);
+    if (oldIndex !== -1) {
+      const nextIndex = oldIndex === INDUSTRY_VERTICALS.length - 1 ? 0 : oldIndex + 1;
+      update('vertical', INDUSTRY_VERTICALS[nextIndex]);
+      return;
+    }
+    const newIndex = VERTICAL_NAMES.indexOf(lead.vertical);
+    if (newIndex !== -1) {
+      const nextIndex = newIndex === VERTICAL_NAMES.length - 1 ? 0 : newIndex + 1;
+      update('vertical', VERTICAL_NAMES[nextIndex]);
+      return;
+    }
+    // Not in either list (e.g. blank) -- same starting point as before.
+    update('vertical', INDUSTRY_VERTICALS[0]);
   };
 
   const offerIntroOutreach = (savedLead) => {

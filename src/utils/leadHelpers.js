@@ -336,6 +336,8 @@ export function findDuplicateInLeads(candidate, leads = []) {
   return null;
 }
 
+import { classifyLead, OTHER_VERTICAL } from '../config/businessVerticals';
+
 export function inferVertical(lead = {}) {
   const haystack = [
     lead.businessName,
@@ -360,6 +362,21 @@ export function inferVertical(lead = {}) {
   for (const check of checks) {
     if (check.patterns.some((pattern) => haystack.includes(pattern))) {
       return { vertical: check.vertical, propertyType: 'Commercial' };
+    }
+  }
+
+  // Only upgrade when nothing has classified this lead yet (empty or literally 'Other') --
+  // a value that already matched one of the checks above, or was set some other way, is
+  // left untouched. Prefers a stored businessVertical (set when a lead is built from a map
+  // pin), then Google types if present, then a name-based guess -- the same shared
+  // src/config/businessVerticals.js taxonomy the map filters and Prospect Around use.
+  if (!lead.vertical || lead.vertical === 'Other') {
+    const upgraded = classifyLead(lead);
+    if (upgraded && upgraded !== OTHER_VERTICAL) {
+      return {
+        vertical: upgraded,
+        propertyType: normalizeFixedFieldValue(lead.propertyType || 'Commercial'),
+      };
     }
   }
 
