@@ -6,6 +6,15 @@
 - Industry Vertical Classification: a lead whose Industry Vertical is empty or "Other" now tries the shared 16-vertical taxonomy (a stored Google place classification, or a name-based guess) before giving up. Previously it just stayed "Other" with no way to reclassify. A lead already classified any other way is untouched.
 - Map-Captured Leads Defaulting to "HVAC / Mechanical": single-tap "Add to Queue" / "Capture Lead" built its lead with no Industry Vertical field at all, so Review's blank-state default silently applied — the first entry in the old seller-trade list, unrelated to whatever business was actually captured. It now starts at "Other" like every other capture path, so the fix above can act on it.
 - Bulk-Added Leads Never Classified: Prospect Around's "Add N Selected to Queue" and the general Nearby Search batch add both computed the correct business classification and then discarded it, hardcoding "Other" instead — and neither ever opens Review, so the fix above never got a chance to catch them either. Both now use the classification already being computed.
+
+### 🏗️ Infrastructure
+- Places Search Proxy: nearby business searches are set up to run through a server-side function with a per-tester daily limit and a fixed data request, so usage and cost are controlled in one place; the app is not using it yet
+- Update Gate: groundwork for requiring everyone to be on a minimum build, with a full-screen update prompt; not yet active
+- Usage Heartbeat: groundwork for seeing which testers are actively using the app and which build they're on; not yet active
+- Search Throttle: a repeat search within about 100 m reuses the last result, and identical searches share one request; arrives with the proxy wiring
+
+### ⚠️ Known Issues
+- Nearby business search is paused on the current build while the Google Places setup is being locked down after a cost spike; it returns with the next build
 ## BETA-71 | 2026-09-28
 
 > Released via Project Scarlett

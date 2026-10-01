@@ -34,11 +34,11 @@
 <h1>LeadLens — Full Project Timeline</h1>
 
 <div class="stats-bar">
-  <div class="stat"><div class="num">250</div><div class="label">Commits</div></div>
-  <div class="stat"><div class="num">96</div><div class="label">Sessions</div></div>
-  <div class="stat"><div class="num">97.2</div><div class="label">Hours</div></div>
-  <div class="stat"><div class="num">54</div><div class="label">Active Days</div></div>
-  <div class="stat"><div class="num">24.2</div><div class="label">Weeks</div></div>
+  <div class="stat"><div class="num">266</div><div class="label">Commits</div></div>
+  <div class="stat"><div class="num">102</div><div class="label">Sessions</div></div>
+  <div class="stat"><div class="num">102.6</div><div class="label">Hours</div></div>
+  <div class="stat"><div class="num">57</div><div class="label">Active Days</div></div>
+  <div class="stat"><div class="num">24.6</div><div class="label">Weeks</div></div>
   <div class="stat"><div class="num">1</div><div class="label">Clients Live</div></div>
 </div>
 
@@ -387,6 +387,22 @@
   <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Found via device testing: single-tap "Add to Queue" / "Capture Lead" built its lead object with no vertical field at all, so Review's blank-state default (the old list's first entry, 'HVAC / Mechanical') survived untouched and never looked like 'Other' to the upgrade logic above; it now starts at 'Other' like every other capture path</span> <span class="hash">6ac531d3</span></div>
   <div class="entry bug"><span class="date">Sep 28</span> <span class="msg">Found via device testing: both bulk-add flows (Prospect Around's "Add N Selected to Queue" and the generic Nearby Search batch add) already computed the correct classification one line before writing the lead, then discarded it and hardcoded 'Other' — and neither flow ever passes through Review, so the upgrade logic above never had a chance to run for them either; vertical now reads directly from the classification already being computed</span> <span class="hash">6ac531d3</span></div>
   <div class="entry decision"><span class="date">Sep 28</span> <span class="msg">Commit 6ac531d3's message describes only the bulk-add fix; the single-capture fix landed in the same commit because both edits were sitting in TerritoryMapScreen.js when it was staged — confirmed via git show and recorded here so the history is accurate</span> <span class="hash">6ac531d3</span></div>
+</div>
+
+<div class="era-divider">Era 15 — Places Cost Control &amp; Beta Gating (Sep 30, 2026)</div>
+
+<div class="phase">
+  <div class="phase-header">Phase 38 · Places Nearby Search Cost Spike &amp; Server-Side Proxy</div>
+  <div class="entry decision"><span class="date">Sep 30</span> <span class="msg">Google Cloud billing showed Places - Nearby Search at $517.41 this period for the LeadLens project (about $219.65 attributed to us-west1; the remainder came from other regions and has not been attributed yet). The Places APIs were disabled in Cloud Console and every other beta tester was paused while the fix is built, so search is down on the installed build</span></div>
+  <div class="entry win"><span class="date">Sep 30</span> <span class="msg">New places-proxy Supabase Edge Function (LeadLens project): the Google key stays server-side, the field mask is fixed on the server so the billed SKU tier can't creep up, radius and result count are clamped, and a per-tester daily cap is checked before any Google call is made</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry win"><span class="date">Sep 30</span> <span class="msg">New places_usage table and places_take_quota() function (docs/sql): an atomic per-user, per-day counter callable only by the service role; over-cap attempts are still counted so heavy users show up in the data</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry win"><span class="date">Sep 30</span> <span class="msg">placesClient.js wraps the proxy for the app: a stable device id for the cap, in-memory reuse of the last result when the rep has moved under 100 m within 5 minutes, one shared request for identical in-flight searches, a typed error for HTTP 429, and permanently closed businesses dropped at the search stage before any Place Details call</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry win"><span class="date">Sep 30</span> <span class="msg">Force-update gate (useForceUpdate) reads min_version_code from Project Scarlett's app_config and blocks with a full-screen update prompt (no Modal); it fails open on network errors, in dev builds, and if the build's versionCode can't be read, so a misread can never lock testers out</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry win"><span class="date">Sep 30</span> <span class="msg">Tester heartbeat (useHeartbeat plus the tester_beat RPC in the Scarlett SQL) records last-seen and build once an hour per tester, so inactive testers and testers stuck on old builds become visible; skipped in dev builds</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry decision"><span class="date">Sep 30</span> <span class="msg">Kept LeadLens (qkbvwryucaakkkqaqvka) and Project Scarlett (dlntgyhfxxbcwwcxaorn) strictly separate: the gate and heartbeat hooks take the Scarlett client as a parameter instead of importing one, so a wrong-project fallback can't happen</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry decision"><span class="date">Sep 30</span> <span class="msg">Committed the proxy, client wrapper and both hooks as unwired groundwork — the app's search function still calls Google directly, so nothing here changes app behavior until a build wires it in</span> <span class="hash">e6d78be3</span></div>
+  <div class="entry security"><span class="date">Sep 30</span> <span class="msg">Decided the old app key must have both Places entries (legacy and New) removed from its API restrictions BEFORE Places API (New) is re-enabled, otherwise re-enabling silently revives it; the new server key is restricted to Places API (New) only, the legacy Places API stays off, and a daily quota is set the moment the API is back on</span></div>
+  <div class="entry bug"><span class="date">Sep 30</span> <span class="msg">First end-to-end test through the proxy reached Google and returned API_KEY_INVALID: the function, the quota RPC and the request path all worked, but the stored GOOGLE_PLACES_SERVER_KEY secret does not hold a valid key (a direct test of the real key passed authentication and stopped at Places API (New) being disabled). Not fixed yet</span></div>
 </div>
 </body>
 </html>
